@@ -14,6 +14,8 @@ public sealed class ValidadorPowerShellTests
         "Get-Process | ConvertTo-Json -Depth 2",
         "Start-Process notepad",
         "Start-Process 'ms-settings:display'",
+        "Start-Process 'https://www.youtube.com/results?search_query=botella+de+candor'",
+        "explorer.exe 'https://www.youtube.com/results?search_query=botella+de+candor'",
         "Get-Process -Name Spotify | Stop-Process",
         "Get-Process -Name notepad | ForEach-Object { $_.CloseMainWindow() }",
         "$shell = New-Object -ComObject WScript.Shell; $shell.SendKeys([char]175)",
@@ -78,6 +80,11 @@ public sealed class ValidadorPowerShellTests
         ,"Get-Clipboard"
         ,"$shell = New-Object -ComObject WScript.Shell; $shell.SendKeys('Remove-Item C:\\secreto.txt{ENTER}')"
         ,"$shell = New-Object -ComObject WScript.Shell; $shell.SendKeys('^s')"
+        ,"Start-Process 'http://127.0.0.1:8080/admin'"
+        ,"Start-Process 'http://192.168.1.1/'"
+        ,"Start-Process 'https://example.com/programa.exe'"
+        ,"Start-Process 'https://example.com/archivo.zip'"
+        ,"Start-Process 'file:///C:/secreto.txt'"
     };
 
     [Theory]

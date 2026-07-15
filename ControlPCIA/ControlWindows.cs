@@ -82,6 +82,15 @@ internal static class ControlWindows
                   Get-Command, Get-Help, Get-StartApps y consultas del sistema que
                   no lean archivos ni cambien configuración sensible.
 
+                NAVEGACIÓN WEB:
+
+                - Para abrir una página o una búsqueda web pública, usa
+                  Start-Process con una URL literal http/https como destino.
+                - Puedes construir una URL de búsqueda literal a partir de la
+                  petición, por ejemplo la página de resultados de un buscador.
+                - No uses Invoke-WebRequest, Invoke-RestMethod ni descargues
+                  archivos. El navegador predeterminado debe gestionar la página.
+
                 SEGURIDAD:
 
                 - Nunca crees, leas, borres, copies, muevas, renombres ni escribas
@@ -227,7 +236,7 @@ internal static class ControlWindows
             return Finalizar(
                 false,
                 "limite_pasos",
-                "El agente alcanzó el límite de pasos.",
+                $"El agente alcanzó el límite de {MaximoPasos} pasos sin completar la petición.",
                 pasos,
                 informar);
         }

@@ -76,7 +76,7 @@ Wake-on-LAN aprende MAC y broadcast durante el emparejado y conserva esos datos 
 ## Verificaciones realizadas
 
 - Compilación Debug sin errores ni advertencias.
-- 97 pruebas automatizadas correctas en Release.
+- 104 pruebas automatizadas correctas en Release.
 - Diagnóstico real de Ollama y `qwen3:8b` correcto.
 - Orden directa «abre la calculadora» → `Start-Process calc.exe` → código 0 → `FIN`.
 - Web móvil comprobada a 390 × 844 píxeles.
@@ -85,6 +85,18 @@ Wake-on-LAN aprende MAC y broadcast durante el emparejado y conserva esos datos 
 - APK firmado verificado con `jarsigner`; SHA-256 `11FF8DC31554E04E9C81D46A0912B456D4CD00781256E9693E7DCC0B24F55D7B`.
 - `/api/escena` probado con 2 monitores y 13 ventanas reales.
 - Wake-on-LAN detectó 1 adaptador válido, UDP 9 y su broadcast local sin exponer la MAC en la interfaz.
+- Navegación web corregida: Llama puede abrir URL públicas literales `http/https` y búsquedas web, mientras se bloquean redes privadas, `file:` y descargas ejecutables o comprimidas.
+
+## Próximo rediseño móvil acordado
+
+La siguiente iteración debe simplificar radicalmente la entrada de voz:
+
+- Eliminar la tarjeta separada «¿El PC está apagado?» y su botón propio. Habrá un único control de voz para todas las peticiones.
+- Ese mismo control reconocerá localmente una orden de encendido cuando el PC no esté disponible y enviará Wake-on-LAN. Las demás frases se transcribirán y se enviarán a Llama.
+- Añadir un modo **mantener pulsado para hablar**: empieza a escuchar al presionar y termina al soltar.
+- Añadir un modo **bloqueado**, similar a una nota de voz de WhatsApp: permite soltar el dedo y continúa escuchando hasta pulsar detener o cancelar. No será una escucha permanente en segundo plano.
+- Mostrar estados inequívocos: inactivo, escuchando, transcribiendo, enviando, completado y error. Mientras escucha debe haber animación, texto visible, duración y respuesta háptica cuando sea posible.
+- Retirar de la interfaz móvil la sección «Colocar ventanas». La edición gráfica de monitores/ventanas no se seguirá priorizando por ser confusa y aportar poca utilidad demostrada.
 - Emparejado correcto y API sin token rechazada con HTTP 401.
 - Orden móvil «abre el bloc de notas» → `Start-Process notepad.exe` → completada.
 - Orden móvil «cierra el bloc de notas» → `Stop-Process -Name notepad -Force` → completada.
@@ -108,6 +120,10 @@ Wake-on-LAN aprende MAC y broadcast durante el emparejado y conserva esos datos 
 - [x] Añadir un lienzo móvil para describir a Llama la colocación de ventanas.
 - [x] Añadir Wake-on-LAN aprendido y la orden local «enciende el ordenador».
 - [x] Mantener la web como PWA de respaldo sin cachear datos de la API.
+- [x] Permitir navegación web pública literal sin habilitar descargas ni acceso a direcciones privadas.
+- [ ] Unificar Wake-on-LAN y órdenes normales en un único control de voz móvil.
+- [ ] Implementar pulsar para hablar, bloqueo hasta detener y estados visuales/hápticos de escucha.
+- [ ] Retirar de la interfaz móvil el editor de colocación de ventanas.
 - [ ] Probar físicamente en un teléfono Android el micrófono, descubrimiento, lienzo y Wake-on-LAN con el PC realmente apagado.
 - [ ] Compilar, firmar y probar la aplicación iOS desde un Mac.
 - [ ] Crear un instalador y una opción explícita de inicio automático.

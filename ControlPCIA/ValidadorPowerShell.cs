@@ -1,4 +1,6 @@
 using System.IO;
+using System.Net;
+using System.Net.Sockets;
 using System.Management.Automation.Language;
 using System.Text.RegularExpressions;
 
@@ -83,6 +85,16 @@ internal static class ValidadorPowerShell
             "ftp", "ftp.exe", "tftp", "tftp.exe", "ssh", "ssh.exe",
             "scp", "scp.exe", "sftp", "sftp.exe", "telnet", "telnet.exe",
             "nc", "ncat"
+        };
+
+    private static readonly HashSet<string> ExtensionesWebBloqueadas =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".exe", ".msi", ".msix", ".appx", ".appxbundle",
+            ".zip", ".rar", ".7z", ".tar", ".gz", ".iso", ".img",
+            ".ps1", ".bat", ".cmd", ".vbs", ".js", ".reg", ".dll",
+            ".scr", ".com", ".jar", ".apk", ".dmg", ".pkg",
+            ".deb", ".rpm", ".torrent"
         };
 
     private static readonly string[] TiposBloqueados =
@@ -388,6 +400,11 @@ internal static class ValidadorPowerShell
         string destino = destinos[0].Trim();
         string nombre = Path.GetFileName(destino);
 
+        if (EsUrlWebNavegableSegura(destino))
+        {
+            return null;
+        }
+
         if (destino.Contains('\\') || destino.Contains('/')
             || destino.StartsWith("file:", StringComparison.OrdinalIgnoreCase)
             || destino.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase)
@@ -504,6 +521,11 @@ internal static class ValidadorPowerShell
 
         string destino = argumentos[0];
 
+        if (EsUrlWebNavegableSegura(destino))
+        {
+            return null;
+        }
+
         if (destino.Contains('\\') || destino.Contains('/')
             || destino.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
         {
@@ -619,9 +641,7 @@ internal static class ValidadorPowerShell
             return true;
         }
 
-        if (Uri.TryCreate(valor, UriKind.Absolute, out Uri? uri)
-            &&
-            uri.Scheme is "http" or "https")
+        if (EsUrlWebNavegableSegura(valor))
         {
             return true;
         }
@@ -654,6 +674,69 @@ internal static class ValidadorPowerShell
             System.Globalization.NumberStyles.Number,
             System.Globalization.CultureInfo.InvariantCulture,
             out _);
+    }
+
+    private static bool EsUrlWebNavegableSegura(string valor)
+    {
+        if (valor.Length > 2048
+            ||
+            !Uri.TryCreate(valor, UriKind.Absolute, out Uri? uri)
+            ||
+            uri.Scheme is not ("http" or "https")
+            ||
+            string.IsNullOrWhiteSpace(uri.Host)
+            ||
+            !string.IsNullOrEmpty(uri.UserInfo)
+            ||
+            uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+            ||
+            uri.Host.EndsWith(".local", StringComparison.OrdinalIgnoreCase)
+            ||
+            uri.Host.EndsWith(".internal", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (IPAddress.TryParse(uri.Host, out IPAddress? direccion)
+            &&
+            EsDireccionPrivada(direccion))
+        {
+            return false;
+        }
+
+        string extension = Path.GetExtension(
+            Uri.UnescapeDataString(uri.AbsolutePath));
+
+        return !ExtensionesWebBloqueadas.Contains(extension);
+    }
+
+    private static bool EsDireccionPrivada(IPAddress direccion)
+    {
+        if (IPAddress.IsLoopback(direccion))
+        {
+            return true;
+        }
+
+        if (direccion.IsIPv4MappedToIPv6)
+        {
+            direccion = direccion.MapToIPv4();
+        }
+
+        byte[] bytes = direccion.GetAddressBytes();
+
+        if (direccion.AddressFamily == AddressFamily.InterNetwork)
+        {
+            return bytes[0] == 10
+                   || bytes[0] == 127
+                   || bytes[0] == 192 && bytes[1] == 168
+                   || bytes[0] == 172 && bytes[1] is >= 16 and <= 31
+                   || bytes[0] == 169 && bytes[1] == 254;
+        }
+
+        return direccion.AddressFamily == AddressFamily.InterNetworkV6
+               &&
+               (direccion.IsIPv6LinkLocal
+                || (bytes[0] & 0xFE) == 0xFC);
     }
 
     private static bool EsComandoNativo(string nombre)
