@@ -4,190 +4,163 @@
 
 ## Objetivo
 
-Crear una aplicación para controlar Windows mediante lenguaje natural, pensada para recibir órdenes habladas o escritas y permitir que un modelo local ejecutado con Ollama interprete la intención del usuario y actúe sobre el PC.
+Crear una aplicación para controlar Windows mediante lenguaje natural. El usuario podrá dar órdenes habladas o escritas y un modelo local ejecutado con Ollama interpretará la intención y actuará sobre el PC.
 
-La idea central es que el usuario pueda decir frases naturales como:
+Ejemplos de órdenes objetivo:
 
-- "Abre Spotify y pon Radiohead"
-- "Baja un poco el volumen"
+- "Abre Spotify y busca Radiohead"
+- "Baja el volumen al 30 %"
 - "Cierra esa ventana"
 - "Pon el vídeo a pantalla completa"
 
-El sistema no debe depender de un catálogo cerrado de comandos específicos por aplicación.
+## Decisión arquitectónica actual
 
-## Decisión arquitectónica principal
+La frase natural del usuario es la orden.
 
-La frase del usuario es la orden.
+La dirección actual del proyecto cambia respecto a la arquitectura anterior basada principalmente en tool calling y UI Automation.
 
-El modelo de IA es el intérprete y debe decidir qué capacidad segura necesita utilizar para cumplirla.
+La nueva ruta principal será:
 
-No queremos mantener un JSON propio con una lista creciente de intenciones específicas por aplicación. Ollama sí usa JSON internamente en su API HTTP y en tool calls, pero eso es solo el protocolo técnico de comunicación.
-
-La IA no debe recibir una capacidad genérica para ejecutar comandos arbitrarios del sistema. El programa expone únicamente capacidades concretas y limitadas.
-
-## Arquitectura objetivo
-
+```text
 Entrada de voz o texto
-→ frase natural del usuario
-→ agente de control
-→ modelo local mediante Ollama
-→ observación del estado de Windows
-→ selección de una capacidad segura
-→ ejecución sobre Windows
-→ nueva observación cuando sea necesario
-→ continuar hasta completar la petición
-
-Componentes conceptuales:
-
-- **Modelo local (Ollama / qwen3:8b):** cerebro que interpreta la orden y decide qué capacidad utilizar.
-- **ObservadorWindows:** obtiene información del estado visible del sistema, actualmente ventanas visibles y ventana activa.
-- **AplicacionesWindows:** capa para localizar e iniciar aplicaciones instaladas mediante Windows sin abrir el menú Inicio ni usar rutas arbitrarias.
-- **EjecutorWindows:** capa que valida y ejecuta las capacidades permitidas.
-- **EjecutorInterfazWindows:** utilidad de bajo nivel para teclado como mecanismo de respaldo futuro.
-
-## Estado actual del código
-
-El proyecto local contiene actualmente:
-
-- `Program.cs`
-- `ControlWindows.cs`
-- `ObservadorWindows.cs`
-- `AplicacionesWindows.cs`
-- `EjecutorWindows.cs`
-- `EjecutorInterfazWindows.cs`
-
-El proyecto está orientado exclusivamente a Windows y debe usar:
-
-```xml
-<TargetFramework>net10.0-windows</TargetFramework>
+→ frase natural
+→ Ollama / Qwen interpreta la intención
+→ genera uno o varios comandos reales de PowerShell
+→ ValidadorPowerShell local y determinista
+→ si el comando es seguro, EjecutorPowerShell lo ejecuta
+→ se recoge stdout / stderr / código de salida
+→ solo se vuelve a consultar a la IA si hace falta continuar
 ```
 
-## Lo que ya funciona
+La validación de seguridad NO debe usar otra IA ni llamadas externas. Debe ejecutarse localmente y ser prácticamente instantánea.
 
-- Comunicación con Ollama mediante `http://localhost:11434/api/chat`.
-- Uso actual del modelo `qwen3:8b`.
-- La orden natural del usuario llega correctamente a la IA.
-- La IA usa tool calling para elegir capacidades expuestas por el programa.
-- Lectura de ventanas visibles mediante `ObservadorWindows`.
-- Detección de la ventana activa mediante `GetForegroundWindow`.
-- Infraestructura de teclado mediante `SendInput` en `EjecutorInterfazWindows`.
-- Inicio directo de aplicaciones instaladas mediante `AplicacionesWindows` y `shell:AppsFolder`.
-- El inicio directo no abre el menú Inicio, no escribe en ninguna ventana y no usa PowerShell ni CMD.
+## Seguridad
 
-## Prueba validada actual
+PowerShell se usará como vía principal de actuación, pero Qwen no tendrá acceso libre al sistema.
 
-Entrada:
+Antes de ejecutar cualquier comando:
+
+1. Se analiza localmente.
+2. Se extraen los cmdlets/comandos utilizados.
+3. Se resuelven alias cuando sea necesario.
+4. Se validan comandos y argumentos contra una política de seguridad.
+5. Se bloquea cualquier operación sensible.
+
+La política debe ser principalmente de lista blanca, complementada con bloqueos explícitos.
+
+### Debe bloquearse
+
+- Lectura, escritura, creación, copia, movimiento, renombrado o borrado de archivos.
+- Acceso arbitrario a rutas locales.
+- Registro de Windows.
+- Descargas y acceso de red no autorizado.
+- Instalación de programas.
+- Cambios de permisos.
+- Elevación a administrador.
+- Ejecución de scripts arbitrarios.
+- Invoke-Expression o ejecución dinámica equivalente.
+- Lanzar PowerShell o CMD anidados para saltarse el validador.
+- Cualquier otro mecanismo que permita escapar de la política.
+
+### Puede permitirse gradualmente
+
+- Consulta y control seguro de procesos.
+- Abrir aplicaciones bajo condiciones validadas.
+- Activar, restaurar, minimizar o maximizar ventanas.
+- Control de audio y multimedia.
+- Otras operaciones de Windows que no impliquen archivos ni zonas sensibles.
+
+## Componentes que ya existen y se conservan
+
+- `Program.cs`: entrada actual por texto.
+- `ControlWindows.cs`: orquestación con Ollama; debe migrarse desde tool calling hacia generación de comandos.
+- `ObservadorWindows.cs`: enumera ventanas visibles y detecta la ventana activa.
+- `ObservadorUIWindows.cs`: inspección mediante Windows UI Automation.
+- `AplicacionesWindows.cs`: abre aplicaciones instaladas y trae al frente una ya abierta.
+- `EjecutorWindows.cs`: capa actual de herramientas; se irá sustituyendo o integrando con la nueva vía de PowerShell.
+- `EjecutorInterfazWindows.cs`: teclado como mecanismo de respaldo.
+- `InteraccionUIWindows.cs`: si existe en local, debe conservarse como fallback para acciones que PowerShell no pueda resolver bien.
+
+UI Automation, teclado y ratón pasan a ser mecanismos secundarios o de respaldo, no la vía principal.
+
+## Estado probado
+
+Ya se ha validado que:
+
+- Ollama recibe una orden natural.
+- Qwen interpreta correctamente órdenes como `abre spotify`.
+- `AplicacionesWindows` puede abrir Spotify directamente sin mostrar el menú Inicio.
+- Si Spotify ya está abierto, puede restaurarlo y traerlo al frente.
+- `ObservadorWindows` enumera ventanas visibles.
+- `ObservadorUIWindows` puede inspeccionar controles accesibles de Spotify.
+
+## Nueva necesidad: memoria local de comandos / recetas
+
+La vía de PowerShell no garantiza que el modelo conozca de inmediato la mejor forma de realizar cualquier acción sobre cualquier aplicación o parte de Windows.
+
+Para evitar que el usuario tenga que esperar cada vez a que la IA vuelva a descubrir cómo hacer una operación, ControlPCIA debe tener una memoria local persistente de comandos o recetas ya resueltas y validadas.
+
+La idea es:
 
 ```text
-abre spotify
+Petición del usuario
+→ ¿existe una receta conocida y validada para esta intención/contexto?
+    ├─ SÍ → reutilizarla inmediatamente
+    └─ NO → pedir a la IA que proponga la solución
+             → validar
+             → ejecutar
+             → si funciona, guardar la receta para futuras veces
 ```
 
-Resultado observado:
+Esta memoria debe almacenar solo soluciones que hayan sido validadas por la política de seguridad.
+
+No debe guardar comandos peligrosos ni saltarse nunca `ValidadorPowerShell`.
+
+Una receta guardada también debe volver a pasar por validación antes de ejecutarse, para que cambios futuros en la política de seguridad se apliquen automáticamente.
+
+### Posibles datos a guardar por receta
+
+- Intención normalizada.
+- Contexto o aplicación objetivo.
+- Comando o secuencia de comandos.
+- Fecha de última validación.
+- Número de ejecuciones correctas.
+- Último resultado conocido.
+- Versión o huella del entorno relevante si hiciera falta.
+
+### Implementación sugerida
+
+Empezar con una base local sencilla, probablemente SQLite, para poder buscar recetas rápidamente sin cargar archivos completos ni consultar a la IA.
+
+También conviene mantener una caché en memoria de las recetas más usadas durante la ejecución de la aplicación.
+
+La prioridad será siempre:
 
 ```text
-CAPACIDAD ELEGIDA:
-iniciar_aplicacion
-La aplicación 'Spotify' se ha iniciado.
+receta local validada y conocida
+→ comando PowerShell directo y seguro
+→ UI Automation
+→ teclado/ratón como último recurso
 ```
 
-Spotify se inicia directamente desde Windows sin mostrar el menú Inicio.
+## Siguiente plan de trabajo
 
-Esto valida el flujo:
+1. Asegurar que todos los últimos cambios locales están realmente subidos a GitHub.
+2. Crear `ValidadorPowerShell.cs`.
+3. Crear `EjecutorPowerShell.cs`.
+4. Modificar `ControlWindows.cs` para que Qwen genere comandos PowerShell en lugar de tool calls.
+5. Probar una lista inicial muy pequeña de comandos seguros.
+6. Verificar que comandos de archivos, registro, red y administración se bloquean de forma instantánea.
+7. Añadir la memoria local de recetas/comandos validados.
+8. Mantener UI Automation y entrada de teclado como fallback.
+9. Cuando el control por texto sea sólido, añadir entrada por voz.
 
-```text
-frase natural
-→ IA interpreta la intención
-→ iniciar_aplicacion("Spotify")
-→ Windows localiza la aplicación instalada
-→ la aplicación se inicia directamente
-```
+## Regla de continuidad
 
-La capacidad no contiene lógica específica para Spotify; recibe un nombre de aplicación y busca una coincidencia en el catálogo de aplicaciones de Windows.
+Este archivo es la referencia principal de decisiones y estado del proyecto.
 
-## Problema detectado y corregido
-
-Se probó temporalmente un enfoque donde la IA podía usar `pulsar_tecla` y `escribir_texto` en un bucle para abrir aplicaciones mediante el menú Inicio.
-
-Ese enfoque falló porque el agente no podía observar suficientemente bien estados intermedios como el propio menú Inicio. Esto provocó bucles e incluso acciones no solicitadas.
-
-Decisión: teclado y ratón no deben ser el mecanismo principal cuando existe una API o interfaz de Windows más directa y fiable. Deben quedar como respaldo para casos donde no haya una alternativa mejor.
-
-## Qué NO queremos
-
-No queremos programar casos específicos como:
-
-```text
-si la aplicación es Spotify, abre Spotify
-```
-
-Tampoco queremos dar a la IA una herramienta del tipo:
-
-```text
-ejecutar_comando("...")
-```
-
-ni permitirle:
-
-- Ejecutar PowerShell.
-- Ejecutar CMD.
-- Ejecutar scripts arbitrarios.
-- Pasar rutas de ejecutables arbitrarias.
-- Manipular archivos.
-- Modificar el registro.
-- Realizar tareas administrativas no autorizadas.
-
-## Qué sí queremos
-
-Dar al agente capacidades generales pero delimitadas, por ejemplo:
-
-- Observar ventanas visibles.
-- Saber qué ventana tiene el foco.
-- Iniciar una aplicación instalada por nombre.
-- Activar o traer al frente una ventana existente.
-- Interactuar con controles mediante Windows UI Automation.
-- Controlar multimedia y audio mediante APIs adecuadas.
-- Usar teclado y ratón solo como respaldo cuando sea necesario.
-
-La IA decide qué capacidad necesita, pero el programa controla estrictamente qué capacidades existen y valida sus argumentos.
-
-## Restricciones decididas
-
-El agente debe actuar únicamente sobre la parte interactiva permitida del sistema.
-
-No debe realizar acciones adicionales que el usuario no haya pedido.
-
-No debe manipular archivos, usar PowerShell o CMD, modificar el registro ni realizar tareas administrativas salvo que en el futuro se amplíe expresamente el alcance.
-
-Debe intentar realizar el mínimo número de acciones necesarias.
-
-Cuando exista una forma directa e invisible de realizar una acción mediante Windows, se debe preferir frente a manipular visualmente la interfaz.
-
-## Punto exacto en el que estamos
-
-La primera capacidad real y fiable ya está implementada y validada:
-
-```text
-iniciar_aplicacion(nombre)
-```
-
-El siguiente trabajo debe ampliar el control de Windows manteniendo el mismo principio de seguridad y generalidad.
-
-## Siguiente paso
-
-1. Añadir una capacidad para detectar si una aplicación ya está abierta y traer su ventana al frente en lugar de intentar iniciar otra instancia cuando corresponda.
-2. Ampliar `ObservadorWindows` con información más rica sobre las ventanas.
-3. Incorporar Windows UI Automation para observar controles reales de una ventana y actuar sobre ellos.
-4. Crear capacidades seguras para acciones de ventana: activar, minimizar, maximizar y cerrar la ventana adecuada.
-5. Añadir después capacidades de multimedia y audio mediante APIs específicas.
-6. Recuperar el bucle agente: observar → decidir → actuar → observar, únicamente cuando las capacidades y la percepción sean suficientemente fiables.
-7. Cuando el control por texto sea sólido, añadir la entrada por voz.
-
-## Regla de continuidad del proyecto
-
-Este archivo debe actualizarse después de cada decisión arquitectónica importante o después de completar una fase relevante.
-
-Si se abre un chat nuevo, el punto de partida debe ser:
+Si se abre un chat nuevo, empezar por:
 
 > Lee `ESTADO_PROYECTO.md` del repositorio `treska23/ControlPCIA` y seguimos desde ahí.
 
-El código del repositorio y este archivo son la fuente de verdad del estado del proyecto, no el historial de una conversación concreta.
+El código del repositorio y este archivo son la fuente de verdad del proyecto, no el historial de una conversación concreta.
