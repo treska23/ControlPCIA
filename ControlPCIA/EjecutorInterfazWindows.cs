@@ -12,6 +12,8 @@ namespace ControlPCIA
 
         private const ushort VK_LWIN = 0x5B;
         private const ushort VK_RETURN = 0x0D;
+        private const ushort VK_CONTROL = 0x11;
+        private const ushort VK_A = 0x41;
 
         public static void PulsarWindows()
         {
@@ -151,6 +153,34 @@ namespace ControlPCIA
             public uint uMsg;
             public ushort wParamL;
             public ushort wParamH;
+        }
+
+        public static void SeleccionarTodo()
+        {
+            INPUT ctrlDown =
+                CrearEntradaTecla(VK_CONTROL, false);
+
+            INPUT aDown =
+                CrearEntradaTecla(VK_A, false);
+
+            INPUT aUp =
+                CrearEntradaTecla(VK_A, true);
+
+            INPUT ctrlUp =
+                CrearEntradaTecla(VK_CONTROL, true);
+
+            INPUT[] entradas =
+            {
+        ctrlDown,
+        aDown,
+        aUp,
+        ctrlUp
+    };
+
+            SendInput(
+                (uint)entradas.Length,
+                entradas,
+                Marshal.SizeOf<INPUT>());
         }
     }
 }

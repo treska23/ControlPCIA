@@ -62,6 +62,37 @@ namespace ControlPCIA
                         return controles;
                     }
 
+                case "usar_control_ui":
+                    {
+                        string ventana =
+                            argumentos.GetProperty("ventana")
+                                .GetString() ?? "";
+
+                        string control =
+                            argumentos.GetProperty("control")
+                                .GetString() ?? "";
+
+                        string accion =
+                            argumentos.GetProperty("accion")
+                                .GetString() ?? "";
+
+                        string? valor = null;
+
+                        if (argumentos.TryGetProperty(
+                                "valor",
+                                out var valorJson))
+                        {
+                            valor =
+                                valorJson.GetString();
+                        }
+
+                        return await InteraccionUIWindows.Ejecutar(
+                            ventana,
+                            control,
+                            accion,
+                            valor);
+                    }
+
                 default:
                     return
                         "La herramienta solicitada " +

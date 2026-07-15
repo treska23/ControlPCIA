@@ -1,5 +1,6 @@
 ﻿using System.Text;
 using System.Windows.Automation;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace ControlPCIA
 {
@@ -69,50 +70,123 @@ namespace ControlPCIA
 
             int contador = 0;
 
-            foreach (AutomationElement control
-                     in controles)
+            var controlesVistos = new HashSet<string>();
+
+            foreach (AutomationElement control in controles)
             {
-                if (contador >= 150)
+                if (contador >= 80)
                 {
                     resultado.AppendLine(
-                        "- Se ha alcanzado el límite " +
-                        "de 150 controles.");
+                        "- Se ha alcanzado el límite de 80 controles relevantes.");
 
                     break;
                 }
 
                 try
                 {
-                    string nombre =
-                        control.Current.Name ?? "";
+                    bool estaFueraDePantalla =
+    control.Current.IsOffscreen;
 
-                    string tipo =
-                        control.Current
-                            .LocalizedControlType ?? "";
-
-                    string automationId =
-                        control.Current
-                            .AutomationId ?? "";
-
-                    if (string.IsNullOrWhiteSpace(nombre)
-                        &&
-                        string.IsNullOrWhiteSpace(
-                            automationId))
+                    if (estaFueraDePantalla)
                     {
                         continue;
                     }
 
+                    string nombre =
+                        control.Current.Name ?? "";
+
+                    string automationId =
+                        control.Current.AutomationId ?? "";
+
+                    ControlType tipoControl =
+                        control.Current.ControlType;
+
+                    // Solo nos interesan controles con los que
+                    // realmente tenga sentido interactuar.
+                    bool tipoInteresante =
+                        tipoControl == ControlType.Button ||
+                        tipoControl == ControlType.Edit ||
+                        tipoControl == ControlType.ComboBox ||
+                        tipoControl == ControlType.Hyperlink ||
+                        tipoControl == ControlType.ListItem ||
+                        tipoControl == ControlType.CheckBox ||
+                        tipoControl == ControlType.RadioButton ||
+                        tipoControl == ControlType.TabItem;
+
+                    if (!tipoInteresante)
+                        continue;
+
+                    if (string.IsNullOrWhiteSpace(nombre)
+                        &&
+                        string.IsNullOrWhiteSpace(automationId))
+                    {
+                        continue;
+                    }
+
+                    var patrones = new List<string>();
+
+                    if (control.TryGetCurrentPattern(
+                            ValuePattern.Pattern,
+                            out _))
+                    {
+                        patrones.Add("Value");
+                    }
+
+                    if (control.TryGetCurrentPattern(
+                            InvokePattern.Pattern,
+                            out _))
+                    {
+                        patrones.Add("Invoke");
+                    }
+
+                    if (control.TryGetCurrentPattern(
+                            SelectionItemPattern.Pattern,
+                            out _))
+                    {
+                        patrones.Add("SelectionItem");
+                    }
+
+                    if (control.TryGetCurrentPattern(
+                            TogglePattern.Pattern,
+                            out _))
+                    {
+                        patrones.Add("Toggle");
+                    }
+
+                    if (control.TryGetCurrentPattern(
+                            ExpandCollapsePattern.Pattern,
+                            out _))
+                    {
+                        patrones.Add("ExpandCollapse");
+                    }
+
+                    if (patrones.Count == 0)
+                        continue;
+
+                    string patronesTexto =
+                        string.Join(", ", patrones);
+
+                    string tipo =
+                        control.Current.LocalizedControlType ?? "";
+
+                    // Evitamos repetir el mismo control.
+                    string clave =
+                        $"{tipo}|{nombre}|{automationId}|{patronesTexto}";
+
+                    if (!controlesVistos.Add(clave))
+                        continue;
+
                     resultado.AppendLine(
                         $"- Tipo: {tipo} | " +
                         $"Nombre: {nombre} | " +
-                        $"Id: {automationId}");
+                        $"Id: {automationId} | " +
+                        $"Patrones: {patronesTexto}");
 
                     contador++;
                 }
                 catch
                 {
-                    // Ignoramos controles que hayan
-                    // desaparecido durante la lectura.
+                    // Puede desaparecer mientras lo inspeccionamos.
                 }
             }
 

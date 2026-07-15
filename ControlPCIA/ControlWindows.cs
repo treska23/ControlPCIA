@@ -86,11 +86,71 @@ namespace ControlPCIA
                         }
                     }
                 }
+            },
+            new
+            {
+                type = "function",
+
+                function = new
+                {
+                    name = "usar_control_ui",
+
+                    description =
+                        "Interactúa con un control de una ventana mediante " +
+                        "Windows UI Automation. " +
+                        "Acciones permitidas: establecer_valor, invocar, " +
+                        "seleccionar, alternar, expandir, contraer y confirmar.",
+
+                    parameters = new
+                    {
+                        type = "object",
+
+                        properties = new
+                        {
+                            ventana = new
+                            {
+                                type = "string",
+                                description =
+                                    "Nombre de la ventana."
+                            },
+
+                            control = new
+                            {
+                                type = "string",
+                                description =
+                                    "Nombre o AutomationId del control."
+                            },
+
+                            accion = new
+                            {
+                                type = "string",
+                                description =
+                                    "Acción: establecer_valor, invocar, " +
+                                    "seleccionar, alternar, expandir, contraer o confirmar."
+                            },
+
+                            valor = new
+                            {
+                                type = "string",
+                                description =
+                                    "Valor que debe establecerse cuando " +
+                                    "la acción sea establecer_valor."
+                            }
+                        },
+
+                        required = new[]
+                        {
+                            "ventana",
+                            "control",
+                            "accion"
+                        }
+                    }
+                }
             }
         };
 
         public static async Task ControlarAsync(
-            string instruccion)
+    string instruccion)
         {
             var ventanas =
                 ObservadorWindows
@@ -103,145 +163,219 @@ namespace ControlPCIA
                         ventana =>
                             "- " + ventana));
 
-            var mensajes = new object[]
+            var mensajes =
+                new List<object>();
+
+            mensajes.Add(new
             {
-                new
+                role = "system",
+
+                content = """
+            Eres un agente que controla Windows
+            utilizando exclusivamente las herramientas
+            seguras disponibles.
+
+            Debes realizar realmente la petición
+            del usuario.
+
+            REGLAS:
+
+            - No describas lo que habría que hacer.
+              Utiliza las herramientas.
+
+            - Si el usuario pide únicamente abrir
+              o iniciar una aplicación, utiliza
+              iniciar_aplicacion.
+
+            - Si el usuario pide realizar una acción
+              dentro de una aplicación que ya está abierta,
+              NO utilices iniciar_aplicacion innecesariamente.
+
+            - Si conoces exactamente el nombre del control
+              que debes utilizar, puedes usar directamente
+              usar_control_ui.
+
+            - Si necesitas saber qué controles existen
+              dentro de una ventana, utiliza primero
+              inspeccionar_ventana.
+
+            - Después de recibir el resultado de una
+              herramienta, decide si necesitas realizar
+              otro paso para completar la petición.
+
+            - Cuando la petición esté completamente
+              realizada, no utilices más herramientas.
+
+            - Nunca inventes acciones adicionales.
+
+            - No puedes manipular archivos.
+
+            - No puedes usar PowerShell, CMD ni scripts.
+
+            - No puedes modificar el registro.
+
+            - No puedes ejecutar rutas arbitrarias.
+
+            - Solo puedes utilizar las capacidades
+              explícitamente disponibles.
+            """
+            });
+
+            mensajes.Add(new
+            {
+                role = "user",
+
+                content = $"""
+            PETICIÓN:
+
+            {instruccion}
+
+            VENTANAS VISIBLES:
+
+            {estadoWindows}
+            """
+            });
+
+            const int maximoPasos = 6;
+
+            for (int paso = 0;
+                 paso < maximoPasos;
+                 paso++)
+            {
+                var peticion = new
                 {
-                    role = "system",
+                    model = "qwen3:8b",
 
-                    content = """
-                        Eres un agente que controla
-                        Windows.
+                    messages = mensajes,
 
-                        Debes realizar la petición
-                        del usuario utilizando
-                        únicamente las herramientas
-                        disponibles.
+                    tools = Herramientas,
 
-                        REGLAS OBLIGATORIAS:
+                    stream = false,
 
-                        - Si el usuario quiere abrir
-                          o iniciar una aplicación,
-                          utiliza iniciar_aplicacion.
+                    think = false
+                };
 
-                        - No describas cómo hacerlo:
-                          ejecuta la herramienta.
+                var respuesta =
+                    await Cliente.PostAsJsonAsync(
+                        "http://localhost:11434/api/chat",
+                        peticion);
 
-                        - Nunca inventes acciones
-                          adicionales.
+                respuesta.EnsureSuccessStatusCode();
 
-                        - No puedes acceder,
-                          modificar, borrar, mover
-                          ni crear archivos.
+                string contenido =
+                    await respuesta.Content
+                        .ReadAsStringAsync();
 
-                        - No puedes ejecutar
-                          PowerShell, CMD ni scripts.
+                using var json =
+                    JsonDocument.Parse(contenido);
 
-                        - No puedes modificar
-                          el registro de Windows.
+                var mensaje =
+                    json.RootElement
+                        .GetProperty("message");
 
-                        - No puedes ejecutar rutas
-                          proporcionadas por el modelo.
+                mensajes.Add(
+                    mensaje.Clone());
 
-                        - Solo puedes utilizar
-                          las capacidades que el
-                          programa expone explícitamente.
-                        """
-                },
-
-                new
+                if (!mensaje.TryGetProperty(
+                        "tool_calls",
+                        out var toolCalls)
+                    ||
+                    toolCalls.GetArrayLength() == 0)
                 {
-                    role = "user",
+                    string respuestaFinal = "";
 
-                    content = $"""
-                        PETICIÓN:
+                    if (mensaje.TryGetProperty(
+                            "content",
+                            out var contentJson))
+                    {
+                        respuestaFinal =
+                            contentJson.GetString() ?? "";
+                    }
 
-                        {instruccion}
+                    Console.WriteLine();
+                    Console.WriteLine(
+                        "PETICIÓN COMPLETADA:");
 
-                        VENTANAS VISIBLES:
+                    Console.WriteLine(
+                        respuestaFinal);
 
-                        {estadoWindows}
-                        """
+                    return;
                 }
-            };
 
-            var peticion = new
-            {
-                model = "qwen3:8b",
+                foreach (var toolCall
+                         in toolCalls.EnumerateArray())
+                {
+                    var funcion =
+                        toolCall.GetProperty(
+                            "function");
 
-                messages = mensajes,
+                    string nombre =
+                        funcion
+                            .GetProperty("name")
+                            .GetString() ?? "";
 
-                tools = Herramientas,
+                    var argumentos =
+                        funcion.GetProperty(
+                            "arguments");
 
-                stream = false,
+                    Console.WriteLine();
+                    Console.WriteLine(
+                        "CAPACIDAD ELEGIDA:");
 
-                think = false
-            };
+                    Console.WriteLine(nombre);
 
-            var respuesta =
-                await Cliente.PostAsJsonAsync(
-                    "http://localhost:11434/api/chat",
-                    peticion);
+                    string resultado =
+                        await EjecutorWindows
+                            .EjecutarHerramientaAsync(
+                                nombre,
+                                argumentos);
 
-            respuesta.EnsureSuccessStatusCode();
+                    Console.WriteLine(resultado);
 
-            string contenido =
-                await respuesta.Content
-                    .ReadAsStringAsync();
+                    string resultadoCompleto =
+                        resultado;
 
-            using var json =
-                JsonDocument.Parse(contenido);
+                    // Si acabamos de interactuar con una ventana,
+                    // volvemos a observar su estado actualizado.
+                    if (nombre == "usar_control_ui"
+                        &&
+                        argumentos.TryGetProperty(
+                            "ventana",
+                            out var ventanaJson))
+                    {
+                        string nombreVentana =
+                            ventanaJson.GetString() ?? "";
 
-            var mensaje =
-                json.RootElement
-                    .GetProperty("message");
+                        await Task.Delay(500);
 
-            if (!mensaje.TryGetProperty(
-                    "tool_calls",
-                    out var toolCalls))
-            {
-                Console.WriteLine(
-                    "La IA no ha solicitado " +
-                    "ninguna acción.");
+                        string controlesActualizados =
+                            ObservadorUIWindows
+                                .ObtenerControles(
+                                    nombreVentana);
 
-                return;
+                        resultadoCompleto +=
+                            Environment.NewLine +
+                            Environment.NewLine +
+                            "ESTADO ACTUALIZADO DE LA INTERFAZ:" +
+                            Environment.NewLine +
+                            controlesActualizados;
+                    }
+
+                    mensajes.Add(new
+                    {
+                        role = "tool",
+
+                        tool_name = nombre,
+
+                        content = resultadoCompleto
+                    });
+
+                    await Task.Delay(300);
+                }
             }
-
-            foreach (var toolCall
-                     in toolCalls.EnumerateArray())
-            {
-                var funcion =
-                    toolCall.GetProperty(
-                        "function");
-
-                string nombre =
-                    funcion
-                        .GetProperty("name")
-                        .GetString() ?? "";
-
-                var argumentos =
-                    funcion.GetProperty(
-                        "arguments");
-
-                Console.WriteLine();
-                Console.WriteLine(
-                    "CAPACIDAD ELEGIDA:");
-
-                Console.WriteLine(nombre);
-
-                string resultado =
-                    await EjecutorWindows
-                        .EjecutarHerramientaAsync(
-                            nombre,
-                            argumentos);
-
-                Console.WriteLine(resultado);
-
-                // Terminamos aquí.
-                // No dejamos que la IA improvise
-                // más acciones después.
-                return;
-            }
+            Console.WriteLine();
+            Console.WriteLine(
+                "El agente alcanzó el límite de pasos.");
         }
     }
 }
