@@ -53,27 +53,36 @@ El repositorio contiene actualmente:
 - `EjecutorWindows.cs`
 - `EjecutorInterfazWindows.cs`
 
-### Lo que ya funciona o está implementado parcialmente
+### Lo que ya funciona
 
 - Comunicación con Ollama mediante `http://localhost:11434/api/chat`.
 - Uso actual del modelo `qwen3:8b`.
 - Lectura de ventanas visibles mediante `ObservadorWindows`.
 - Envío de entradas de teclado con `SendInput` en `EjecutorInterfazWindows`.
-- Infraestructura inicial para que la IA reciba una instrucción y conozca parte del estado de Windows.
+- La orden natural del usuario llega correctamente a la IA.
+- La IA interpreta frases libres como `abre spotify` y devuelve una decisión en lenguaje natural.
+- `ControlWindows` ya no usa el antiguo catálogo de comandos del tipo `abrir_aplicacion` para esta ruta principal.
+- `EjecutorWindows` recibe correctamente la decisión de la IA sin intentar parsearla como JSON.
 
-### Problema actual
+### Prueba validada
 
-El código conserva una arquitectura anterior que ya hemos decidido abandonar.
+Entrada:
 
-Actualmente existen restos como:
+```text
+abre spotify
+```
 
-- `EjecutarAccion(JsonElement accion)`.
-- Un `switch` con tipos como `abrir_aplicacion`, `cerrar_aplicacion` y `establecer_volumen`.
-- `AbrirAplicacion` con casos concretos escritos a mano para Bloc de notas y Spotify.
-- Un paso intermedio donde la IA devuelve JSON con `completado` y `siguiente_paso`.
-- Otro método que vuelve a pedir a la IA un JSON con una secuencia de teclas.
+Resultado observado:
 
-Esto contradice la arquitectura deseada porque obliga a definir comandos y estructuras rígidas en lugar de dejar que el modelo interprete una frase natural usando capacidades genéricas.
+```text
+LA IA HA DECIDIDO:
+El PC debe abrir la aplicación Spotify.
+
+EJECUTOR WINDOWS:
+El PC debe abrir la aplicación Spotify.
+```
+
+La prueba confirma que la cadena actual funciona hasta `EjecutorWindows` sin excepciones.
 
 ## Qué NO queremos
 
@@ -91,7 +100,7 @@ maximizar_ventana
 Tampoco queremos programar casos específicos como:
 
 ```text
-si la aplicación contiene "Spotify", abre spotify:
+si la aplicación contiene "Spotify", abre spotify
 ```
 
 La IA debe entender la intención y combinar capacidades genéricas del sistema.
@@ -124,19 +133,27 @@ Debe intentar realizar el mínimo número de acciones necesarias para cumplir la
 
 ## Punto exacto en el que estamos
 
-El código se ha subido por primera vez al repositorio `treska23/ControlPCIA`.
+La ruta principal ya es:
 
-`EjecutorWindows.EjecutarAsync` todavía no ejecuta acciones reales: actualmente solo imprime el siguiente paso recibido.
+```text
+frase natural del usuario
+→ ControlWindows
+→ Ollama / qwen3:8b
+→ decisión en lenguaje natural
+→ EjecutorWindows
+```
 
-`ControlWindows.cs` contiene gran parte de la lógica antigua basada en JSON de comandos y debe simplificarse.
+`EjecutorWindows.EjecutarAsync` todavía no ejecuta acciones reales sobre Windows. Actualmente recibe la decisión y la muestra por consola.
+
+El siguiente trabajo es convertir `EjecutorWindows` en la capa de actuación real.
 
 ## Siguiente paso
 
-1. Refactorizar `ControlWindows.cs` para eliminar la arquitectura basada en tipos de comando como `abrir_aplicacion`.
-2. Eliminar el doble procesamiento innecesario de la misma intención por la IA.
-3. Convertir `EjecutorWindows` en la capa real de capacidades genéricas de control.
-4. Mantener `ObservadorWindows` como fuente inicial de percepción del sistema.
-5. Diseñar el bucle del agente: observar → decidir → actuar → volver a observar → comprobar si la petición está completada.
+1. Dar a `EjecutorWindows` capacidades genéricas reales para actuar sobre Windows.
+2. Priorizar mecanismos generales: UI Automation, APIs nativas y teclado/ratón como respaldo.
+3. Evitar volver a introducir un catálogo de comandos específico por aplicación.
+4. Después, crear el bucle completo del agente: observar → decidir → actuar → observar de nuevo → comprobar si la petición está completada.
+5. Cuando la ejecución por texto funcione, añadir la entrada por voz.
 
 ## Regla de continuidad del proyecto
 
