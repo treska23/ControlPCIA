@@ -13,17 +13,17 @@ La idea central es que el usuario pueda decir frases naturales como:
 - "Cierra esa ventana"
 - "Pon el vídeo a pantalla completa"
 
-El sistema no debe depender de un catálogo cerrado de comandos del tipo `abrir_aplicacion`, `cerrar_aplicacion`, etc.
+El sistema no debe depender de un catálogo cerrado de comandos específicos por aplicación.
 
 ## Decisión arquitectónica principal
 
 La frase del usuario es la orden.
 
-El modelo de IA es el intérprete y debe decidir qué acciones necesita realizar para cumplirla.
+El modelo de IA es el intérprete y debe decidir qué capacidad segura necesita utilizar para cumplirla.
 
-No queremos mantener un JSON propio con una lista creciente de intenciones o comandos específicos para cada aplicación.
+No queremos mantener un JSON propio con una lista creciente de intenciones específicas por aplicación. Ollama sí usa JSON internamente en su API HTTP y en tool calls, pero eso es solo el protocolo técnico de comunicación.
 
-Ollama sí usa JSON internamente en su API HTTP y en posibles tool calls, pero eso se considera solo un protocolo técnico de comunicación, no el modelo conceptual de comandos de la aplicación.
+La IA no debe recibir una capacidad genérica para ejecutar comandos arbitrarios del sistema. El programa expone únicamente capacidades concretas y limitadas.
 
 ## Arquitectura objetivo
 
@@ -32,39 +32,49 @@ Entrada de voz o texto
 → agente de control
 → modelo local mediante Ollama
 → observación del estado de Windows
-→ ejecución de acciones genéricas
-→ nueva observación
+→ selección de una capacidad segura
+→ ejecución sobre Windows
+→ nueva observación cuando sea necesario
 → continuar hasta completar la petición
 
 Componentes conceptuales:
 
-- **Modelo local (Ollama):** cerebro que interpreta la orden y decide qué hacer.
-- **ObservadorWindows:** obtiene información sobre el estado visible del sistema, como ventanas abiertas.
-- **EjecutorWindows:** capa que ejecutará acciones reales sobre Windows.
-- **EjecutorInterfazWindows:** utilidad de bajo nivel para teclado y futura interacción de respaldo.
+- **Modelo local (Ollama / qwen3:8b):** cerebro que interpreta la orden y decide qué capacidad utilizar.
+- **ObservadorWindows:** obtiene información del estado visible del sistema, actualmente ventanas visibles y ventana activa.
+- **AplicacionesWindows:** capa para localizar e iniciar aplicaciones instaladas mediante Windows sin abrir el menú Inicio ni usar rutas arbitrarias.
+- **EjecutorWindows:** capa que valida y ejecuta las capacidades permitidas.
+- **EjecutorInterfazWindows:** utilidad de bajo nivel para teclado como mecanismo de respaldo futuro.
 
 ## Estado actual del código
 
-El repositorio contiene actualmente:
+El proyecto local contiene actualmente:
 
 - `Program.cs`
 - `ControlWindows.cs`
 - `ObservadorWindows.cs`
+- `AplicacionesWindows.cs`
 - `EjecutorWindows.cs`
 - `EjecutorInterfazWindows.cs`
 
-### Lo que ya funciona
+El proyecto está orientado exclusivamente a Windows y debe usar:
+
+```xml
+<TargetFramework>net10.0-windows</TargetFramework>
+```
+
+## Lo que ya funciona
 
 - Comunicación con Ollama mediante `http://localhost:11434/api/chat`.
 - Uso actual del modelo `qwen3:8b`.
-- Lectura de ventanas visibles mediante `ObservadorWindows`.
-- Envío de entradas de teclado con `SendInput` en `EjecutorInterfazWindows`.
 - La orden natural del usuario llega correctamente a la IA.
-- La IA interpreta frases libres como `abre spotify` y devuelve una decisión en lenguaje natural.
-- `ControlWindows` ya no usa el antiguo catálogo de comandos del tipo `abrir_aplicacion` para esta ruta principal.
-- `EjecutorWindows` recibe correctamente la decisión de la IA sin intentar parsearla como JSON.
+- La IA usa tool calling para elegir capacidades expuestas por el programa.
+- Lectura de ventanas visibles mediante `ObservadorWindows`.
+- Detección de la ventana activa mediante `GetForegroundWindow`.
+- Infraestructura de teclado mediante `SendInput` en `EjecutorInterfazWindows`.
+- Inicio directo de aplicaciones instaladas mediante `AplicacionesWindows` y `shell:AppsFolder`.
+- El inicio directo no abre el menú Inicio, no escribe en ninguna ventana y no usa PowerShell ni CMD.
 
-### Prueba validada
+## Prueba validada actual
 
 Entrada:
 
@@ -75,51 +85,70 @@ abre spotify
 Resultado observado:
 
 ```text
-LA IA HA DECIDIDO:
-El PC debe abrir la aplicación Spotify.
-
-EJECUTOR WINDOWS:
-El PC debe abrir la aplicación Spotify.
+CAPACIDAD ELEGIDA:
+iniciar_aplicacion
+La aplicación 'Spotify' se ha iniciado.
 ```
 
-La prueba confirma que la cadena actual funciona hasta `EjecutorWindows` sin excepciones.
+Spotify se inicia directamente desde Windows sin mostrar el menú Inicio.
+
+Esto valida el flujo:
+
+```text
+frase natural
+→ IA interpreta la intención
+→ iniciar_aplicacion("Spotify")
+→ Windows localiza la aplicación instalada
+→ la aplicación se inicia directamente
+```
+
+La capacidad no contiene lógica específica para Spotify; recibe un nombre de aplicación y busca una coincidencia en el catálogo de aplicaciones de Windows.
+
+## Problema detectado y corregido
+
+Se probó temporalmente un enfoque donde la IA podía usar `pulsar_tecla` y `escribir_texto` en un bucle para abrir aplicaciones mediante el menú Inicio.
+
+Ese enfoque falló porque el agente no podía observar suficientemente bien estados intermedios como el propio menú Inicio. Esto provocó bucles e incluso acciones no solicitadas.
+
+Decisión: teclado y ratón no deben ser el mecanismo principal cuando existe una API o interfaz de Windows más directa y fiable. Deben quedar como respaldo para casos donde no haya una alternativa mejor.
 
 ## Qué NO queremos
 
-No queremos una arquitectura basada en ampliar continuamente algo como:
+No queremos programar casos específicos como:
 
 ```text
-abrir_aplicacion
-cerrar_aplicacion
-establecer_volumen
-minimizar_ventana
-maximizar_ventana
-...
+si la aplicación es Spotify, abre Spotify
 ```
 
-Tampoco queremos programar casos específicos como:
+Tampoco queremos dar a la IA una herramienta del tipo:
 
 ```text
-si la aplicación contiene "Spotify", abre spotify
+ejecutar_comando("...")
 ```
 
-La IA debe entender la intención y combinar capacidades genéricas del sistema.
+ni permitirle:
+
+- Ejecutar PowerShell.
+- Ejecutar CMD.
+- Ejecutar scripts arbitrarios.
+- Pasar rutas de ejecutables arbitrarias.
+- Manipular archivos.
+- Modificar el registro.
+- Realizar tareas administrativas no autorizadas.
 
 ## Qué sí queremos
 
-Dar al agente capacidades suficientemente generales para controlar la parte interactiva de Windows, por ejemplo:
+Dar al agente capacidades generales pero delimitadas, por ejemplo:
 
-- Observar ventanas y aplicaciones visibles.
-- Encontrar una ventana o control.
-- Activar una ventana.
-- Interactuar con controles mediante UI Automation cuando sea posible.
-- Pulsar teclas.
-- Escribir texto.
-- Usar ratón cuando sea necesario.
-- Usar APIs nativas de Windows para funciones concretas donde tenga sentido.
+- Observar ventanas visibles.
+- Saber qué ventana tiene el foco.
+- Iniciar una aplicación instalada por nombre.
+- Activar o traer al frente una ventana existente.
+- Interactuar con controles mediante Windows UI Automation.
 - Controlar multimedia y audio mediante APIs adecuadas.
+- Usar teclado y ratón solo como respaldo cuando sea necesario.
 
-La IA decidirá cómo utilizar esas capacidades según la frase del usuario.
+La IA decide qué capacidad necesita, pero el programa controla estrictamente qué capacidades existen y valida sus argumentos.
 
 ## Restricciones decididas
 
@@ -127,33 +156,31 @@ El agente debe actuar únicamente sobre la parte interactiva permitida del siste
 
 No debe realizar acciones adicionales que el usuario no haya pedido.
 
-No debe manipular archivos, usar PowerShell o CMD, modificar el registro ni realizar tareas administrativas salvo que en el futuro se decida expresamente ampliar el alcance.
+No debe manipular archivos, usar PowerShell o CMD, modificar el registro ni realizar tareas administrativas salvo que en el futuro se amplíe expresamente el alcance.
 
-Debe intentar realizar el mínimo número de acciones necesarias para cumplir la petición.
+Debe intentar realizar el mínimo número de acciones necesarias.
+
+Cuando exista una forma directa e invisible de realizar una acción mediante Windows, se debe preferir frente a manipular visualmente la interfaz.
 
 ## Punto exacto en el que estamos
 
-La ruta principal ya es:
+La primera capacidad real y fiable ya está implementada y validada:
 
 ```text
-frase natural del usuario
-→ ControlWindows
-→ Ollama / qwen3:8b
-→ decisión en lenguaje natural
-→ EjecutorWindows
+iniciar_aplicacion(nombre)
 ```
 
-`EjecutorWindows.EjecutarAsync` todavía no ejecuta acciones reales sobre Windows. Actualmente recibe la decisión y la muestra por consola.
-
-El siguiente trabajo es convertir `EjecutorWindows` en la capa de actuación real.
+El siguiente trabajo debe ampliar el control de Windows manteniendo el mismo principio de seguridad y generalidad.
 
 ## Siguiente paso
 
-1. Dar a `EjecutorWindows` capacidades genéricas reales para actuar sobre Windows.
-2. Priorizar mecanismos generales: UI Automation, APIs nativas y teclado/ratón como respaldo.
-3. Evitar volver a introducir un catálogo de comandos específico por aplicación.
-4. Después, crear el bucle completo del agente: observar → decidir → actuar → observar de nuevo → comprobar si la petición está completada.
-5. Cuando la ejecución por texto funcione, añadir la entrada por voz.
+1. Añadir una capacidad para detectar si una aplicación ya está abierta y traer su ventana al frente en lugar de intentar iniciar otra instancia cuando corresponda.
+2. Ampliar `ObservadorWindows` con información más rica sobre las ventanas.
+3. Incorporar Windows UI Automation para observar controles reales de una ventana y actuar sobre ellos.
+4. Crear capacidades seguras para acciones de ventana: activar, minimizar, maximizar y cerrar la ventana adecuada.
+5. Añadir después capacidades de multimedia y audio mediante APIs específicas.
+6. Recuperar el bucle agente: observar → decidir → actuar → observar, únicamente cuando las capacidades y la percepción sean suficientemente fiables.
+7. Cuando el control por texto sea sólido, añadir la entrada por voz.
 
 ## Regla de continuidad del proyecto
 
