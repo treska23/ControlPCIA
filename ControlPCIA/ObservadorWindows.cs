@@ -42,6 +42,29 @@ namespace ControlPCIA
             return ventanas;
         }
 
+        public static string ObtenerVentanaActiva()
+        {
+            IntPtr hWnd = GetForegroundWindow();
+
+            if (hWnd == IntPtr.Zero)
+                return "";
+
+            int longitud = GetWindowTextLength(hWnd);
+
+            if (longitud == 0)
+                return "";
+
+            var texto = new StringBuilder(longitud + 1);
+
+            GetWindowText(
+                hWnd,
+                texto,
+                texto.Capacity
+            );
+
+            return texto.ToString().Trim();
+        }
+
         private delegate bool EnumWindowsProc(
             IntPtr hWnd,
             IntPtr lParam);
@@ -68,5 +91,8 @@ namespace ControlPCIA
             CharSet = CharSet.Unicode)]
         private static extern int GetWindowTextLength(
             IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
     }
 }

@@ -1,21 +1,72 @@
-﻿namespace ControlPCIA
+﻿using System.Text.Json;
+
+namespace ControlPCIA
 {
     internal static class EjecutorWindows
     {
-        public static async Task EjecutarAsync(string siguientePaso)
+        public static async Task<string>
+            EjecutarHerramientaAsync(
+                string nombreHerramienta,
+                JsonElement argumentos)
         {
-            Console.WriteLine();
-            Console.WriteLine("EJECUTOR WINDOWS:");
-            Console.WriteLine(siguientePaso);
+            switch (nombreHerramienta)
+            {
+                case "iniciar_aplicacion":
+                    {
+                        if (!argumentos.TryGetProperty(
+                                "nombre",
+                                out var nombreJson))
+                        {
+                            return
+                                "No se indicó ninguna aplicación.";
+                        }
 
-            // Aquí intentaremos, por este orden:
-            //
-            // 1. APIs nativas de Windows
-            // 2. UI Automation
-            // 3. Control multimedia
-            // 4. Teclado/ratón como último recurso
+                        string nombre =
+                            nombreJson.GetString() ?? "";
 
-            await Task.CompletedTask;
+                        bool iniciada =
+                            AplicacionesWindows
+                                .Iniciar(nombre);
+
+                        await Task.Delay(1500);
+
+                        if (iniciada)
+                        {
+                            return
+                                $"La aplicación '{nombre}' " +
+                                "se ha iniciado.";
+                        }
+
+                        return
+                            $"Windows no ha encontrado " +
+                            $"la aplicación '{nombre}'.";
+                    }
+
+                    case "inspeccionar_ventana":
+                    {
+                        if (!argumentos.TryGetProperty(
+                                "nombre",
+                                out var nombreJson))
+                        {
+                            return
+                                "No se indicó ninguna ventana.";
+                        }
+
+                        string nombre =
+                            nombreJson.GetString() ?? "";
+
+                        string controles =
+                            ObservadorUIWindows
+                                .ObtenerControles(nombre);
+
+                        return controles;
+                    }
+
+                default:
+                    return
+                        "La herramienta solicitada " +
+                        "no está permitida.";
+            }
         }
     }
 }
