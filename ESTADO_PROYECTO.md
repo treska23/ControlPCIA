@@ -1,233 +1,122 @@
-# ControlPCIA — Estado del proyecto
+# ControlPCIA — estado y tareas
 
 Última actualización: 15 de julio de 2026
 
-## Objetivo
+## Objetivo vigente
 
-Crear una aplicación para controlar Windows mediante lenguaje natural. El usuario da una orden hablada o escrita y un modelo local ejecutado con Ollama interpreta la intención y actúa sobre el PC.
-
-Ejemplos objetivo:
-
-- "Abre Spotify y busca Radiohead"
-- "Baja el volumen al 30 %"
-- "Cierra esa ventana"
-- "Pon el vídeo a pantalla completa"
-
-## Decisión arquitectónica actual
-
-La frase natural del usuario es la orden.
-
-La ruta principal ha cambiado respecto al enfoque inicial basado en tool calling y UI Automation.
-
-Flujo actual:
+Controlar un PC Windows mediante órdenes habladas o escritas desde el móvil. La IA local debe decidir los comandos de consola necesarios, sin que la aplicación contenga una función por cada acción.
 
 ```text
-Entrada de texto o voz
-→ frase natural
-→ Ollama / Qwen interpreta la intención
-→ Qwen propone un comando PowerShell por paso
-→ ValidadorPowerShell comprueba localmente las restricciones
-→ si no coincide con una operación restringida, EjecutorPowerShell lo ejecuta
-→ se recoge stdout / stderr / código de salida
-→ Qwen recibe el resultado y decide si necesita otro paso
-→ FIN cuando la petición está completada
+móvil
+→ texto transcrito
+→ Ollama / qwen3:8b
+→ uno o varios pasos PowerShell
+→ validación local determinista
+→ ejecución en Windows
+→ resultado devuelto a Llama
+→ FIN
 ```
 
-La validación de seguridad es local, determinista y rápida. No se consulta otra IA para validar comandos.
+La aplicación no contiene un catálogo cerrado de monitores, audio, ventanas o programas. Las antiguas clases de tool calling y UI Automation por acciones fueron retiradas.
 
-Qwen NO está limitado por una lista blanca de comandos permitidos. Debe poder razonar libremente y elegir la forma adecuada de controlar Windows. La seguridad se aplica después mediante una base de restricciones.
+## Decisiones de seguridad
 
-## Seguridad: enfoque actual
+La IA propone comandos, pero nunca decide si son seguros. `ValidadorPowerShell` usa el parser oficial de PowerShell para analizar todo el AST, incluidos pipelines y bloques anidados.
 
-Se eliminó el enfoque de `ComandosPermitidos`, porque impedía a Qwen realizar acciones normales como `Start-Process notepad`.
+La política es de denegación de capacidades peligrosas, no una lista de acciones de escritorio permitidas. Bloquea:
 
-El principio actual es:
+- Lectura, creación, modificación, movimiento y borrado de archivos o carpetas.
+- Registro, discos, particiones, volúmenes, permisos, usuarios y grupos.
+- Servicios, tareas, red, firewall, Defender, arranque y configuración crítica.
+- Descargas, exfiltración, intérpretes anidados, alias evasivos, reflexión y ejecución dinámica.
+- Rutas o argumentos dinámicos enviados a programas nativos.
+- COM arbitrario y texto libre mediante `SendKeys`.
 
-```text
-Qwen propone libremente un comando
-→ ¿coincide con una operación restringida?
-    ├─ SÍ → bloquear, no ejecutar
-    └─ NO → ejecutar
-```
+Los comandos guardados por el aprendizaje siempre se vuelven a validar. La memoria interna de ControlPCIA es la única excepción de escritura persistente: la IA no puede acceder a ella ni escribir otros archivos.
 
-La política se guarda en `BaseRestriccionesPowerShell.cs` como una cadena de datos con reglas de varios tipos:
+## Aprendizaje
 
-- `CMD`: comandos completamente bloqueados.
-- `PREFIX`: familias de comandos bloqueadas.
-- `ARG`: argumentos concretos prohibidos para determinados comandos.
-- `TARGET`: destinos que no se pueden iniciar mediante `Start-Process`.
-- `TEXT`: fragmentos de texto asociados a mecanismos sensibles.
-- `SYNTAX`: sintaxis restringida, como redirecciones que puedan escribir archivos.
+`MemoriaRecetas` guarda recetas exitosas en `%LOCALAPPDATA%\ControlPCIA\recetas-v1.json`.
 
-`ValidadorPowerShell.cs` carga esta base una sola vez y la transforma en colecciones en memoria para que cada comprobación sea rápida.
+Se conserva únicamente:
 
-### Restricciones principales actuales
+- Intención normalizada.
+- Secuencia de comandos con código de salida cero.
+- Conteo y fechas de éxito.
 
-La intención es impedir principalmente:
+No se guardan salidas, errores ni contenido del sistema. Al recibir una petición, se buscan hasta cinco recetas parecidas por tokens. Se entregan a Llama como referencias no confiables; Llama puede adaptarlas y el validador toma siempre la decisión final.
 
-- Borrar archivos o carpetas.
-- Crear archivos o carpetas.
-- Modificar, copiar, mover o renombrar archivos.
-- Escribir contenido en archivos.
-- Acceso destructivo a discos, particiones o volúmenes.
-- Modificar el registro de Windows.
-- Cambiar permisos y propiedad.
-- Modificar usuarios y grupos del sistema.
-- Modificar servicios o tareas programadas.
-- Cambios sensibles de red, firewall o Defender.
-- Cambios críticos de configuración del sistema.
-- Ejecución dinámica destinada a saltarse el validador.
-- Lanzar PowerShell, CMD u otros intérpretes anidados para evitar las restricciones.
-- Elevación mediante mecanismos restringidos como `-Verb RunAs`.
+## Control móvil
 
-La base incluye también aliases conocidos de operaciones peligrosas, por ejemplo variantes de `Remove-Item` como `rm`.
+El modo predeterminado inicia un servidor en el puerto 5187 y muestra las direcciones LAN y un código de emparejado.
 
-Esta barrera todavía debe seguir revisándose y ampliándose según aparezcan casos reales. Para una versión futura más robusta se contempla usar el parser oficial de PowerShell para analizar la estructura del comando antes de ejecutarlo.
+Protecciones implementadas:
 
-## Componentes actuales
+- Sólo loopback, redes RFC1918, link-local o IPv6 ULA.
+- Código aleatorio de seis cifras y máximo de intentos por dirección.
+- Token de sesión aleatorio almacenado en memoria como hash y con 12 horas de caducidad.
+- Bearer token; no se usan cookies ni CORS.
+- Content Security Policy con nonce y demás cabeceras de seguridad.
+- Una sola orden activa; una segunda recibe HTTP 409.
+- Ollama permanece en loopback y no se expone al móvil.
 
-- `Program.cs`: entrada actual por texto.
-- `ControlWindows.cs`: orquesta la conversación con Ollama/Qwen y el bucle de ejecución.
-- `EjecutorPowerShell.cs`: ejecuta PowerShell sin ventana después de pasar siempre por `ValidadorPowerShell`.
-- `ValidadorPowerShell.cs`: valida restricciones localmente antes de ejecutar.
-- `BaseRestriccionesPowerShell.cs`: base de datos textual de operaciones restringidas.
-- `ObservadorWindows.cs`: enumera ventanas visibles y detecta la ventana activa.
-- `ObservadorUIWindows.cs`: inspecciona controles mediante Windows UI Automation.
-- `AplicacionesWindows.cs`: capacidad anterior para abrir aplicaciones instaladas y traer al frente una ya abierta.
-- `EjecutorWindows.cs`: capa anterior de tool calling; se conserva por ahora.
-- `EjecutorInterfazWindows.cs`: entrada de teclado como mecanismo de respaldo.
-- `InteraccionUIWindows.cs`: interacción genérica con controles mediante UI Automation y fallback de teclado.
+La web permite texto, Web Speech API si existe y dictado del teclado móvil como alternativa. Ahora también es una PWA con manifiesto, iconos, interfaz `standalone` y service worker limitado al shell; `/api/` nunca entra en caché.
 
-UI Automation, teclado y ratón quedan como mecanismos secundarios o fallback cuando PowerShell no sea suficiente.
+La aplicación nativa .NET MAUI para Android es ahora la experiencia principal. Implementa:
 
-## Estado actual de ControlWindows
+- Descubrimiento UDP automático del servidor en el puerto 5188 y dirección manual como alternativa.
+- Emparejado y token en `SecureStorage`.
+- Dictado nativo Android, texto, estado e historial no persistente.
+- Consulta de pantallas y geometría de ventanas mediante `/api/escena`.
+- Lienzo arrastrable y ajustable que entrega a Llama la distribución deseada.
+- APK Release firmado localmente para instalación manual.
 
-`ControlWindows` ya no obliga a Qwen a elegir entre una lista cerrada de comandos PowerShell.
+Wake-on-LAN aprende MAC y broadcast durante el emparejado y conserva esos datos en el móvil. La frase de voz de arranque se reconoce localmente porque Llama no existe mientras el PC está apagado; no se ha añadido ningún otro catálogo local de acciones.
 
-Qwen puede proponer un comando por paso. Cada comando pasa obligatoriamente por `EjecutorPowerShell`, que a su vez llama a `ValidadorPowerShell` antes de ejecutarlo.
+## Verificaciones realizadas
 
-Si un comando es bloqueado, Qwen recibe el motivo y puede intentar otra estrategia segura.
+- Compilación Debug sin errores ni advertencias.
+- 97 pruebas automatizadas correctas en Release.
+- Diagnóstico real de Ollama y `qwen3:8b` correcto.
+- Orden directa «abre la calculadora» → `Start-Process calc.exe` → código 0 → `FIN`.
+- Web móvil comprobada a 390 × 844 píxeles.
+- Manifiesto, service worker y emparejado de la PWA comprobados en navegador.
+- App Android compilada en Debug y publicada en Release sin advertencias de compilación.
+- APK firmado verificado con `jarsigner`; SHA-256 `11FF8DC31554E04E9C81D46A0912B456D4CD00781256E9693E7DCC0B24F55D7B`.
+- `/api/escena` probado con 2 monitores y 13 ventanas reales.
+- Wake-on-LAN detectó 1 adaptador válido, UDP 9 y su broadcast local sin exponer la MAC en la interfaz.
+- Emparejado correcto y API sin token rechazada con HTTP 401.
+- Orden móvil «abre el bloc de notas» → `Start-Process notepad.exe` → completada.
+- Orden móvil «cierra el bloc de notas» → `Stop-Process -Name notepad -Force` → completada.
+- Dos órdenes simultáneas → una HTTP 200 y otra HTTP 409.
+- Aprendizaje real: «abre la calculadora» guardó la receta; «inicia la calculadora» encontró una receta relacionada y la reutilizó.
+- Comandos de borrado, lectura de archivos, rutas nativas, alias evasivos, intérpretes, COM peligroso y texto libre por `SendKeys` bloqueados en pruebas.
 
-Si un comando se ejecuta pero falla, Qwen recibe el código de salida y el error. Se añadieron instrucciones para que no invente rutas de instalación ni repita rutas de `Program Files` al azar, sino que cambie de estrategia o consulte Windows cuando necesite descubrir cómo está registrada una aplicación.
+## Tareas
 
-Existe un límite de pasos para evitar bucles indefinidos.
-
-## Pruebas validadas
-
-### 1. Abrir Bloc de notas
-
-Entrada:
-
-```text
-abre el bloc de notas
-```
-
-Qwen propuso:
-
-```powershell
-Start-Process notepad
-```
-
-Resultado:
-
-- El comando pasó el validador.
-- PowerShell devolvió código 0.
-- El Bloc de notas se abrió correctamente.
-- La petición terminó con `FIN`.
-
-Esto valida que Qwen puede traducir un nombre humano de aplicación a una forma ejecutable sin que el usuario conozca `notepad`.
-
-### 2. Abrir Spotify
-
-Inicialmente Qwen intentó rutas inventadas de `Program Files` mediante `-WorkingDirectory`, que fallaron.
-
-Se corrigió el prompt para que:
-
-- Nunca invente rutas de instalación.
-- No pruebe carpetas al azar.
-- Analice el error y cambie de estrategia.
-- Consulte Windows cuando necesite descubrir cómo está registrada una aplicación.
-
-Después de ese cambio, la orden para abrir Spotify quedó funcionando correctamente.
-
-### 3. Bloquear borrado de archivos
-
-Entrada de prueba:
-
-```text
-borra C:\prueba.txt
-```
-
-Qwen propuso una operación `Remove-Item`.
-
-Resultado:
-
-```text
-BLOQUEADO: El comando 'Remove-Item' está bloqueado por la política de seguridad.
-```
-
-El archivo no se borra y el agente termina indicando que no encontró una forma permitida de realizar la petición.
-
-Esto valida la idea central actual:
-
-```text
-la IA puede razonar libremente
-→ la capa de restricciones impide operaciones prohibidas
-```
-
-## Memoria local de comandos / recetas
-
-Sigue pendiente implementar una memoria local persistente para no obligar a Qwen a redescubrir soluciones que ya funcionaron.
-
-Flujo previsto:
-
-```text
-Petición del usuario
-→ ¿existe receta conocida para esta intención/contexto?
-    ├─ SÍ → volver a validar → ejecutar directamente
-    └─ NO → Qwen propone solución
-             → validar
-             → ejecutar
-             → si funciona, guardar receta
-```
-
-Una receta guardada SIEMPRE debe volver a pasar por `ValidadorPowerShell` antes de ejecutarse, para que cambios futuros en la política de seguridad se apliquen también a recetas antiguas.
-
-Implementación sugerida:
-
-- SQLite como almacenamiento persistente.
-- Caché en memoria para recetas frecuentes.
-- Guardar intención normalizada, contexto/aplicación, comando o secuencia, número de ejecuciones correctas y último resultado conocido.
-
-Prioridad prevista:
-
-```text
-receta local conocida
-→ PowerShell validado
-→ UI Automation
-→ teclado/ratón como último recurso
-```
-
-## Siguiente punto de trabajo
-
-Al retomar el proyecto:
-
-1. Subir todos los cambios locales actuales a GitHub.
-2. Revisar que `BaseRestriccionesPowerShell.cs`, `ValidadorPowerShell.cs`, `EjecutorPowerShell.cs` y el nuevo `ControlWindows.cs` estén en el repositorio.
-3. Añadir la memoria local de recetas/comandos validados.
-4. Probar varias aplicaciones además de Bloc de notas y Spotify.
-5. Probar órdenes normales de Windows: ventanas, volumen y multimedia.
-6. Revisar falsos positivos y posibles vías de evasión de la base de restricciones.
-7. Más adelante sustituir o reforzar el análisis textual con el parser oficial de PowerShell.
-8. Mantener UI Automation como fallback para operaciones que PowerShell no pueda resolver.
-9. Cuando el control por texto sea sólido, añadir entrada por voz.
+- [x] Sustituir el catálogo de acciones por IA → PowerShell genérico.
+- [x] Analizar comandos con el AST oficial de PowerShell.
+- [x] Limitar tiempo, salida y árbol de procesos.
+- [x] Añadir pruebas automatizadas de seguridad y evasiones.
+- [x] Separar Ollama y resultados estructurados de la consola.
+- [x] Añadir servidor móvil autenticado.
+- [x] Añadir entrada escrita y dictado con fallback al teclado.
+- [x] Impedir órdenes simultáneas.
+- [x] Añadir aprendizaje persistente con revalidación.
+- [x] Retirar la arquitectura antigua por herramientas específicas.
+- [x] Crear una aplicación Android nativa con descubrimiento, voz, texto y estado.
+- [x] Añadir un lienzo móvil para describir a Llama la colocación de ventanas.
+- [x] Añadir Wake-on-LAN aprendido y la orden local «enciende el ordenador».
+- [x] Mantener la web como PWA de respaldo sin cachear datos de la API.
+- [ ] Probar físicamente en un teléfono Android el micrófono, descubrimiento, lienzo y Wake-on-LAN con el PC realmente apagado.
+- [ ] Compilar, firmar y probar la aplicación iOS desde un Mac.
+- [ ] Crear un instalador y una opción explícita de inicio automático.
+- [ ] Evaluar otros modelos locales y órdenes complejas de varias aplicaciones.
+- [ ] Mantener una revisión continua de nuevas vías de evasión del validador.
+- [ ] Valorar HTTPS local o un túnel autenticado antes de permitir uso fuera de una LAN de confianza.
 
 ## Regla de continuidad
 
-Este archivo es la referencia principal de decisiones y estado del proyecto.
+Este archivo registra las decisiones y el trabajo pendiente. Para continuar en otra tarea:
 
-Si se abre un chat nuevo, empezar por:
-
-> Lee `ESTADO_PROYECTO.md` del repositorio `treska23/ControlPCIA` y seguimos desde ahí.
-
-El código del repositorio y este archivo son la fuente de verdad del proyecto, no el historial de una conversación concreta.
+> Lee `README.md` y `ESTADO_PROYECTO.md` del repositorio `treska23/ControlPCIA` y sigue desde la primera tarea sin marcar.

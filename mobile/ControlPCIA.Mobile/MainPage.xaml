@@ -1,0 +1,347 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="ControlPCIA.Mobile.MainPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    Shell.NavBarIsVisible="False"
+    BackgroundColor="#07111F">
+
+    <ContentPage.Resources>
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="BackgroundColor" Value="#0E1C2E" />
+            <Setter Property="Stroke" Value="#203853" />
+            <Setter Property="StrokeThickness" Value="1" />
+            <Setter Property="StrokeShape" Value="RoundRectangle 22" />
+            <Setter Property="Padding" Value="18" />
+        </Style>
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="BackgroundColor" Value="#2563EB" />
+            <Setter Property="TextColor" Value="White" />
+            <Setter Property="CornerRadius" Value="14" />
+            <Setter Property="FontAttributes" Value="Bold" />
+            <Setter Property="MinimumHeightRequest" Value="52" />
+        </Style>
+        <Style x:Key="SecondaryButton" TargetType="Button">
+            <Setter Property="BackgroundColor" Value="#172A42" />
+            <Setter Property="TextColor" Value="#D9E8FA" />
+            <Setter Property="CornerRadius" Value="14" />
+            <Setter Property="MinimumHeightRequest" Value="48" />
+        </Style>
+        <Style x:Key="FieldBorder" TargetType="Border">
+            <Setter Property="BackgroundColor" Value="#081421" />
+            <Setter Property="Stroke" Value="#2D4968" />
+            <Setter Property="StrokeShape" Value="RoundRectangle 14" />
+            <Setter Property="Padding" Value="12,4" />
+        </Style>
+        <Style TargetType="Label">
+            <Setter Property="TextColor" Value="#E8F2FF" />
+        </Style>
+    </ContentPage.Resources>
+
+    <ScrollView>
+        <VerticalStackLayout
+            Padding="18,28,18,36"
+            Spacing="16">
+
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="13">
+                <Border
+                    WidthRequest="54"
+                    HeightRequest="54"
+                    Padding="0"
+                    BackgroundColor="#2563EB"
+                    Stroke="#60A5FA"
+                    StrokeShape="RoundRectangle 17">
+                    <Label
+                        Text="IA"
+                        FontAttributes="Bold"
+                        FontSize="20"
+                        HorizontalOptions="Center"
+                        VerticalOptions="Center" />
+                </Border>
+                <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="1">
+                    <Label Text="ControlPCIA" FontSize="24" FontAttributes="Bold" />
+                    <Label
+                        Text="Díselo al móvil. Llama decide cómo hacerlo."
+                        TextColor="#9CB4CE"
+                        FontSize="13" />
+                </VerticalStackLayout>
+            </Grid>
+
+            <Border x:Name="WakePanel" Style="{StaticResource Card}" IsVisible="False" Padding="14">
+                <VerticalStackLayout Spacing="10">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                        <VerticalStackLayout Spacing="2">
+                            <Label Text="¿El PC está apagado?" FontAttributes="Bold" />
+                            <Label
+                                x:Name="WakeDescriptionLabel"
+                                Text="Toca el micrófono y di «enciende el ordenador»."
+                                TextColor="#9CB4CE"
+                                FontSize="12" />
+                        </VerticalStackLayout>
+                        <Button
+                            x:Name="WakeButton"
+                            Grid.Column="1"
+                            Text="Hablar"
+                            Style="{StaticResource PrimaryButton}"
+                            Clicked="OnWakeClicked" />
+                    </Grid>
+                    <Label
+                        x:Name="WakeStatusLabel"
+                        TextColor="#9CB4CE"
+                        FontSize="12" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border x:Name="ConnectedBar" Style="{StaticResource Card}" IsVisible="False" Padding="14">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                    <VerticalStackLayout Spacing="2">
+                        <Label Text="PC conectado" TextColor="#86EFAC" FontAttributes="Bold" />
+                        <Label
+                            x:Name="ConnectedAddressLabel"
+                            TextColor="#9CB4CE"
+                            FontSize="12"
+                            LineBreakMode="TailTruncation" />
+                    </VerticalStackLayout>
+                    <Button
+                        x:Name="ForgetButton"
+                        Grid.Column="1"
+                        Text="Cambiar"
+                        Style="{StaticResource SecondaryButton}"
+                        Clicked="OnForgetClicked" />
+                </Grid>
+            </Border>
+
+            <Border x:Name="ConnectionPanel" Style="{StaticResource Card}">
+                <VerticalStackLayout Spacing="14">
+                    <VerticalStackLayout Spacing="4">
+                        <Label Text="Conecta tu PC" FontSize="21" FontAttributes="Bold" />
+                        <Label
+                            Text="El móvil y el PC deben estar en la misma Wi‑Fi. Pulsa buscar y la app intentará encontrarlo sola."
+                            TextColor="#AFC2D8"
+                            LineHeight="1.2" />
+                    </VerticalStackLayout>
+
+                    <Button
+                        x:Name="SearchButton"
+                        Text="Buscar mi PC"
+                        Style="{StaticResource PrimaryButton}"
+                        Clicked="OnSearchClicked" />
+
+                    <ActivityIndicator
+                        x:Name="ConnectionActivity"
+                        IsVisible="False"
+                        IsRunning="False"
+                        Color="#60A5FA" />
+
+                    <Picker
+                        x:Name="PcPicker"
+                        Title="Elige un PC encontrado"
+                        TextColor="#E8F2FF"
+                        TitleColor="#9CB4CE"
+                        BackgroundColor="#081421"
+                        IsVisible="False"
+                        ItemDisplayBinding="{Binding Descripcion}"
+                        SelectedIndexChanged="OnPcSelected" />
+
+                    <VerticalStackLayout Spacing="7">
+                        <Label Text="Dirección del PC" FontAttributes="Bold" FontSize="13" />
+                        <Border Style="{StaticResource FieldBorder}">
+                            <Entry
+                                x:Name="AddressEntry"
+                                Placeholder="http://192.168.1.15:5187"
+                                PlaceholderColor="#68819D"
+                                TextColor="#E8F2FF"
+                                Keyboard="Url" />
+                        </Border>
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Spacing="7">
+                        <Label Text="Código de 6 cifras que aparece en el PC" FontAttributes="Bold" FontSize="13" />
+                        <Border Style="{StaticResource FieldBorder}">
+                            <Entry
+                                x:Name="CodeEntry"
+                                MaxLength="6"
+                                Keyboard="Numeric"
+                                HorizontalTextAlignment="Center"
+                                FontSize="22"
+                                CharacterSpacing="7"
+                                Placeholder="000000"
+                                PlaceholderColor="#68819D"
+                                TextColor="#E8F2FF" />
+                        </Border>
+                    </VerticalStackLayout>
+
+                    <Button
+                        x:Name="ConnectButton"
+                        Text="Conectar"
+                        Style="{StaticResource PrimaryButton}"
+                        Clicked="OnConnectClicked" />
+
+                    <Label
+                        x:Name="ConnectionStatusLabel"
+                        TextColor="#9CB4CE"
+                        LineHeight="1.2" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Border x:Name="NavigationBar" Style="{StaticResource Card}" IsVisible="False" Padding="6">
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
+                    <Button
+                        x:Name="ControlTabButton"
+                        Text="Control por voz"
+                        Style="{StaticResource PrimaryButton}"
+                        Clicked="OnControlTabClicked" />
+                    <Button
+                        x:Name="LayoutTabButton"
+                        Grid.Column="1"
+                        Text="Colocar ventanas"
+                        Style="{StaticResource SecondaryButton}"
+                        Clicked="OnLayoutTabClicked" />
+                </Grid>
+            </Border>
+
+            <Border x:Name="ControlPanel" Style="{StaticResource Card}" IsVisible="False">
+                <VerticalStackLayout Spacing="15">
+                    <VerticalStackLayout Spacing="3">
+                        <Label Text="¿Qué quieres que haga el PC?" FontSize="21" FontAttributes="Bold" />
+                        <Label
+                            Text="Habla con normalidad. No necesitas conocer ningún comando."
+                            TextColor="#AFC2D8" />
+                    </VerticalStackLayout>
+
+                    <Border Style="{StaticResource FieldBorder}" Padding="12">
+                        <Editor
+                            x:Name="OrderEditor"
+                            AutoSize="TextChanges"
+                            MinimumHeightRequest="130"
+                            MaxLength="1000"
+                            Placeholder="Por ejemplo: abre la calculadora y colócala a la izquierda"
+                            PlaceholderColor="#68819D"
+                            TextColor="#E8F2FF" />
+                    </Border>
+
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                        <Button
+                            x:Name="VoiceButton"
+                            Text="Hablar"
+                            Style="{StaticResource SecondaryButton}"
+                            Clicked="OnVoiceClicked" />
+                        <Button
+                            x:Name="SendButton"
+                            Grid.Column="1"
+                            Text="Enviar a la IA"
+                            Style="{StaticResource PrimaryButton}"
+                            Clicked="OnSendClicked" />
+                    </Grid>
+
+                    <Border BackgroundColor="#081421" Stroke="#203853" StrokeShape="RoundRectangle 14" Padding="13">
+                        <Label
+                            x:Name="ControlStatusLabel"
+                            Text="Preparado para recibir una orden."
+                            TextColor="#AFC2D8" />
+                    </Border>
+
+                    <VerticalStackLayout Spacing="8">
+                        <Label Text="Últimas órdenes" FontAttributes="Bold" />
+                        <VerticalStackLayout x:Name="HistoryStack" Spacing="7">
+                            <Label
+                                x:Name="EmptyHistoryLabel"
+                                Text="Todavía no has enviado ninguna."
+                                TextColor="#7890AA"
+                                FontSize="13" />
+                        </VerticalStackLayout>
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Border>
+
+            <Border x:Name="LayoutPanel" Style="{StaticResource Card}" IsVisible="False">
+                <VerticalStackLayout Spacing="14">
+                    <VerticalStackLayout Spacing="3">
+                        <Label Text="Dibuja cómo quieres las ventanas" FontSize="21" FontAttributes="Bold" />
+                        <Label
+                            Text="Carga las ventanas, toca una y arrástrala. La IA interpretará el dibujo y decidirá los comandos."
+                            TextColor="#AFC2D8"
+                            LineHeight="1.2" />
+                    </VerticalStackLayout>
+
+                    <Button
+                        x:Name="RefreshSceneButton"
+                        Text="Cargar ventanas abiertas"
+                        Style="{StaticResource SecondaryButton}"
+                        Clicked="OnRefreshSceneClicked" />
+
+                    <Picker
+                        x:Name="WindowPicker"
+                        Title="Ventana seleccionada"
+                        TextColor="#E8F2FF"
+                        TitleColor="#9CB4CE"
+                        BackgroundColor="#081421"
+                        SelectedIndexChanged="OnWindowSelected" />
+
+                    <Border
+                        BackgroundColor="#07111F"
+                        Stroke="#2D4968"
+                        StrokeShape="RoundRectangle 16"
+                        Padding="0">
+                        <GraphicsView
+                            x:Name="LayoutCanvas"
+                            HeightRequest="330">
+                            <GraphicsView.GestureRecognizers>
+                                <TapGestureRecognizer Tapped="OnCanvasTapped" />
+                                <PanGestureRecognizer PanUpdated="OnCanvasPanned" />
+                            </GraphicsView.GestureRecognizers>
+                        </GraphicsView>
+                    </Border>
+
+                    <Label
+                        x:Name="SelectedWindowLabel"
+                        Text="Carga las ventanas para empezar."
+                        TextColor="#AFC2D8"
+                        FontAttributes="Bold" />
+
+                    <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*" ColumnSpacing="10" RowSpacing="8">
+                        <Label Text="Ancho" VerticalOptions="Center" />
+                        <Slider
+                            x:Name="WidthSlider"
+                            Grid.Column="1"
+                            Minimum="18"
+                            Maximum="100"
+                            Value="50"
+                            MinimumTrackColor="#60A5FA"
+                            ThumbColor="#BFDBFE"
+                            ValueChanged="OnSizeChanged" />
+                        <Label Grid.Row="1" Text="Alto" VerticalOptions="Center" />
+                        <Slider
+                            x:Name="HeightSlider"
+                            Grid.Row="1"
+                            Grid.Column="1"
+                            Minimum="16"
+                            Maximum="100"
+                            Value="50"
+                            MinimumTrackColor="#60A5FA"
+                            ThumbColor="#BFDBFE"
+                            ValueChanged="OnSizeChanged" />
+                    </Grid>
+
+                    <Button
+                        x:Name="ApplyLayoutButton"
+                        Text="Pedir a la IA que lo coloque así"
+                        Style="{StaticResource PrimaryButton}"
+                        IsEnabled="False"
+                        Clicked="OnApplyLayoutClicked" />
+
+                    <Label
+                        x:Name="LayoutStatusLabel"
+                        TextColor="#9CB4CE" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Label
+                Text="ControlPCIA no permite a la IA manipular archivos, discos ni configuraciones sensibles."
+                TextColor="#68819D"
+                FontSize="11"
+                HorizontalTextAlignment="Center"
+                Margin="8,2" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

@@ -1,5 +1,8 @@
 ﻿using System.Diagnostics;
 
+using System.IO;
+using System.Text;
+
 namespace ControlPCIA
 {
     internal sealed record ResultadoEjecucionPowerShell(
@@ -10,9 +13,15 @@ namespace ControlPCIA
 
     internal static class EjecutorPowerShell
     {
+        private static readonly TimeSpan TiempoMaximo =
+            TimeSpan.FromSeconds(20);
+
+        private const int CaracteresMaximosSalida = 64_000;
+
         public static async Task<ResultadoEjecucionPowerShell>
             EjecutarAsync(
-                string comando)
+                string comando,
+                CancellationToken cancellationToken = default)
         {
             ResultadoValidacionPowerShell validacion =
                 ValidadorPowerShell.Validar(
@@ -79,15 +88,47 @@ namespace ControlPCIA
                         "No se pudo iniciar PowerShell.");
                 }
 
-                Task<string> salidaTask =
-                    proceso.StandardOutput
-                        .ReadToEndAsync();
+                Task<string> salidaTask = LeerLimitadoAsync(
+                    proceso.StandardOutput,
+                    CaracteresMaximosSalida);
 
-                Task<string> errorTask =
-                    proceso.StandardError
-                        .ReadToEndAsync();
+                Task<string> errorTask = LeerLimitadoAsync(
+                    proceso.StandardError,
+                    CaracteresMaximosSalida);
 
-                await proceso.WaitForExitAsync();
+                using var limite =
+                    CancellationTokenSource.CreateLinkedTokenSource(
+                        cancellationToken);
+
+                limite.CancelAfter(TiempoMaximo);
+
+                try
+                {
+                    await proceso.WaitForExitAsync(limite.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    try
+                    {
+                        proceso.Kill(entireProcessTree: true);
+                    }
+                    catch
+                    {
+                        // El proceso puede haber terminado entre la espera
+                        // y el intento de cancelación.
+                    }
+
+                    await Task.WhenAll(salidaTask, errorTask);
+
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    return new(
+                        false,
+                        -1,
+                        (await salidaTask).Trim(),
+                        $"La consulta superó el límite de " +
+                        $"{TiempoMaximo.TotalSeconds:0} segundos.");
+                }
 
                 string salida =
                     await salidaTask;
@@ -101,6 +142,11 @@ namespace ControlPCIA
                     salida.Trim(),
                     error.Trim());
             }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 return new(
@@ -109,6 +155,48 @@ namespace ControlPCIA
                     "",
                     ex.Message);
             }
+        }
+
+        private static async Task<string> LeerLimitadoAsync(
+            StreamReader lector,
+            int limite)
+        {
+            var resultado = new StringBuilder(
+                Math.Min(limite, 4096));
+
+            char[] buffer = new char[4096];
+            bool recortado = false;
+
+            while (true)
+            {
+                int leidos = await lector.ReadAsync(buffer);
+
+                if (leidos == 0)
+                {
+                    break;
+                }
+
+                int disponibles = limite - resultado.Length;
+
+                if (disponibles > 0)
+                {
+                    int copiar = Math.Min(disponibles, leidos);
+                    resultado.Append(buffer, 0, copiar);
+                    recortado |= copiar < leidos;
+                }
+                else
+                {
+                    recortado = true;
+                }
+            }
+
+            if (recortado)
+            {
+                resultado.AppendLine();
+                resultado.Append("[Salida recortada por seguridad]");
+            }
+
+            return resultado.ToString();
         }
     }
 }

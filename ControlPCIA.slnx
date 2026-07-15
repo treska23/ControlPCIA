@@ -1,3 +1,5 @@
 <Solution>
   <Project Path="ControlPCIA/ControlPCIA.csproj" />
+  <Project Path="mobile/ControlPCIA.Mobile/ControlPCIA.Mobile.csproj" />
+  <Project Path="tests/ControlPCIA.Tests/ControlPCIA.Tests.csproj" />
 </Solution>

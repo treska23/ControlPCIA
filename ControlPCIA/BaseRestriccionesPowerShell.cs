@@ -89,6 +89,14 @@
         CMD|Save-Module
         CMD|Save-Script
 
+        # Familias que leen o escriben artefactos persistentes.
+        PREFIX|Export-
+        PREFIX|Import-
+        PREFIX|Install-
+        PREFIX|Uninstall-
+        PREFIX|Publish-
+        PREFIX|Save-
+
         CMD|robocopy
         CMD|xcopy
         CMD|mklink
@@ -323,6 +331,13 @@
         CMD|Set-Alias
         CMD|Remove-Alias
         CMD|Import-Alias
+
+        # Aliases predeterminados de los comandos de alias.
+        CMD|nal
+        CMD|sal
+        CMD|ral
+        CMD|ipal
+        CMD|epal
 
 
         # =========================================================
