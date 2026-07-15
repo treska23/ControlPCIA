@@ -1,6 +1,6 @@
-﻿using System.Net.Http.Json;
+﻿using System.Net.Http;
+using System.Net.Http.Json;
 using System.Text.Json;
-using System.Net.Http;
 
 namespace ControlPCIA
 {
@@ -9,148 +9,8 @@ namespace ControlPCIA
         private static readonly HttpClient Cliente =
             new();
 
-        private static readonly object[]
-            Herramientas =
-        {
-            new
-            {
-                type = "function",
-
-                function = new
-                {
-                    name =
-                        "iniciar_aplicacion",
-
-                    description =
-                        "Inicia una aplicación instalada " +
-                        "en Windows por su nombre. " +
-                        "No acepta rutas de archivos ni comandos.",
-
-                    parameters = new
-                    {
-                        type = "object",
-
-                        properties = new
-                        {
-                            nombre = new
-                            {
-                                type = "string",
-
-                                description =
-                                    "Nombre común de la " +
-                                    "aplicación que el " +
-                                    "usuario quiere iniciar."
-                            }
-                        },
-
-                        required = new[]
-                        {
-                            "nombre"
-                        }
-                    }
-                }
-            },
-            new
-            {
-                type = "function",
-
-                function = new
-                {
-                    name = "inspeccionar_ventana",
-
-                    description =
-                        "Observa los controles accesibles " +
-                        "de una ventana abierta mediante " +
-                        "Windows UI Automation. " +
-                        "No modifica nada.",
-
-                    parameters = new
-                    {
-                        type = "object",
-
-                        properties = new
-                        {
-                            nombre = new
-                            {
-                                type = "string",
-
-                                description =
-                                    "Nombre o parte del título " +
-                                    "de la ventana que se quiere inspeccionar."
-                            }
-                        },
-
-                        required = new[]
-                        {
-                            "nombre"
-                        }
-                    }
-                }
-            },
-            new
-            {
-                type = "function",
-
-                function = new
-                {
-                    name = "usar_control_ui",
-
-                    description =
-                        "Interactúa con un control de una ventana mediante " +
-                        "Windows UI Automation. " +
-                        "Acciones permitidas: establecer_valor, invocar, " +
-                        "seleccionar, alternar, expandir, contraer y confirmar.",
-
-                    parameters = new
-                    {
-                        type = "object",
-
-                        properties = new
-                        {
-                            ventana = new
-                            {
-                                type = "string",
-                                description =
-                                    "Nombre de la ventana."
-                            },
-
-                            control = new
-                            {
-                                type = "string",
-                                description =
-                                    "Nombre o AutomationId del control."
-                            },
-
-                            accion = new
-                            {
-                                type = "string",
-                                description =
-                                    "Acción: establecer_valor, invocar, " +
-                                    "seleccionar, alternar, expandir, contraer o confirmar."
-                            },
-
-                            valor = new
-                            {
-                                type = "string",
-                                description =
-                                    "Valor que debe establecerse cuando " +
-                                    "la acción sea establecer_valor."
-                            }
-                        },
-
-                        required = new[]
-                        {
-                            "ventana",
-                            "control",
-                            "accion"
-                        }
-                    }
-                }
-            }
-        };
-
         public static async Task ControlarAsync(
-    string instruccion)
+            string instruccion)
         {
             var ventanas =
                 ObservadorWindows
@@ -171,54 +31,68 @@ namespace ControlPCIA
                 role = "system",
 
                 content = """
-            Eres un agente que controla Windows
-            utilizando exclusivamente las herramientas
-            seguras disponibles.
+                    Eres un agente que controla un PC con Windows
+                    mediante PowerShell.
 
-            Debes realizar realmente la petición
-            del usuario.
+                    Debes realizar la petición real del usuario.
 
-            REGLAS:
+                    Puedes proponer el comando PowerShell que
+                    consideres más adecuado para realizar la tarea.
 
-            - No describas lo que habría que hacer.
-              Utiliza las herramientas.
+                    NO estás limitado a una lista de comandos
+                    indicada en este prompt.
 
-            - Si el usuario pide únicamente abrir
-              o iniciar una aplicación, utiliza
-              iniciar_aplicacion.
+                    El programa dispone de una capa de seguridad
+                    independiente que validará cada comando antes
+                    de ejecutarlo.
 
-            - Si el usuario pide realizar una acción
-              dentro de una aplicación que ya está abierta,
-              NO utilices iniciar_aplicacion innecesariamente.
+                    FUNCIONAMIENTO:
 
-            - Si conoces exactamente el nombre del control
-              que debes utilizar, puedes usar directamente
-              usar_control_ui.
+                    - Genera UN comando PowerShell por paso.
+                    - Devuelve únicamente el comando.
+                    - No uses Markdown.
+                    - No expliques el comando.
+                    - Después recibirás el resultado real de su
+                      ejecución y podrás decidir el siguiente paso.
+                    - Si un comando es bloqueado, utiliza la
+                      información recibida para buscar otra forma
+                      segura de realizar la petición.
+                    - No intentes eludir deliberadamente un bloqueo
+                      de seguridad.
+                    - Cuando la petición esté completamente
+                      realizada, responde exactamente:
 
-            - Si necesitas saber qué controles existen
-              dentro de una ventana, utiliza primero
-              inspeccionar_ventana.
+                      FIN
 
-            - Después de recibir el resultado de una
-              herramienta, decide si necesitas realizar
-              otro paso para completar la petición.
+                    - Si no existe ninguna forma de realizarla,
+                      responde exactamente:
 
-            - Cuando la petición esté completamente
-              realizada, no utilices más herramientas.
+                      SIN_COMANDO
 
-            - Nunca inventes acciones adicionales.
+                    El sistema no permite manipular archivos,
+                    modificar el registro ni realizar operaciones
+                    administrativas sensibles.
 
-            - No puedes manipular archivos.
+                    - Nunca inventes ni adivines rutas de instalación.
 
-            - No puedes usar PowerShell, CMD ni scripts.
+                    - Si una aplicación no puede iniciarse directamente
+                      mediante Start-Process, no pruebes distintas carpetas
+                      Program Files al azar.
 
-            - No puedes modificar el registro.
+                    - Si conoces un protocolo URI registrado para la aplicación,
+                      puedes utilizarlo con Start-Process.
 
-            - No puedes ejecutar rutas arbitrarias.
+                    - Si no conoces cómo iniciar una aplicación instalada,
+                      consulta primero Windows mediante Get-StartApps para
+                      obtener su nombre y AppID reales.
 
-            - Solo puedes utilizar las capacidades
-              explícitamente disponibles.
-            """
+                    - Cuando un comando falle, analiza el error y cambia de
+                      estrategia. No repitas el mismo comando cambiando rutas
+                      inventadas.
+
+                    - Un comando con código de salida distinto de 0 NO significa
+                      que la petición se haya completado.
+                    """
             });
 
             mensajes.Add(new
@@ -226,14 +100,16 @@ namespace ControlPCIA
                 role = "user",
 
                 content = $"""
-            PETICIÓN:
+                    PETICIÓN DEL USUARIO:
 
-            {instruccion}
+                    {instruccion}
 
-            VENTANAS VISIBLES:
+                    VENTANAS VISIBLES:
 
-            {estadoWindows}
-            """
+                    {estadoWindows}
+
+                    Decide el primer paso necesario.
+                    """
             });
 
             const int maximoPasos = 6;
@@ -248,134 +124,233 @@ namespace ControlPCIA
 
                     messages = mensajes,
 
-                    tools = Herramientas,
-
                     stream = false,
 
                     think = false
                 };
 
-                var respuesta =
-                    await Cliente.PostAsJsonAsync(
-                        "http://localhost:11434/api/chat",
-                        peticion);
-
-                respuesta.EnsureSuccessStatusCode();
-
-                string contenido =
-                    await respuesta.Content
-                        .ReadAsStringAsync();
-
-                using var json =
-                    JsonDocument.Parse(contenido);
-
-                var mensaje =
-                    json.RootElement
-                        .GetProperty("message");
-
-                mensajes.Add(
-                    mensaje.Clone());
-
-                if (!mensaje.TryGetProperty(
-                        "tool_calls",
-                        out var toolCalls)
-                    ||
-                    toolCalls.GetArrayLength() == 0)
+                try
                 {
-                    string respuestaFinal = "";
+                    var respuesta =
+                        await Cliente.PostAsJsonAsync(
+                            "http://localhost:11434/api/chat",
+                            peticion);
 
-                    if (mensaje.TryGetProperty(
-                            "content",
-                            out var contentJson))
+                    respuesta.EnsureSuccessStatusCode();
+
+                    string contenido =
+                        await respuesta.Content
+                            .ReadAsStringAsync();
+
+                    using var json =
+                        JsonDocument.Parse(
+                            contenido);
+
+                    string comando =
+                        json.RootElement
+                            .GetProperty("message")
+                            .GetProperty("content")
+                            .GetString() ?? "";
+
+                    comando =
+                        LimpiarComando(
+                            comando);
+
+                    if (comando.Equals(
+                            "FIN",
+                            StringComparison.OrdinalIgnoreCase))
                     {
-                        respuestaFinal =
-                            contentJson.GetString() ?? "";
+                        Console.WriteLine();
+                        Console.WriteLine(
+                            "PETICIÓN COMPLETADA.");
+
+                        return;
+                    }
+
+                    if (comando.Equals(
+                            "SIN_COMANDO",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        Console.WriteLine();
+                        Console.WriteLine(
+                            "No se encontró una forma permitida " +
+                            "de realizar la petición.");
+
+                        return;
                     }
 
                     Console.WriteLine();
                     Console.WriteLine(
-                        "PETICIÓN COMPLETADA:");
+                        "COMANDO PROPUESTO:");
 
                     Console.WriteLine(
-                        respuestaFinal);
+                        comando);
 
-                    return;
-                }
+                    ResultadoEjecucionPowerShell resultado =
+                        await EjecutorPowerShell
+                            .EjecutarAsync(
+                                comando);
 
-                foreach (var toolCall
-                         in toolCalls.EnumerateArray())
-                {
-                    var funcion =
-                        toolCall.GetProperty(
-                            "function");
+                    string informacionResultado;
 
-                    string nombre =
-                        funcion
-                            .GetProperty("name")
-                            .GetString() ?? "";
-
-                    var argumentos =
-                        funcion.GetProperty(
-                            "arguments");
-
-                    Console.WriteLine();
-                    Console.WriteLine(
-                        "CAPACIDAD ELEGIDA:");
-
-                    Console.WriteLine(nombre);
-
-                    string resultado =
-                        await EjecutorWindows
-                            .EjecutarHerramientaAsync(
-                                nombre,
-                                argumentos);
-
-                    Console.WriteLine(resultado);
-
-                    string resultadoCompleto =
-                        resultado;
-
-                    // Si acabamos de interactuar con una ventana,
-                    // volvemos a observar su estado actualizado.
-                    if (nombre == "usar_control_ui"
-                        &&
-                        argumentos.TryGetProperty(
-                            "ventana",
-                            out var ventanaJson))
+                    if (!resultado.Ejecutado)
                     {
-                        string nombreVentana =
-                            ventanaJson.GetString() ?? "";
+                        Console.WriteLine();
+                        Console.WriteLine(
+                            resultado.Error);
 
-                        await Task.Delay(500);
+                        informacionResultado =
+                        $"""
+                        EL COMANDO SE EJECUTÓ PERO FALLÓ.
 
-                        string controlesActualizados =
-                            ObservadorUIWindows
-                                .ObtenerControles(
-                                    nombreVentana);
+                        Código de salida:
+                        {resultado.CodigoSalida}
 
-                        resultadoCompleto +=
-                            Environment.NewLine +
-                            Environment.NewLine +
-                            "ESTADO ACTUALIZADO DE LA INTERFAZ:" +
-                            Environment.NewLine +
-                            controlesActualizados;
+                        Error:
+                        {LimitarTexto(resultado.Error)}
+
+                        La petición original NO está completada.
+
+                        No inventes rutas de instalación.
+                        No repitas la misma estrategia cambiando carpetas al azar.
+
+                        Consulta el sistema si necesitas descubrir
+                        cómo está registrada la aplicación y después
+                        intenta otra estrategia.
+                        """;
+                    }
+                    else
+                    {
+                        Console.WriteLine();
+                        Console.WriteLine(
+                            "COMANDO EJECUTADO");
+
+                        Console.WriteLine(
+                            $"Código de salida: " +
+                            $"{resultado.CodigoSalida}");
+
+                        if (!string.IsNullOrWhiteSpace(
+                                resultado.Salida))
+                        {
+                            Console.WriteLine();
+                            Console.WriteLine(
+                                "RESULTADO:");
+
+                            Console.WriteLine(
+                                resultado.Salida);
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(
+                                resultado.Error))
+                        {
+                            Console.WriteLine();
+                            Console.WriteLine(
+                                "ERROR DE POWERSHELL:");
+
+                            Console.WriteLine(
+                                resultado.Error);
+                        }
+
+                        informacionResultado =
+                            $"""
+                            RESULTADO DEL COMANDO:
+
+                            Código de salida:
+                            {resultado.CodigoSalida}
+
+                            Salida:
+                            {LimitarTexto(resultado.Salida)}
+
+                            Error:
+                            {LimitarTexto(resultado.Error)}
+
+                            Decide si la petición original ya está
+                            completada o si necesitas ejecutar otro
+                            comando.
+                            """;
                     }
 
                     mensajes.Add(new
                     {
-                        role = "tool",
+                        role = "assistant",
 
-                        tool_name = nombre,
-
-                        content = resultadoCompleto
+                        content = comando
                     });
 
-                    await Task.Delay(300);
+                    mensajes.Add(new
+                    {
+                        role = "user",
+
+                        content =
+                            informacionResultado
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine(
+                        "ERROR:");
+
+                    Console.WriteLine(
+                        ex.Message);
+
+                    return;
                 }
             }
+
             Console.WriteLine();
             Console.WriteLine(
                 "El agente alcanzó el límite de pasos.");
+        }
+
+        private static string LimpiarComando(
+            string respuesta)
+        {
+            string resultado =
+                respuesta.Trim();
+
+            if (resultado.StartsWith(
+                    "```powershell",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                resultado =
+                    resultado[
+                        "```powershell".Length..];
+            }
+            else if (resultado.StartsWith(
+                         "```",
+                         StringComparison.OrdinalIgnoreCase))
+            {
+                resultado =
+                    resultado[3..];
+            }
+
+            if (resultado.EndsWith(
+                    "```",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                resultado =
+                    resultado[..^3];
+            }
+
+            return resultado.Trim();
+        }
+
+        private static string LimitarTexto(
+            string texto)
+        {
+            const int limite = 6000;
+
+            if (string.IsNullOrEmpty(texto)
+                ||
+                texto.Length <= limite)
+            {
+                return texto;
+            }
+
+            return texto[..limite] +
+                   Environment.NewLine +
+                   "[Salida recortada]";
         }
     }
 }
