@@ -4,9 +4,9 @@
 
 ## Objetivo
 
-Crear una aplicación para controlar Windows mediante lenguaje natural. El usuario podrá dar órdenes habladas o escritas y un modelo local ejecutado con Ollama interpretará la intención y actuará sobre el PC.
+Crear una aplicación para controlar Windows mediante lenguaje natural. El usuario da una orden hablada o escrita y un modelo local ejecutado con Ollama interpreta la intención y actúa sobre el PC.
 
-Ejemplos de órdenes objetivo:
+Ejemplos objetivo:
 
 - "Abre Spotify y busca Radiohead"
 - "Baja el volumen al 30 %"
@@ -17,142 +17,209 @@ Ejemplos de órdenes objetivo:
 
 La frase natural del usuario es la orden.
 
-La dirección actual del proyecto cambia respecto a la arquitectura anterior basada principalmente en tool calling y UI Automation.
+La ruta principal ha cambiado respecto al enfoque inicial basado en tool calling y UI Automation.
 
-La nueva ruta principal será:
+Flujo actual:
 
 ```text
-Entrada de voz o texto
+Entrada de texto o voz
 → frase natural
 → Ollama / Qwen interpreta la intención
-→ genera uno o varios comandos reales de PowerShell
-→ ValidadorPowerShell local y determinista
-→ si el comando es seguro, EjecutorPowerShell lo ejecuta
+→ Qwen propone un comando PowerShell por paso
+→ ValidadorPowerShell comprueba localmente las restricciones
+→ si no coincide con una operación restringida, EjecutorPowerShell lo ejecuta
 → se recoge stdout / stderr / código de salida
-→ solo se vuelve a consultar a la IA si hace falta continuar
+→ Qwen recibe el resultado y decide si necesita otro paso
+→ FIN cuando la petición está completada
 ```
 
-La validación de seguridad NO debe usar otra IA ni llamadas externas. Debe ejecutarse localmente y ser prácticamente instantánea.
+La validación de seguridad es local, determinista y rápida. No se consulta otra IA para validar comandos.
 
-## Seguridad
+Qwen NO está limitado por una lista blanca de comandos permitidos. Debe poder razonar libremente y elegir la forma adecuada de controlar Windows. La seguridad se aplica después mediante una base de restricciones.
 
-PowerShell se usará como vía principal de actuación, pero Qwen no tendrá acceso libre al sistema.
+## Seguridad: enfoque actual
 
-Antes de ejecutar cualquier comando:
+Se eliminó el enfoque de `ComandosPermitidos`, porque impedía a Qwen realizar acciones normales como `Start-Process notepad`.
 
-1. Se analiza localmente.
-2. Se extraen los cmdlets/comandos utilizados.
-3. Se resuelven alias cuando sea necesario.
-4. Se validan comandos y argumentos contra una política de seguridad.
-5. Se bloquea cualquier operación sensible.
+El principio actual es:
 
-La política debe ser principalmente de lista blanca, complementada con bloqueos explícitos.
+```text
+Qwen propone libremente un comando
+→ ¿coincide con una operación restringida?
+    ├─ SÍ → bloquear, no ejecutar
+    └─ NO → ejecutar
+```
 
-### Debe bloquearse
+La política se guarda en `BaseRestriccionesPowerShell.cs` como una cadena de datos con reglas de varios tipos:
 
-- Lectura, escritura, creación, copia, movimiento, renombrado o borrado de archivos.
-- Acceso arbitrario a rutas locales.
-- Registro de Windows.
-- Descargas y acceso de red no autorizado.
-- Instalación de programas.
-- Cambios de permisos.
-- Elevación a administrador.
-- Ejecución de scripts arbitrarios.
-- Invoke-Expression o ejecución dinámica equivalente.
-- Lanzar PowerShell o CMD anidados para saltarse el validador.
-- Cualquier otro mecanismo que permita escapar de la política.
+- `CMD`: comandos completamente bloqueados.
+- `PREFIX`: familias de comandos bloqueadas.
+- `ARG`: argumentos concretos prohibidos para determinados comandos.
+- `TARGET`: destinos que no se pueden iniciar mediante `Start-Process`.
+- `TEXT`: fragmentos de texto asociados a mecanismos sensibles.
+- `SYNTAX`: sintaxis restringida, como redirecciones que puedan escribir archivos.
 
-### Puede permitirse gradualmente
+`ValidadorPowerShell.cs` carga esta base una sola vez y la transforma en colecciones en memoria para que cada comprobación sea rápida.
 
-- Consulta y control seguro de procesos.
-- Abrir aplicaciones bajo condiciones validadas.
-- Activar, restaurar, minimizar o maximizar ventanas.
-- Control de audio y multimedia.
-- Otras operaciones de Windows que no impliquen archivos ni zonas sensibles.
+### Restricciones principales actuales
 
-## Componentes que ya existen y se conservan
+La intención es impedir principalmente:
+
+- Borrar archivos o carpetas.
+- Crear archivos o carpetas.
+- Modificar, copiar, mover o renombrar archivos.
+- Escribir contenido en archivos.
+- Acceso destructivo a discos, particiones o volúmenes.
+- Modificar el registro de Windows.
+- Cambiar permisos y propiedad.
+- Modificar usuarios y grupos del sistema.
+- Modificar servicios o tareas programadas.
+- Cambios sensibles de red, firewall o Defender.
+- Cambios críticos de configuración del sistema.
+- Ejecución dinámica destinada a saltarse el validador.
+- Lanzar PowerShell, CMD u otros intérpretes anidados para evitar las restricciones.
+- Elevación mediante mecanismos restringidos como `-Verb RunAs`.
+
+La base incluye también aliases conocidos de operaciones peligrosas, por ejemplo variantes de `Remove-Item` como `rm`.
+
+Esta barrera todavía debe seguir revisándose y ampliándose según aparezcan casos reales. Para una versión futura más robusta se contempla usar el parser oficial de PowerShell para analizar la estructura del comando antes de ejecutarlo.
+
+## Componentes actuales
 
 - `Program.cs`: entrada actual por texto.
-- `ControlWindows.cs`: orquestación con Ollama; debe migrarse desde tool calling hacia generación de comandos.
+- `ControlWindows.cs`: orquesta la conversación con Ollama/Qwen y el bucle de ejecución.
+- `EjecutorPowerShell.cs`: ejecuta PowerShell sin ventana después de pasar siempre por `ValidadorPowerShell`.
+- `ValidadorPowerShell.cs`: valida restricciones localmente antes de ejecutar.
+- `BaseRestriccionesPowerShell.cs`: base de datos textual de operaciones restringidas.
 - `ObservadorWindows.cs`: enumera ventanas visibles y detecta la ventana activa.
-- `ObservadorUIWindows.cs`: inspección mediante Windows UI Automation.
-- `AplicacionesWindows.cs`: abre aplicaciones instaladas y trae al frente una ya abierta.
-- `EjecutorWindows.cs`: capa actual de herramientas; se irá sustituyendo o integrando con la nueva vía de PowerShell.
-- `EjecutorInterfazWindows.cs`: teclado como mecanismo de respaldo.
-- `InteraccionUIWindows.cs`: si existe en local, debe conservarse como fallback para acciones que PowerShell no pueda resolver bien.
+- `ObservadorUIWindows.cs`: inspecciona controles mediante Windows UI Automation.
+- `AplicacionesWindows.cs`: capacidad anterior para abrir aplicaciones instaladas y traer al frente una ya abierta.
+- `EjecutorWindows.cs`: capa anterior de tool calling; se conserva por ahora.
+- `EjecutorInterfazWindows.cs`: entrada de teclado como mecanismo de respaldo.
+- `InteraccionUIWindows.cs`: interacción genérica con controles mediante UI Automation y fallback de teclado.
 
-UI Automation, teclado y ratón pasan a ser mecanismos secundarios o de respaldo, no la vía principal.
+UI Automation, teclado y ratón quedan como mecanismos secundarios o fallback cuando PowerShell no sea suficiente.
 
-## Estado probado
+## Estado actual de ControlWindows
 
-Ya se ha validado que:
+`ControlWindows` ya no obliga a Qwen a elegir entre una lista cerrada de comandos PowerShell.
 
-- Ollama recibe una orden natural.
-- Qwen interpreta correctamente órdenes como `abre spotify`.
-- `AplicacionesWindows` puede abrir Spotify directamente sin mostrar el menú Inicio.
-- Si Spotify ya está abierto, puede restaurarlo y traerlo al frente.
-- `ObservadorWindows` enumera ventanas visibles.
-- `ObservadorUIWindows` puede inspeccionar controles accesibles de Spotify.
+Qwen puede proponer un comando por paso. Cada comando pasa obligatoriamente por `EjecutorPowerShell`, que a su vez llama a `ValidadorPowerShell` antes de ejecutarlo.
 
-## Nueva necesidad: memoria local de comandos / recetas
+Si un comando es bloqueado, Qwen recibe el motivo y puede intentar otra estrategia segura.
 
-La vía de PowerShell no garantiza que el modelo conozca de inmediato la mejor forma de realizar cualquier acción sobre cualquier aplicación o parte de Windows.
+Si un comando se ejecuta pero falla, Qwen recibe el código de salida y el error. Se añadieron instrucciones para que no invente rutas de instalación ni repita rutas de `Program Files` al azar, sino que cambie de estrategia o consulte Windows cuando necesite descubrir cómo está registrada una aplicación.
 
-Para evitar que el usuario tenga que esperar cada vez a que la IA vuelva a descubrir cómo hacer una operación, ControlPCIA debe tener una memoria local persistente de comandos o recetas ya resueltas y validadas.
+Existe un límite de pasos para evitar bucles indefinidos.
 
-La idea es:
+## Pruebas validadas
+
+### 1. Abrir Bloc de notas
+
+Entrada:
+
+```text
+abre el bloc de notas
+```
+
+Qwen propuso:
+
+```powershell
+Start-Process notepad
+```
+
+Resultado:
+
+- El comando pasó el validador.
+- PowerShell devolvió código 0.
+- El Bloc de notas se abrió correctamente.
+- La petición terminó con `FIN`.
+
+Esto valida que Qwen puede traducir un nombre humano de aplicación a una forma ejecutable sin que el usuario conozca `notepad`.
+
+### 2. Abrir Spotify
+
+Inicialmente Qwen intentó rutas inventadas de `Program Files` mediante `-WorkingDirectory`, que fallaron.
+
+Se corrigió el prompt para que:
+
+- Nunca invente rutas de instalación.
+- No pruebe carpetas al azar.
+- Analice el error y cambie de estrategia.
+- Consulte Windows cuando necesite descubrir cómo está registrada una aplicación.
+
+Después de ese cambio, la orden para abrir Spotify quedó funcionando correctamente.
+
+### 3. Bloquear borrado de archivos
+
+Entrada de prueba:
+
+```text
+borra C:\prueba.txt
+```
+
+Qwen propuso una operación `Remove-Item`.
+
+Resultado:
+
+```text
+BLOQUEADO: El comando 'Remove-Item' está bloqueado por la política de seguridad.
+```
+
+El archivo no se borra y el agente termina indicando que no encontró una forma permitida de realizar la petición.
+
+Esto valida la idea central actual:
+
+```text
+la IA puede razonar libremente
+→ la capa de restricciones impide operaciones prohibidas
+```
+
+## Memoria local de comandos / recetas
+
+Sigue pendiente implementar una memoria local persistente para no obligar a Qwen a redescubrir soluciones que ya funcionaron.
+
+Flujo previsto:
 
 ```text
 Petición del usuario
-→ ¿existe una receta conocida y validada para esta intención/contexto?
-    ├─ SÍ → reutilizarla inmediatamente
-    └─ NO → pedir a la IA que proponga la solución
+→ ¿existe receta conocida para esta intención/contexto?
+    ├─ SÍ → volver a validar → ejecutar directamente
+    └─ NO → Qwen propone solución
              → validar
              → ejecutar
-             → si funciona, guardar la receta para futuras veces
+             → si funciona, guardar receta
 ```
 
-Esta memoria debe almacenar solo soluciones que hayan sido validadas por la política de seguridad.
+Una receta guardada SIEMPRE debe volver a pasar por `ValidadorPowerShell` antes de ejecutarse, para que cambios futuros en la política de seguridad se apliquen también a recetas antiguas.
 
-No debe guardar comandos peligrosos ni saltarse nunca `ValidadorPowerShell`.
+Implementación sugerida:
 
-Una receta guardada también debe volver a pasar por validación antes de ejecutarse, para que cambios futuros en la política de seguridad se apliquen automáticamente.
+- SQLite como almacenamiento persistente.
+- Caché en memoria para recetas frecuentes.
+- Guardar intención normalizada, contexto/aplicación, comando o secuencia, número de ejecuciones correctas y último resultado conocido.
 
-### Posibles datos a guardar por receta
-
-- Intención normalizada.
-- Contexto o aplicación objetivo.
-- Comando o secuencia de comandos.
-- Fecha de última validación.
-- Número de ejecuciones correctas.
-- Último resultado conocido.
-- Versión o huella del entorno relevante si hiciera falta.
-
-### Implementación sugerida
-
-Empezar con una base local sencilla, probablemente SQLite, para poder buscar recetas rápidamente sin cargar archivos completos ni consultar a la IA.
-
-También conviene mantener una caché en memoria de las recetas más usadas durante la ejecución de la aplicación.
-
-La prioridad será siempre:
+Prioridad prevista:
 
 ```text
-receta local validada y conocida
-→ comando PowerShell directo y seguro
+receta local conocida
+→ PowerShell validado
 → UI Automation
 → teclado/ratón como último recurso
 ```
 
-## Siguiente plan de trabajo
+## Siguiente punto de trabajo
 
-1. Asegurar que todos los últimos cambios locales están realmente subidos a GitHub.
-2. Crear `ValidadorPowerShell.cs`.
-3. Crear `EjecutorPowerShell.cs`.
-4. Modificar `ControlWindows.cs` para que Qwen genere comandos PowerShell en lugar de tool calls.
-5. Probar una lista inicial muy pequeña de comandos seguros.
-6. Verificar que comandos de archivos, registro, red y administración se bloquean de forma instantánea.
-7. Añadir la memoria local de recetas/comandos validados.
-8. Mantener UI Automation y entrada de teclado como fallback.
+Al retomar el proyecto:
+
+1. Subir todos los cambios locales actuales a GitHub.
+2. Revisar que `BaseRestriccionesPowerShell.cs`, `ValidadorPowerShell.cs`, `EjecutorPowerShell.cs` y el nuevo `ControlWindows.cs` estén en el repositorio.
+3. Añadir la memoria local de recetas/comandos validados.
+4. Probar varias aplicaciones además de Bloc de notas y Spotify.
+5. Probar órdenes normales de Windows: ventanas, volumen y multimedia.
+6. Revisar falsos positivos y posibles vías de evasión de la base de restricciones.
+7. Más adelante sustituir o reforzar el análisis textual con el parser oficial de PowerShell.
+8. Mantener UI Automation como fallback para operaciones que PowerShell no pueda resolver.
 9. Cuando el control por texto sea sólido, añadir entrada por voz.
 
 ## Regla de continuidad
