@@ -116,7 +116,7 @@ La capa de UI bloquea consolas, exploradores de archivos, credenciales, herramie
 
 Al iniciar el servidor por primera vez, ControlPCIA registra su propio arranque para el usuario actual. En los siguientes inicios de sesión se ejecuta con `--servidor --oculto`: no deja una consola abierta, mantiene el servidor móvil y el descubrimiento UDP activos y muestra únicamente un icono en la bandeja del sistema.
 
-Desde ese icono se puede abrir la página local, mostrar u ocultar la consola, activar o desactivar «Iniciar con Windows» y cerrar el agente. También existen estas opciones explícitas:
+Desde ese icono se puede ver el código para emparejar un móvil nuevo, abrir la página local, mostrar u ocultar la consola, activar o desactivar «Iniciar con Windows» y cerrar el agente. También existen estas opciones explícitas:
 
 ```powershell
 ControlPCIA.exe --activar-inicio
@@ -154,7 +154,7 @@ La barrera de seguridad se aplica después del modelo y no depende de que Llama 
 - La automatización de aplicaciones sólo admite las primitivas `ControlPCIA.exe ui` validadas; comprueba tanto el selector pedido como el nombre real del control antes de actuar.
 - Cada proceso PowerShell tiene 20 segundos de límite, salida acotada y terminación del árbol completo si vence el tiempo.
 
-El acceso móvil añade código de emparejado, token aleatorio de sesión, caducidad, límite de intentos, restricción a direcciones privadas, cabeceras de seguridad y una sola orden simultánea. Ollama sólo escucha para ControlPCIA en `127.0.0.1`.
+El acceso móvil añade código de emparejado, token aleatorio de sesión, caducidad, límite de intentos, restricción a direcciones privadas, cabeceras de seguridad y una sola orden simultánea. El móvil conserva el token real en `SecureStorage`; el PC guarda únicamente su hash y caducidad durante 90 días, renovables con el uso, para que el emparejado sobreviva a los reinicios. Ollama sólo escucha para ControlPCIA en `127.0.0.1`.
 
 La conexión móvil actual usa HTTP dentro de la LAN. Debe utilizarse sólo en una red doméstica o privada de confianza y nunca exponerse directamente a Internet. Ninguna automatización de escritorio puede garantizar matemáticamente que una aplicación externa no tenga efectos indirectos; la política reduce las vías conocidas y debe seguir ampliándose cuando aparezcan casos nuevos.
 

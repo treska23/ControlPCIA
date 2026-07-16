@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -14,6 +15,10 @@ namespace ControlPCIA;
 
 internal sealed record SolicitudEmparejado(string? Codigo);
 internal sealed record SolicitudOrden(string? Texto);
+internal sealed record EstadoInicioServidor(
+    int Puerto,
+    string CodigoEmparejado,
+    EstadoOllama Diagnostico);
 
 internal static class ServidorMovil
 {
@@ -22,7 +27,8 @@ internal static class ServidorMovil
     private const int LongitudMaximaPeticion = 4096;
 
     public static async Task IniciarAsync(
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action<EstadoInicioServidor>? alIniciar = null)
     {
         int puerto = ObtenerPuerto();
         var seguridad = new SeguridadMovil();
@@ -301,6 +307,11 @@ internal static class ServidorMovil
             puerto,
             seguridad.Codigo,
             diagnostico);
+        alIniciar?.Invoke(
+            new EstadoInicioServidor(
+                puerto,
+                seguridad.Codigo,
+                diagnostico));
 
         using var cancelacionDescubrimiento =
             CancellationTokenSource.CreateLinkedTokenSource(
@@ -464,31 +475,44 @@ internal static class ServidorMovil
             .Replace('/', '_');
     }
 
-    private enum EstadoEmparejado
+    internal enum EstadoEmparejado
     {
         Correcto,
         Incorrecto,
         Limitado
     }
 
-    private sealed record ResultadoEmparejado(
+    internal sealed record ResultadoEmparejado(
         EstadoEmparejado Estado,
         string Mensaje,
         string? Token = null);
 
-    private sealed class SeguridadMovil
+    internal sealed class SeguridadMovil
     {
         private static readonly TimeSpan DuracionSesion =
-            TimeSpan.FromHours(12);
+            TimeSpan.FromDays(90);
+        private static readonly TimeSpan RenovarAntes =
+            TimeSpan.FromDays(30);
 
         private readonly ConcurrentDictionary<string, DateTimeOffset>
             _sesiones = new(StringComparer.Ordinal);
 
         private readonly ConcurrentDictionary<string, VentanaIntentos>
             _intentos = new(StringComparer.OrdinalIgnoreCase);
+        private readonly AlmacenSesionesMoviles _almacen;
 
-        public SeguridadMovil()
+        public SeguridadMovil(
+            AlmacenSesionesMoviles? almacen = null)
         {
+            _almacen = almacen
+                ?? AlmacenSesionesMoviles.Predeterminado;
+
+            foreach ((string hash, DateTimeOffset caducidad)
+                     in _almacen.Cargar())
+            {
+                _sesiones[hash] = caducidad;
+            }
+
             Codigo = RandomNumberGenerator
                 .GetInt32(100_000, 1_000_000)
                 .ToString();
@@ -527,6 +551,7 @@ internal static class ServidorMovil
 
             _sesiones[hash] =
                 DateTimeOffset.UtcNow.Add(DuracionSesion);
+            PersistirSesiones();
 
             return new ResultadoEmparejado(
                 EstadoEmparejado.Correcto,
@@ -565,7 +590,15 @@ internal static class ServidorMovil
             if (caducidad <= DateTimeOffset.UtcNow)
             {
                 _sesiones.TryRemove(hash, out _);
+                PersistirSesiones();
                 return false;
+            }
+
+            if (caducidad - DateTimeOffset.UtcNow <= RenovarAntes)
+            {
+                _sesiones[hash] =
+                    DateTimeOffset.UtcNow.Add(DuracionSesion);
+                PersistirSesiones();
             }
 
             return true;
@@ -586,13 +619,34 @@ internal static class ServidorMovil
         private void LimpiarSesionesCaducadas()
         {
             DateTimeOffset ahora = DateTimeOffset.UtcNow;
+            bool cambio = false;
 
             foreach ((string hash, DateTimeOffset caducidad) in _sesiones)
             {
                 if (caducidad <= ahora)
                 {
-                    _sesiones.TryRemove(hash, out _);
+                    cambio |= _sesiones.TryRemove(hash, out _);
                 }
+            }
+
+            if (cambio)
+            {
+                PersistirSesiones();
+            }
+        }
+
+        private void PersistirSesiones()
+        {
+            try
+            {
+                _almacen.Guardar(_sesiones);
+            }
+            catch (Exception ex) when (
+                ex is IOException
+                or UnauthorizedAccessException)
+            {
+                // La sesión actual sigue siendo válida aunque Windows no permita
+                // conservarla para el siguiente reinicio.
             }
         }
 

@@ -87,7 +87,9 @@ if (args.Length == 0
 
     try
     {
-        await ServidorMovil.IniciarAsync(cancelacion.Token);
+        await ServidorMovil.IniciarAsync(
+            cancelacion.Token,
+            bandeja.ActualizarEstado);
     }
     catch (OperationCanceledException)
         when (cancelacion.IsCancellationRequested)

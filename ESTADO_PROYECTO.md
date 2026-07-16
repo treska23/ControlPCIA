@@ -54,7 +54,7 @@ Protecciones implementadas:
 
 - Sólo loopback, redes RFC1918, link-local o IPv6 ULA.
 - Código aleatorio de seis cifras y máximo de intentos por dirección.
-- Token de sesión aleatorio almacenado en memoria como hash y con 12 horas de caducidad.
+- Token de sesión aleatorio: el móvil conserva el valor real en `SecureStorage` y el PC sólo persiste su hash con 90 días de caducidad renovable.
 - Bearer token; no se usan cookies ni CORS.
 - Content Security Policy con nonce y demás cabeceras de seguridad.
 - Una sola orden activa; una segunda recibe HTTP 409.
@@ -81,12 +81,12 @@ La capa vuelve a comprobar la ventana y el control reales en el momento de ejecu
 
 ## Ejecución residente
 
-El servidor configura una vez el inicio por usuario en `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` y conserva una preferencia separada para respetar una desactivación posterior. Windows lo inicia con `--servidor --oculto`. Un mutex impide servidores duplicados y la bandeja permite abrir la página local, mostrar la consola, cambiar el inicio automático o salir. Estas operaciones pertenecen al código de confianza y no son invocables desde los comandos de Llama.
+El servidor configura una vez el inicio por usuario en `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` y conserva una preferencia separada para respetar una desactivación posterior. Windows lo inicia con `--servidor --oculto`. Un mutex impide servidores duplicados y la bandeja muestra el código de emparejado y permite abrir la página local, mostrar la consola, cambiar el inicio automático o salir. Estas operaciones pertenecen al código de confianza y no son invocables desde los comandos de Llama.
 
 ## Verificaciones realizadas
 
 - Compilación Debug sin errores ni advertencias.
-- 165 pruebas automatizadas correctas en Release.
+- 166 pruebas automatizadas correctas en Release.
 - Diagnóstico real de Ollama y `qwen3:8b` correcto.
 - Orden directa «abre la calculadora» → `Start-Process calc.exe` → código 0 → `FIN`.
 - Web móvil comprobada a 390 × 844 píxeles.
@@ -100,6 +100,7 @@ El servidor configura una vez el inicio por usuario en `HKCU\Software\Microsoft\
 - Escritorio real: se enumeraron ventanas, se inspeccionó una pestaña vacía de Bloc de notas y se cerró únicamente mediante `id:Close`, conservando otra pestaña existente.
 - Llama eligió y ejecutó por sí sola `ControlPCIA.exe ui inspect "ChatGPT" 4`, recibió el árbol real y terminó en `FIN`.
 - Modo residente probado en puerto 5190: proceso sin ventana, servidor HTTP 200 y cierre limpio del PID temporal sin registrar el inicio durante la prueba.
+- Persistencia de emparejado comprobada creando una sesión, reiniciando `SeguridadMovil` y autorizando el mismo token; el archivo contiene sólo el hash y la caducidad, nunca el token real.
 
 ## Rediseño móvil completado
 

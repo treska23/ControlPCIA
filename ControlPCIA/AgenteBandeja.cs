@@ -14,6 +14,9 @@ internal sealed class AgenteBandeja : IDisposable
     private readonly ManualResetEventSlim _preparado = new(false);
     private readonly Thread _hilo;
     private Forms.NotifyIcon? _icono;
+    private Forms.Control? _invocador;
+    private Forms.ToolStripMenuItem? _estado;
+    private Forms.ToolStripMenuItem? _codigoEmparejado;
     private Forms.ToolStripMenuItem? _alternarConsola;
     private Forms.ToolStripMenuItem? _inicioWindows;
     private bool _consolaVisible;
@@ -46,9 +49,7 @@ internal sealed class AgenteBandeja : IDisposable
         {
             try
             {
-                Forms.ContextMenuStrip? menu =
-                    _icono?.ContextMenuStrip;
-                menu?.BeginInvoke(
+                _invocador?.BeginInvoke(
                     (Action)(() => Forms.Application.ExitThread()));
                 _hilo.Join(TimeSpan.FromSeconds(2));
             }
@@ -60,10 +61,41 @@ internal sealed class AgenteBandeja : IDisposable
         _preparado.Dispose();
     }
 
+    public void ActualizarEstado(EstadoInicioServidor estado)
+    {
+        if (_invocador is null)
+        {
+            return;
+        }
+
+        _invocador.BeginInvoke((Action)(() =>
+        {
+            if (_estado is not null)
+            {
+                _estado.Text =
+                    $"ControlPCIA activo · puerto {estado.Puerto}";
+            }
+
+            if (_codigoEmparejado is not null)
+            {
+                _codigoEmparejado.Text =
+                    $"Código para móvil: {estado.CodigoEmparejado}";
+            }
+
+            _icono?.ShowBalloonTip(
+                4_000,
+                "ControlPCIA está activo",
+                $"Código para emparejar un móvil nuevo: {estado.CodigoEmparejado}",
+                Forms.ToolTipIcon.Info);
+        }));
+    }
+
     private void EjecutarBandeja()
     {
         try
         {
+            _invocador = new Forms.Control();
+            _invocador.CreateControl();
             _icono = new Forms.NotifyIcon
             {
                 Icon = SystemIcons.Application,
@@ -84,6 +116,8 @@ internal sealed class AgenteBandeja : IDisposable
                 _icono.Dispose();
             }
 
+            _invocador?.Dispose();
+
             _preparado.Set();
         }
     }
@@ -91,8 +125,13 @@ internal sealed class AgenteBandeja : IDisposable
     private Forms.ContextMenuStrip CrearMenu()
     {
         var menu = new Forms.ContextMenuStrip();
-        var estado = new Forms.ToolStripMenuItem(
+        _estado = new Forms.ToolStripMenuItem(
             $"ControlPCIA activo · puerto {ServidorMovil.ObtenerPuerto()}")
+        {
+            Enabled = false
+        };
+        _codigoEmparejado = new Forms.ToolStripMenuItem(
+            "Código para móvil: preparando…")
         {
             Enabled = false
         };
@@ -119,7 +158,8 @@ internal sealed class AgenteBandeja : IDisposable
             Forms.Application.ExitThread();
         };
 
-        menu.Items.Add(estado);
+        menu.Items.Add(_estado);
+        menu.Items.Add(_codigoEmparejado);
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(abrir);
         menu.Items.Add(_alternarConsola);
