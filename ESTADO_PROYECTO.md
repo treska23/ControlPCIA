@@ -67,7 +67,8 @@ La aplicación nativa .NET MAUI para Android es ahora la experiencia principal. 
 - Descubrimiento UDP automático del servidor en el puerto 5188 y dirección manual como alternativa.
 - Emparejado y token en `SecureStorage`.
 - Control de voz único para Wake-on-LAN y órdenes normales enviadas automáticamente a Llama.
-- Modos mantener pulsado y escucha bloqueada, con estados visibles, contador, transcripción parcial y respuesta háptica.
+- Modo predeterminado tocar–hablar–tocar y modo alternativo mantener pulsado, ambos con envío automático, estados visibles, contador, transcripción parcial y respuesta háptica.
+- Respuesta clara cuando no entiende la voz y diálogo de confirmación por sí/no cuando Llama necesita aclarar una acción permitida.
 - Entrada de texto, estado e historial no persistente como alternativa.
 - APK Release firmado localmente para instalación manual.
 
@@ -86,13 +87,14 @@ El servidor configura una vez el inicio por usuario en `HKCU\Software\Microsoft\
 ## Verificaciones realizadas
 
 - Compilación Debug sin errores ni advertencias.
-- 166 pruebas automatizadas correctas en Release.
+- 185 pruebas automatizadas correctas en Release.
 - Diagnóstico real de Ollama y `qwen3:8b` correcto.
-- Orden directa «abre la calculadora» → `Start-Process calc.exe` → código 0 → `FIN`.
+- Orden directa «abre la calculadora» → `Start-Process calc.exe` → `ControlPCIA.exe ui focus "Calculator"` → código 0 → `FIN`, sin mover ni minimizar otras ventanas.
 - Web móvil comprobada a 390 × 844 píxeles.
 - Manifiesto, service worker y emparejado de la PWA comprobados en navegador.
 - App Android compilada en Debug y publicada en Release sin advertencias de compilación.
-- APK 1.1 (código 2) firmado y verificado con esquemas v1, v2 y v3; SHA-256 `FDFB8C09363799C756A15CAA5BC7308DF1EAEC7FB110946E1F92091FC21A6082`.
+- APK 1.2 (código 3) firmado y verificado con esquemas v1, v2 y v3; SHA-256 `66830AF49906B9E04A726982C603C10B1FF5677785855B63A9FE6A50FD3ACFA2`.
+- Samsung SM-S928B real: instalación conservando datos, descubrimiento de `BARDO`, conexión por Wi-Fi, reconocimiento de voz en ambos modos y envío automático comprobados.
 - `/api/escena` probado con 2 monitores y 13 ventanas reales.
 - Wake-on-LAN detectó 1 adaptador válido, UDP 9 y su broadcast local sin exponer la MAC en la interfaz.
 - Navegación web corregida: Llama puede abrir URL públicas literales `http/https` y búsquedas web, mientras se bloquean redes privadas, `file:` y descargas ejecutables o comprimidas.
@@ -108,8 +110,10 @@ La entrada de voz nativa se ha simplificado de esta forma:
 
 - Se ha eliminado la tarjeta separada «¿El PC está apagado?» y existe un único control de voz para todas las peticiones.
 - Ese mismo control reconoce localmente una orden de encendido aunque el PC no esté disponible. Las demás frases se envían automáticamente a Llama.
-- El modo **mantener pulsado para hablar** empieza al presionar y termina al soltar.
-- El modo **bloqueado** permite soltar el dedo y continúa hasta pulsar detener o cancelar. No mantiene escucha permanente en segundo plano.
+- El modo predeterminado **tocar para hablar** empieza con un toque y termina y envía con otro, sin un límite corto impuesto por la aplicación.
+- El modo alternativo **mantener pulsado** empieza al presionar y termina y envía al soltar. Ninguno mantiene escucha permanente en segundo plano.
+- La transcripción de voz se muestra en la tarjeta del micrófono y no se copia al cuadro escrito ni requiere pulsar «Enviar mensaje escrito».
+- Si no reconoce una frase muestra «No te he entendido»; Llama puede pedir confirmación de una acción permitida y la aplicación conserva la orden pendiente para recibir sí o no.
 - La interfaz muestra preparación, escucha, texto parcial, duración, transcripción, ejecución, resultado y error, con respuesta háptica cuando el dispositivo la ofrece.
 - Se ha retirado de la aplicación móvil la sección «Colocar ventanas» y su código específico.
 - El fallo que rechazaba literalmente «enciende el ordenador» se corrigió añadiendo la forma verbal `enciend…` y pruebas de regresión.
@@ -139,10 +143,13 @@ La entrada de voz nativa se ha simplificado de esta forma:
 - [x] Permitir navegación web pública literal sin habilitar descargas ni acceso a direcciones privadas.
 - [x] Unificar Wake-on-LAN y órdenes normales en un único control de voz móvil.
 - [x] Implementar pulsar para hablar, bloqueo hasta detener y estados visuales/hápticos de escucha.
+- [x] Hacer predeterminado tocar–hablar–tocar, enviar automáticamente la voz y separar claramente el mensaje escrito.
+- [x] Añadir aclaración/confirmación conversacional sin permitir que una confirmación eluda la política local.
 - [x] Retirar de la interfaz móvil el editor de colocación de ventanas.
 - [x] Añadir control genérico de aplicaciones mediante observación UI, acciones seguras y aprendizaje de secuencias.
 - [x] Añadir agente residente con inicio por usuario, modo oculto, exclusión de duplicados y bandeja de sistema.
-- [ ] Probar físicamente en un teléfono Android ambos modos de micrófono, descubrimiento y Wake-on-LAN con el PC realmente apagado.
+- [x] Probar físicamente en un teléfono Android ambos modos de micrófono, descubrimiento, emparejado y envío automático.
+- [ ] Probar Wake-on-LAN con el PC realmente apagado.
 - [ ] Compilar, firmar y probar la aplicación iOS desde un Mac.
 - [ ] Crear un instalador firmado; el inicio automático explícito y la bandeja ya están implementados.
 - [ ] Evaluar otros modelos locales y órdenes complejas de varias aplicaciones.

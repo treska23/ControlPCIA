@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace ControlPCIA;
 
@@ -71,6 +72,12 @@ internal static class ControlWindows
                 - Cuando la petición esté completamente realizada, responde FIN.
                 - Si no existe una forma permitida de realizarla, responde
                   SIN_COMANDO.
+                - Si la petición es ambigua o una acción permitida puede causar
+                  una interrupción importante, no ejecutes nada todavía: responde
+                  CONFIRMAR: seguido de una pregunta breve y concreta.
+                - Si la petición indica que el usuario confirma explícitamente
+                  una orden pendiente, no vuelvas a preguntar por el mismo riesgo.
+                  La confirmación nunca permite saltarse la política local.
                 - Si un comando es bloqueado, busca otra estrategia segura;
                   nunca intentes eludir deliberadamente la política.
                 - Un código de salida distinto de 0 significa que la petición
@@ -102,15 +109,23 @@ internal static class ControlWindows
                 - Para controlar la interfaz de una aplicación usa exclusivamente
                   el comando local ControlPCIA.exe ui. No existe código específico
                   para Cubase ni para ninguna otra aplicación.
+                - "Abrir" o "iniciar" una aplicación significa dejar su ventana
+                  visible, restaurada y en primer plano. Start-Process sólo inicia
+                  el proceso y NO completa por sí solo una petición de apertura.
+                  Después de iniciarlo, usa el título real de la ventana que
+                  aparece en el estado actualizado y ejecuta
+                  ControlPCIA.exe ui focus "Ventana" antes de responder FIN.
                 - Empieza inspeccionando la ventana real cuando no conozcas sus
                   controles:
                   ControlPCIA.exe ui inspect "Título de ventana" 4
                 - Para cualquier comando `ui`, elige el título EXCLUSIVAMENTE de
                   la sección VENTANAS CONTROLABLES POR UI AUTOMATION y cópialo
-                  literalmente, conservando espacios y signos. La lista VENTANAS
+                  literalmente: es sólo el texto encerrado entre comillas después
+                  de `title=`. Nunca incluyas `|process=...` dentro del título.
+                  Conserva sus espacios y signos. La lista VENTANAS
                   VISIBLES sólo aporta contexto general y no autoriza títulos de
                   automatización. Si la petición coincide exactamente con un
-                  `WINDOW|title=...`, debes usar ese título, no otro parecido.
+                  `WINDOW|title="..."`, debes usar ese título, no otro parecido.
                 - Las primitivas disponibles son:
                   ControlPCIA.exe ui windows
                   ControlPCIA.exe ui focus "Ventana"
@@ -204,6 +219,16 @@ internal static class ControlWindows
                         "FIN",
                         StringComparison.OrdinalIgnoreCase))
                 {
+                    if (RequiereEnfoqueTrasInicio(pasos))
+                    {
+                        mensajes.Add(new MensajeOllama("assistant", comando));
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "user",
+                                CrearAvisoEnfoquePendiente()));
+                        continue;
+                    }
+
                     bool aprendido =
                         await AprenderRecetaAsync(
                             instruccion,
@@ -232,12 +257,52 @@ internal static class ControlWindows
                         informar);
                 }
 
+                if (TryObtenerPreguntaConfirmacion(
+                        comando,
+                        out string preguntaConfirmacion))
+                {
+                    return Finalizar(
+                        false,
+                        "requiere_confirmacion",
+                        preguntaConfirmacion,
+                        pasos,
+                        informar);
+                }
+
                 if (string.IsNullOrWhiteSpace(comando))
                 {
                     return Finalizar(
                         false,
                         "respuesta_invalida",
                         "La IA devolvió una respuesta vacía.",
+                        pasos,
+                        informar);
+                }
+
+                ResultadoPasoControl? intentoFallidoIgual = pasos
+                    .LastOrDefault(paso =>
+                        paso.Comando.Equals(
+                            comando,
+                            StringComparison.OrdinalIgnoreCase)
+                        && (!paso.Ejecutado || paso.CodigoSalida != 0));
+
+                if (intentoFallidoIgual is not null)
+                {
+                    return Finalizar(
+                        false,
+                        "estrategia_repetida",
+                        "La IA intentó repetir un comando que ya había fallado. Se ha detenido para no provocar acciones inesperadas.",
+                        pasos,
+                        informar);
+                }
+
+                if (RequiereEnfoqueTrasInicio(pasos)
+                    && !EsComandoPermitidoMientrasEnfoca(comando))
+                {
+                    return Finalizar(
+                        false,
+                        "enfoque_inseguro",
+                        "La IA intentó realizar otra acción antes de enfocar la aplicación abierta. La orden se ha detenido sin ejecutar ese comando.",
                         pasos,
                         informar);
                 }
@@ -253,6 +318,18 @@ internal static class ControlWindows
                     await EjecutorPowerShell.EjecutarAsync(
                         comando,
                         cancellationToken);
+
+                bool inicioAplicacion =
+                    ejecucion.Ejecutado
+                    && ejecucion.CodigoSalida == 0
+                    && EsInicioAplicacion(comando);
+
+                if (inicioAplicacion)
+                {
+                    // Las aplicaciones empaquetadas de Windows suelen publicar
+                    // su ventana unas décimas después de terminar Start-Process.
+                    await Task.Delay(1_200, cancellationToken);
+                }
 
                 var paso = new ResultadoPasoControl(
                     indice + 1,
@@ -276,7 +353,9 @@ internal static class ControlWindows
 
                 string informacionResultado =
                     ejecucion.Ejecutado
-                        ? CrearResultadoEjecutado(ejecucion)
+                        ? CrearResultadoEjecutado(
+                            ejecucion,
+                            incluirEstadoInterfaz: inicioAplicacion)
                         : CrearResultadoBloqueado(ejecucion);
 
                 mensajes.Add(new MensajeOllama("assistant", comando));
@@ -331,8 +410,13 @@ internal static class ControlWindows
     }
 
     private static string CrearResultadoEjecutado(
-        ResultadoEjecucionPowerShell resultado)
+        ResultadoEjecucionPowerShell resultado,
+        bool incluirEstadoInterfaz)
     {
+        string estadoActual = incluirEstadoInterfaz
+            ? CrearAvisoEnfoquePendiente()
+            : string.Empty;
+
         return $"""
             RESULTADO DEL COMANDO:
 
@@ -345,9 +429,115 @@ internal static class ControlWindows
             Error:
             {LimitarTexto(resultado.Error)}
 
+            {estadoActual}
+
             Decide si la petición original ya está completada o si necesitas
             ejecutar otro comando.
             """;
+    }
+
+    private static string CrearAvisoEnfoquePendiente()
+    {
+        ResultadoAutomatizacionAplicacion ventanas =
+            AutomatizadorAplicaciones.ListarVentanas();
+        string listaVentanas = ventanas.CodigoSalida == 0
+            ? ventanas.Salida
+            : "No se pudo enumerar la interfaz: " + ventanas.Error;
+
+        return $"""
+            ESTADO DE VENTANAS DESPUÉS DEL COMANDO:
+
+            Ventana activa: {ObservadorWindows.ObtenerVentanaActiva()}
+
+            Ventanas controlables:
+            {listaVentanas}
+
+            Si la petición era abrir o iniciar una aplicación, todavía NO está
+            completada: enfoca su ventana real con
+            ControlPCIA.exe ui focus "Ventana" antes de responder FIN.
+            """;
+    }
+
+    internal static bool RequiereEnfoqueTrasInicio(
+        IReadOnlyList<ResultadoPasoControl> pasos)
+    {
+        int ultimoInicio = -1;
+        int ultimaActivacion = -1;
+
+        for (int indice = 0; indice < pasos.Count; indice++)
+        {
+            ResultadoPasoControl paso = pasos[indice];
+
+            if (!paso.Ejecutado || paso.CodigoSalida != 0)
+            {
+                continue;
+            }
+
+            if (EsInicioAplicacion(paso.Comando))
+            {
+                ultimoInicio = indice;
+            }
+
+            if (EsAccionInterfazQueActiva(paso.Comando))
+            {
+                ultimaActivacion = indice;
+            }
+        }
+
+        return ultimoInicio >= 0 && ultimaActivacion < ultimoInicio;
+    }
+
+    private static bool EsInicioAplicacion(string comando)
+    {
+        return Regex.IsMatch(
+            comando,
+            @"(?:^|[;|]\s*)(?:Start-Process|start|saps)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    private static bool EsAccionInterfazQueActiva(string comando)
+    {
+        return Regex.IsMatch(
+            comando,
+            @"\bControlPCIA(?:\.exe)?\s+ui\s+(?:focus|invoke|select|toggle|expand|collapse|text|shortcut)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    internal static bool EsComandoPermitidoMientrasEnfoca(string comando)
+    {
+        return Regex.IsMatch(
+            comando,
+            @"^\s*ControlPCIA(?:\.exe)?\s+ui\s+(?:windows|focus\s+.+?)\s*$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    internal static bool TryObtenerPreguntaConfirmacion(
+        string respuesta,
+        out string pregunta)
+    {
+        const string prefijo = "CONFIRMAR:";
+        string limpia = respuesta.Trim();
+
+        if (!limpia.StartsWith(
+                prefijo,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            pregunta = string.Empty;
+            return false;
+        }
+
+        pregunta = limpia[prefijo.Length..].Trim();
+
+        if (pregunta.Length == 0)
+        {
+            pregunta = "Esta acción necesita confirmación. ¿Quieres que continúe?";
+        }
+        else if (pregunta.Length > 300)
+        {
+            pregunta = pregunta[..300].Trim();
+        }
+
+        return true;
     }
 
     private static ResultadoControl Finalizar(

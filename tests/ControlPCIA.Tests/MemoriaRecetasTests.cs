@@ -82,6 +82,40 @@ public sealed class MemoriaRecetasTests
         }
     }
 
+    [Fact]
+    public async Task Una_receta_corregida_sustituye_la_secuencia_incompleta()
+    {
+        await ConMemoriaTemporalAsync(
+            async memoria =>
+            {
+                Assert.True(
+                    await memoria.AprenderAsync(
+                        "abre la calculadora",
+                        ["Start-Process calc.exe"],
+                        TestContext.Current.CancellationToken));
+
+                Assert.True(
+                    await memoria.AprenderAsync(
+                        "abre la calculadora",
+                        [
+                            "Start-Process calc.exe",
+                            "ControlPCIA.exe ui focus \"Calculadora\""
+                        ],
+                        TestContext.Current.CancellationToken));
+
+                RecetaReferencia receta = Assert.Single(
+                    await memoria.BuscarAsync(
+                        "abre la calculadora",
+                        cancellationToken:
+                            TestContext.Current.CancellationToken));
+
+                Assert.Equal(2, receta.Comandos.Count);
+                Assert.Equal(
+                    "ControlPCIA.exe ui focus \"Calculadora\"",
+                    receta.Comandos[1]);
+            });
+    }
+
     [Theory]
     [InlineData("  Pon MÚSICA, por favor.  ", "pon musica por favor")]
     [InlineData("Abre   Spotify", "abre spotify")]

@@ -20,6 +20,8 @@
   <ItemGroup>
     <Compile Include="..\..\mobile\ControlPCIA.Mobile\Servicios\DetectorOrdenEncendido.cs"
              Link="Servicios\DetectorOrdenEncendido.cs" />
+    <Compile Include="..\..\mobile\ControlPCIA.Mobile\Servicios\DetectorConfirmacion.cs"
+             Link="Servicios\DetectorConfirmacion.cs" />
   </ItemGroup>
 
 </Project>

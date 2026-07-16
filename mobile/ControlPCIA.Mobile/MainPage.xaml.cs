@@ -23,11 +23,12 @@ public partial class MainPage : ContentPage
     private CancellationTokenSource? _temporizadorVoz;
     private DateTimeOffset _inicioEscucha;
     private bool _inicializada;
-    private bool _modoBloqueado;
+    private bool _modoBloqueado = true;
     private bool _iniciandoVoz;
     private bool _soltarPendiente;
     private bool _ejecutandoOrden;
     private int _idSesionVoz;
+    private string? _ordenPendienteConfirmacion;
 
     public MainPage()
     {
@@ -195,6 +196,7 @@ public partial class MainPage : ContentPage
         await CancelarEscuchaAsync(mostrarMensaje: false);
         _api.Olvidar();
         _wake.Olvidar();
+        _ordenPendienteConfirmacion = null;
         AddressEntry.Text = string.Empty;
         CodeEntry.Text = string.Empty;
         MostrarConexion();
@@ -350,7 +352,7 @@ public partial class MainPage : ContentPage
         try
         {
             TimeSpan limite = _modoBloqueado
-                ? TimeSpan.FromMinutes(2)
+                ? Timeout.InfiniteTimeSpan
                 : TimeSpan.FromSeconds(45);
             string texto = await sesion.Resultado.WaitAsync(limite);
 
@@ -372,7 +374,7 @@ public partial class MainPage : ContentPage
             if (idSesion == _idSesionVoz)
             {
                 await CerrarSesionVozAsync(sesion, idSesion);
-                VoiceStateTitle.Text = "No se pudo entender la orden";
+                VoiceStateTitle.Text = "No te he entendido";
                 VoiceTranscriptLabel.Text = MensajeAmigable(ex);
                 VoiceTranscriptLabel.TextColor = ColorError;
             }
@@ -483,17 +485,20 @@ public partial class MainPage : ContentPage
         VoiceModeButton.IsEnabled = !_ejecutandoOrden;
         VoiceButton.IsEnabled = !_ejecutandoOrden;
         SendButton.IsEnabled = !_ejecutandoOrden;
-        VoiceStateTitle.Text = "Preparado para escucharte";
+        VoiceStateTitle.Text = string.IsNullOrWhiteSpace(
+                _ordenPendienteConfirmacion)
+            ? "Preparado para escucharte"
+            : "Necesito tu confirmación";
         ActualizarModoVoz();
     }
 
     private void ActualizarModoVoz()
     {
         VoiceModeButton.Text = _modoBloqueado
-            ? "Modo: escucha bloqueada"
+            ? "Modo: tocar para hablar"
             : "Modo: mantener pulsado";
         VoiceModeHelpLabel.Text = _modoBloqueado
-            ? "Toca una vez para empezar. Puedes soltar el movil; toca de nuevo para detener y enviar."
+            ? "Toca una vez para empezar. Habla todo lo que necesites y toca de nuevo para enviar."
             : "Manten pulsado mientras hablas y suelta para transcribir y enviar.";
 
         if (_sesionVoz is null && !_iniciandoVoz)
@@ -504,7 +509,7 @@ public partial class MainPage : ContentPage
             SemanticProperties.SetHint(
                 VoiceButton,
                 _modoBloqueado
-                    ? "Toca para empezar una escucha bloqueada"
+                    ? "Toca para empezar a escuchar; toca otra vez para enviar"
                     : "Manten pulsado para hablar y suelta para enviar la orden");
         }
     }
@@ -547,7 +552,6 @@ public partial class MainPage : ContentPage
     private async Task ProcesarTextoReconocidoAsync(string texto)
     {
         string orden = texto.Trim();
-        OrderEditor.Text = orden;
         VoiceStateTitle.Text = "He entendido la orden";
         VoiceTranscriptLabel.Text = $"«{orden}»";
         VoiceTranscriptLabel.TextColor = ColorCorrecto;
@@ -593,6 +597,40 @@ public partial class MainPage : ContentPage
             return;
         }
 
+        string ordenMostrada = orden;
+        string ordenParaIa = orden;
+
+        if (!string.IsNullOrWhiteSpace(_ordenPendienteConfirmacion))
+        {
+            string pendiente = _ordenPendienteConfirmacion;
+
+            if (DetectorConfirmacion.EsNegativa(orden))
+            {
+                _ordenPendienteConfirmacion = null;
+                VoiceStateTitle.Text = "Orden cancelada";
+                VoiceTranscriptLabel.Text = "De acuerdo. No haré esa acción.";
+                VoiceTranscriptLabel.TextColor = ColorNormal;
+                MostrarMensaje(
+                    ControlStatusLabel,
+                    "Orden cancelada. No se ha ejecutado nada.",
+                    correcto: true);
+                return;
+            }
+
+            if (DetectorConfirmacion.EsAfirmativa(orden))
+            {
+                ordenMostrada = pendiente;
+                ordenParaIa =
+                    $"El usuario confirma explícitamente esta orden pendiente: {pendiente}";
+                _ordenPendienteConfirmacion = null;
+            }
+            else
+            {
+                // Una frase distinta de sí/no se trata como una orden nueva.
+                _ordenPendienteConfirmacion = null;
+            }
+        }
+
         _ejecutandoOrden = true;
         BloquearControlesDuranteOrden();
         MostrarMensaje(
@@ -602,10 +640,22 @@ public partial class MainPage : ContentPage
         try
         {
             ResultadoOrden resultado =
-                await _api.EnviarOrdenAsync(orden);
+                await _api.EnviarOrdenAsync(ordenParaIa);
+
+            if (resultado.Estado?.Equals(
+                    "requiere_confirmacion",
+                    StringComparison.OrdinalIgnoreCase) == true)
+            {
+                _ordenPendienteConfirmacion = ordenMostrada;
+                VoiceStateTitle.Text = "Necesito tu confirmación";
+                VoiceTranscriptLabel.Text =
+                    (resultado.Mensaje ?? "¿Quieres que continúe?")
+                    + " Responde sí o no.";
+                VoiceTranscriptLabel.TextColor = ColorAviso;
+            }
 
             MostrarResultado(ControlStatusLabel, resultado);
-            AgregarHistorial(orden, resultado);
+            AgregarHistorial(ordenMostrada, resultado);
         }
         catch (Exception ex)
         {
@@ -731,12 +781,21 @@ public partial class MainPage : ContentPage
         string detalle = realizados > 0
             ? $" ({realizados} pasos realizados)"
             : string.Empty;
+        string confirmacion = resultado.Estado?.Equals(
+                "requiere_confirmacion",
+                StringComparison.OrdinalIgnoreCase) == true
+            ? " Responde sí o no."
+            : string.Empty;
 
         MostrarMensaje(
             etiqueta,
-            (resultado.Mensaje ?? "Orden terminada.") + detalle + aprendido,
+            (resultado.Mensaje ?? "Orden terminada.")
+            + detalle
+            + aprendido
+            + confirmacion,
             correcto: resultado.Completado,
-            error: !resultado.Completado);
+            error: !resultado.Completado
+                   && confirmacion.Length == 0);
     }
 
     private void AgregarHistorial(
@@ -764,11 +823,21 @@ public partial class MainPage : ContentPage
         contenido.Children.Add(
             new Label
             {
-                Text = resultado.Completado ? "Completada" : "No completada",
+                Text = resultado.Completado
+                    ? "Completada"
+                    : resultado.Estado?.Equals(
+                        "requiere_confirmacion",
+                        StringComparison.OrdinalIgnoreCase) == true
+                        ? "Pendiente de confirmación"
+                        : "No completada",
                 FontSize = 12,
                 TextColor = resultado.Completado
                     ? ColorCorrecto
-                    : ColorError
+                    : resultado.Estado?.Equals(
+                        "requiere_confirmacion",
+                        StringComparison.OrdinalIgnoreCase) == true
+                        ? ColorAviso
+                        : ColorError
             });
 
         var tarjeta = new Border

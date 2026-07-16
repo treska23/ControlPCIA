@@ -214,22 +214,22 @@
 
                             <Label
                                 x:Name="VoiceTranscriptLabel"
-                                Text="Mantén pulsado el botón y habla con normalidad."
+                                Text="Toca el botón, habla y vuelve a tocarlo para enviar."
                                 TextColor="#9CB4CE"
                                 LineHeight="1.2" />
 
                             <Button
                                 x:Name="VoiceButton"
-                                Text="Mantén pulsado para hablar"
+                                Text="Toca para empezar a escuchar"
                                 Style="{StaticResource PrimaryButton}"
                                 Pressed="OnVoicePressed"
                                 Released="OnVoiceReleased"
-                                SemanticProperties.Hint="Mantén pulsado para hablar y suelta para enviar la orden" />
+                                SemanticProperties.Hint="Toca para empezar a escuchar y toca otra vez para enviar la orden" />
 
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                                 <Button
                                     x:Name="VoiceModeButton"
-                                    Text="Modo: mantener pulsado"
+                                    Text="Modo: tocar para hablar"
                                     Style="{StaticResource SecondaryButton}"
                                     Clicked="OnVoiceModeClicked" />
                                 <Button
@@ -243,7 +243,7 @@
 
                             <Label
                                 x:Name="VoiceModeHelpLabel"
-                                Text="Mantén pulsado mientras hablas y suelta para transcribir y enviar."
+                                Text="Toca una vez para empezar. Habla todo lo que necesites y toca de nuevo para enviar."
                                 TextColor="#7890AA"
                                 FontSize="12" />
                         </VerticalStackLayout>
@@ -263,7 +263,7 @@
                         </Border>
                         <Button
                             x:Name="SendButton"
-                            Text="Enviar texto a la IA"
+                            Text="Enviar mensaje escrito"
                             Style="{StaticResource SecondaryButton}"
                             Clicked="OnSendClicked" />
                     </VerticalStackLayout>

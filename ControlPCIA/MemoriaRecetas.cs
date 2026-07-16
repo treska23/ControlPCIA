@@ -143,6 +143,14 @@ internal sealed class MemoriaRecetas
 
             if (existente is null)
             {
+                // Una secuencia nueva que ya ha terminado correctamente corrige
+                // las recetas anteriores de la misma intención. Así no se sigue
+                // priorizando, por número de éxitos, una solución incompleta.
+                recetas.RemoveAll(receta =>
+                    receta.Intencion.Equals(
+                        normalizada,
+                        StringComparison.Ordinal));
+
                 recetas.Add(
                     new RecetaPersistida
                     {

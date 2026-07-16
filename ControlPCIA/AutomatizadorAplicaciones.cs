@@ -119,6 +119,7 @@ internal static class AutomatizadorAplicaciones
                 TreeScope.Children,
                 Condition.TrueCondition);
         var salida = new StringBuilder();
+        var publicadas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (AutomationElement ventana in ventanas)
         {
@@ -140,10 +141,19 @@ internal static class AutomatizadorAplicaciones
                 continue;
             }
 
-            salida.Append("WINDOW|title=");
-            salida.Append(Escapar(titulo));
-            salida.Append("|process=");
-            salida.Append(Escapar(ObtenerNombreProceso(ventana)));
+            string proceso = ObtenerNombreProceso(ventana);
+            string clave = titulo + "\u001f" + proceso;
+
+            if (!publicadas.Add(clave))
+            {
+                continue;
+            }
+
+            salida.Append("WINDOW|title=\"");
+            salida.Append(EscaparCampo(titulo));
+            salida.Append("\"|process=\"");
+            salida.Append(EscaparCampo(proceso));
+            salida.Append('"');
             salida.AppendLine();
         }
 
@@ -158,8 +168,8 @@ internal static class AutomatizadorAplicaciones
     {
         var salida = new StringBuilder();
         salida.AppendLine(
-            $"WINDOW|title={Escapar(ObtenerPropiedad(ventana, AutomationElement.NameProperty))}" +
-            $"|process={ObtenerNombreProceso(ventana)}");
+            $"WINDOW|title=\"{EscaparCampo(ObtenerPropiedad(ventana, AutomationElement.NameProperty))}\"" +
+            $"|process=\"{EscaparCampo(ObtenerNombreProceso(ventana))}\"");
 
         int elementos = 0;
         Recorrer(
@@ -565,8 +575,10 @@ internal static class AutomatizadorAplicaciones
         return candidatas.Count switch
         {
             1 => candidatas[0],
-            > 1 => throw new InvalidOperationException(
-                $"El título '{objetivo}' coincide con varias ventanas. Usa un fragmento más preciso."),
+            // Windows puede exponer varias superficies del mismo proceso con el
+            // mismo título (especialmente aplicaciones empaquetadas). La primera
+            // de RootElement.Children es la situada más arriba en el orden Z.
+            > 1 => candidatas[0],
             _ => throw new InvalidOperationException(
                 $"No se encontró una ventana visible cuyo título contenga '{objetivo}'.")
         };
@@ -614,12 +626,25 @@ internal static class AutomatizadorAplicaciones
             AutomationElement.NativeWindowHandleProperty,
             ignoreDefaultValue: true);
 
-        if (identificador != 0)
+        if (identificador == 0)
         {
-            IntPtr manejador = new(identificador);
-            ShowWindow(manejador, 9);
-            SetForegroundWindow(manejador);
+            throw new InvalidOperationException(
+                "La ventana no expone un identificador que permita traerla al frente.");
         }
+
+        IntPtr manejador = new(identificador);
+        // Estas llamadas sólo restauran y cambian el orden Z de la ventana
+        // objetivo; nunca minimizan, mueven ni redimensionan otras ventanas.
+        ShowWindow(manejador, 9);
+        SetWindowPos(
+            manejador,
+            IntPtr.Zero,
+            0,
+            0,
+            0,
+            0,
+            0x0001 | 0x0002 | 0x0040);
+        SetForegroundWindow(manejador);
 
         try
         {
@@ -627,10 +652,22 @@ internal static class AutomatizadorAplicaciones
         }
         catch (InvalidOperationException)
         {
-            // Algunas ventanas aceptan SetForegroundWindow pero no SetFocus.
+            // Algunas ventanas sólo admiten la activación Win32.
         }
 
-        Thread.Sleep(100);
+        for (int intento = 0; intento < 10; intento++)
+        {
+            if (GetForegroundWindow() == manejador)
+            {
+                Thread.Sleep(100);
+                return;
+            }
+
+            Thread.Sleep(50);
+        }
+
+        throw new InvalidOperationException(
+            "Windows no permitió traer la ventana al primer plano.");
     }
 
     private static string ObtenerPatrones(AutomationElement elemento)
@@ -748,6 +785,11 @@ internal static class AutomatizadorAplicaciones
             .Replace("\n", " ", StringComparison.Ordinal);
     }
 
+    private static string EscaparCampo(string texto)
+    {
+        return Escapar(texto).Replace("\"", "'", StringComparison.Ordinal);
+    }
+
     private static ResultadoAutomatizacionAplicacion Exito(string salida)
     {
         return new(0, salida, string.Empty);
@@ -768,4 +810,14 @@ internal static class AutomatizadorAplicaciones
 
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr ventana, int comando);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(
+        IntPtr ventana,
+        IntPtr insertarDespues,
+        int x,
+        int y,
+        int ancho,
+        int alto,
+        uint indicadores);
 }

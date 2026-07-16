@@ -55,8 +55,9 @@ La experiencia principal está en `mobile/ControlPCIA.Mobile`. La aplicación:
 - Permite introducir la dirección manual como alternativa.
 - Guarda el token de emparejado en el almacén seguro del móvil.
 - Usa un único micrófono para encender el PC mediante Wake-on-LAN o enviar cualquier otra petición directamente a Llama.
-- Ofrece dos formas de hablar: mantener pulsado y soltar para enviar, o escucha bloqueada hasta tocar detener.
+- El modo predeterminado se inicia con un toque y termina con otro; al terminar envía la transcripción automáticamente. Como alternativa se puede mantener pulsado y soltar para enviar.
 - Muestra de forma visible cuándo prepara el micrófono, escucha, transcribe y ejecuta, con contador, texto parcial y respuesta háptica.
+- Si no entiende la voz lo indica y permite repetirla. Si Llama necesita confirmar una acción permitida pero ambigua, pregunta y acepta una respuesta posterior de sí o no.
 - Muestra estado, historial sencillo y recetas aprendidas sin conservar salidas sensibles.
 
 APK Android generado para instalación manual:
@@ -79,7 +80,7 @@ dotnet publish mobile\ControlPCIA.Mobile\ControlPCIA.Mobile.csproj -f net10.0-an
 
 Durante el primer emparejado, con el PC encendido, la aplicación aprende localmente la dirección MAC, el broadcast de su tarjeta activa y el puerto UDP 9. Desde entonces la pantalla principal continúa disponible aunque el PC no responda. El mismo botón de voz reconoce «enciende el ordenador», «arranca el PC» o «despierta el equipo» y envía el paquete Wake-on-LAN aunque Llama no esté disponible porque el PC esté apagado.
 
-Es la única orden que se resuelve en el teléfono. Todas las demás se transcriben y se envían automáticamente por el flujo móvil → Llama → PowerShell. En el modo normal se mantiene pulsado el botón mientras se habla; en el modo bloqueado se toca una vez para empezar y otra para detener. Android exige una acción del usuario para activar el micrófono y la aplicación no mantiene una escucha permanente en segundo plano.
+Es la única orden que se resuelve en el teléfono. Todas las demás se transcriben y se envían automáticamente por el flujo móvil → Llama → PowerShell. El modo predeterminado se toca una vez para empezar y otra para detener y enviar; el modo alternativo mantiene pulsado mientras se habla y envía al soltar. El cuadro inferior sólo sirve para escribir una orden manual. Android exige una acción del usuario para activar el micrófono y la aplicación no mantiene una escucha permanente en segundo plano.
 
 Wake-on-LAN necesita:
 
@@ -87,7 +88,7 @@ Wake-on-LAN necesita:
 - Wake-on-LAN habilitado en BIOS/UEFI y en la tarjeta de red.
 - Que el adaptador y el estado de apagado del equipo admitan el encendido remoto.
 
-ControlPCIA no cambia automáticamente BIOS, controladores ni ajustes de energía. Para controlar el PC después de arrancarlo también será necesario configurar de forma explícita el inicio automático del servidor; esa opción todavía está pendiente de un instalador seguro.
+ControlPCIA no cambia automáticamente BIOS, controladores ni ajustes de energía. El agente ya configura su inicio oculto por usuario para poder recibir órdenes después de arrancar Windows; sigue pendiente empaquetarlo en un instalador firmado.
 
 ## PWA de respaldo
 
@@ -107,6 +108,8 @@ Las órdenes de la aplicación móvil también pueden actuar dentro de programas
 - Enfocar una aplicación, invocar un control, seleccionar elementos, alternar opciones y expandir secciones.
 - Escribir texto breve en controles identificados y enviar atajos de teclado validados.
 - Volver a inspeccionar la interfaz después de abrir un menú o diálogo y encadenar hasta diez pasos.
+
+Abrir una aplicación no se considera completado al iniciar el proceso: Llama debe restaurar y enfocar su ventana real. Durante ese paso sólo puede enumerar ventanas o enfocar el objetivo; cualquier otra acción se cancela. Los títulos duplicados se resuelven de forma determinista, una estrategia fallida idéntica no puede repetirse y el enfoque nunca mueve, redimensiona ni minimiza otras ventanas.
 
 Por ejemplo, para «crea una pista en Cubase» o «inserta Kontakt», Llama debe observar los nombres reales que expone Cubase, decidir la secuencia y ejecutarla. Cuando una secuencia termina bien, la memoria de recetas puede reutilizarla en peticiones parecidas. Si una aplicación dibuja una interfaz personalizada que no expone controles accesibles, sólo podrán utilizarse los atajos seguros que esa aplicación admita.
 
@@ -152,6 +155,8 @@ La barrera de seguridad se aplica después del modelo y no depende de que Llama 
 - Los programas nativos sólo reciben argumentos literales limitados y sin rutas.
 - COM queda limitado al mecanismo de interfaz `WScript.Shell`, y `SendKeys` no admite texto libre.
 - La automatización de aplicaciones sólo admite las primitivas `ControlPCIA.exe ui` validadas; comprueba tanto el selector pedido como el nombre real del control antes de actuar.
+- Tras iniciar una aplicación sólo se permiten `ui windows` y `ui focus` hasta dejarla delante; cualquier otro comando se detiene sin ejecutarse.
+- Una petición ambigua puede devolver una pregunta de confirmación, pero confirmar nunca permite saltarse los bloqueos de archivos, disco, credenciales o configuración sensible.
 - Cada proceso PowerShell tiene 20 segundos de límite, salida acotada y terminación del árbol completo si vence el tiempo.
 
 El acceso móvil añade código de emparejado, token aleatorio de sesión, caducidad, límite de intentos, restricción a direcciones privadas, cabeceras de seguridad y una sola orden simultánea. El móvil conserva el token real en `SecureStorage`; el PC guarda únicamente su hash y caducidad durante 90 días, renovables con el uso, para que el emparejado sobreviva a los reinicios. Ollama sólo escucha para ControlPCIA en `127.0.0.1`.

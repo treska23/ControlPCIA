@@ -162,10 +162,10 @@ public static class ReconocimientoVoz
                     1_000L);
                 intencion.PutExtra(
                     RecognizerIntent.ExtraSpeechInputCompleteSilenceLengthMillis,
-                    escuchaBloqueada ? 120_000L : 4_000L);
+                    escuchaBloqueada ? 1_800_000L : 4_000L);
                 intencion.PutExtra(
                     RecognizerIntent.ExtraSpeechInputPossiblyCompleteSilenceLengthMillis,
-                    escuchaBloqueada ? 120_000L : 2_000L);
+                    escuchaBloqueada ? 1_800_000L : 2_000L);
 
                 reconocedor.StartListening(intencion);
             });
@@ -228,7 +228,7 @@ public static class ReconocimientoVoz
             {
                 resultado.TrySetException(
                     new InvalidOperationException(
-                        "No he entendido la frase. Intentalo de nuevo."));
+                        "No te he entendido. Repítelo, por favor."));
                 return;
             }
 
@@ -240,9 +240,9 @@ public static class ReconocimientoVoz
             string mensaje = error switch
             {
                 SpeechRecognizerError.NoMatch =>
-                    "No he entendido la frase. Intentalo de nuevo.",
+                    "No te he entendido. Repítelo, por favor.",
                 SpeechRecognizerError.SpeechTimeout =>
-                    "No he oido ninguna frase.",
+                    "No te he oído. Vuelve a tocar el botón y repítelo, por favor.",
                 SpeechRecognizerError.InsufficientPermissions =>
                     "El movil no tiene permiso para usar el microfono.",
                 SpeechRecognizerError.Network or
