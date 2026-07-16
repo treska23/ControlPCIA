@@ -19,7 +19,7 @@
             <Setter Property="TextColor" Value="White" />
             <Setter Property="CornerRadius" Value="14" />
             <Setter Property="FontAttributes" Value="Bold" />
-            <Setter Property="MinimumHeightRequest" Value="52" />
+            <Setter Property="MinimumHeightRequest" Value="54" />
         </Style>
         <Style x:Key="SecondaryButton" TargetType="Button">
             <Setter Property="BackgroundColor" Value="#172A42" />
@@ -67,35 +67,14 @@
                 </VerticalStackLayout>
             </Grid>
 
-            <Border x:Name="WakePanel" Style="{StaticResource Card}" IsVisible="False" Padding="14">
-                <VerticalStackLayout Spacing="10">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                        <VerticalStackLayout Spacing="2">
-                            <Label Text="¿El PC está apagado?" FontAttributes="Bold" />
-                            <Label
-                                x:Name="WakeDescriptionLabel"
-                                Text="Toca el micrófono y di «enciende el ordenador»."
-                                TextColor="#9CB4CE"
-                                FontSize="12" />
-                        </VerticalStackLayout>
-                        <Button
-                            x:Name="WakeButton"
-                            Grid.Column="1"
-                            Text="Hablar"
-                            Style="{StaticResource PrimaryButton}"
-                            Clicked="OnWakeClicked" />
-                    </Grid>
-                    <Label
-                        x:Name="WakeStatusLabel"
-                        TextColor="#9CB4CE"
-                        FontSize="12" />
-                </VerticalStackLayout>
-            </Border>
-
             <Border x:Name="ConnectedBar" Style="{StaticResource Card}" IsVisible="False" Padding="14">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                     <VerticalStackLayout Spacing="2">
-                        <Label Text="PC conectado" TextColor="#86EFAC" FontAttributes="Bold" />
+                        <Label
+                            x:Name="PcConnectionLabel"
+                            Text="PC conectado"
+                            TextColor="#86EFAC"
+                            FontAttributes="Bold" />
                         <Label
                             x:Name="ConnectedAddressLabel"
                             TextColor="#9CB4CE"
@@ -116,7 +95,7 @@
                     <VerticalStackLayout Spacing="4">
                         <Label Text="Conecta tu PC" FontSize="21" FontAttributes="Bold" />
                         <Label
-                            Text="El móvil y el PC deben estar en la misma Wi‑Fi. Pulsa buscar y la app intentará encontrarlo sola."
+                            Text="El móvil y el PC deben estar en la misma Wi‑Fi. Pulsa buscar y la aplicación intentará encontrarlo sola."
                             TextColor="#AFC2D8"
                             LineHeight="1.2" />
                     </VerticalStackLayout>
@@ -184,55 +163,110 @@
                 </VerticalStackLayout>
             </Border>
 
-            <Border x:Name="NavigationBar" Style="{StaticResource Card}" IsVisible="False" Padding="6">
-                <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
-                    <Button
-                        x:Name="ControlTabButton"
-                        Text="Control por voz"
-                        Style="{StaticResource PrimaryButton}"
-                        Clicked="OnControlTabClicked" />
-                    <Button
-                        x:Name="LayoutTabButton"
-                        Grid.Column="1"
-                        Text="Colocar ventanas"
-                        Style="{StaticResource SecondaryButton}"
-                        Clicked="OnLayoutTabClicked" />
-                </Grid>
-            </Border>
-
             <Border x:Name="ControlPanel" Style="{StaticResource Card}" IsVisible="False">
-                <VerticalStackLayout Spacing="15">
+                <VerticalStackLayout Spacing="16">
                     <VerticalStackLayout Spacing="3">
-                        <Label Text="¿Qué quieres que haga el PC?" FontSize="21" FontAttributes="Bold" />
+                        <Label Text="Habla al PC" FontSize="22" FontAttributes="Bold" />
                         <Label
-                            Text="Habla con normalidad. No necesitas conocer ningún comando."
-                            TextColor="#AFC2D8" />
+                            Text="El mismo micrófono sirve para encender el ordenador o darle cualquier orden."
+                            TextColor="#AFC2D8"
+                            LineHeight="1.2" />
                     </VerticalStackLayout>
 
-                    <Border Style="{StaticResource FieldBorder}" Padding="12">
-                        <Editor
-                            x:Name="OrderEditor"
-                            AutoSize="TextChanges"
-                            MinimumHeightRequest="130"
-                            MaxLength="1000"
-                            Placeholder="Por ejemplo: abre la calculadora y colócala a la izquierda"
-                            PlaceholderColor="#68819D"
-                            TextColor="#E8F2FF" />
+                    <Border
+                        x:Name="VoiceStateBorder"
+                        BackgroundColor="#081421"
+                        Stroke="#2D4968"
+                        StrokeShape="RoundRectangle 18"
+                        Padding="15">
+                        <VerticalStackLayout Spacing="13">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                <ActivityIndicator
+                                    x:Name="VoiceActivity"
+                                    WidthRequest="32"
+                                    HeightRequest="32"
+                                    Color="#60A5FA"
+                                    IsVisible="False"
+                                    IsRunning="False" />
+                                <Border
+                                    x:Name="VoiceIdleIndicator"
+                                    WidthRequest="18"
+                                    HeightRequest="18"
+                                    Padding="0"
+                                    BackgroundColor="#60A5FA"
+                                    StrokeThickness="0"
+                                    StrokeShape="RoundRectangle 9"
+                                    VerticalOptions="Center" />
+                                <VerticalStackLayout Grid.Column="1" Spacing="1">
+                                    <Label
+                                        x:Name="VoiceStateTitle"
+                                        Text="Preparado para escucharte"
+                                        FontAttributes="Bold"
+                                        FontSize="16" />
+                                    <Label
+                                        x:Name="VoiceDurationLabel"
+                                        Text="00:00"
+                                        TextColor="#86EFAC"
+                                        FontSize="13"
+                                        IsVisible="False" />
+                                </VerticalStackLayout>
+                            </Grid>
+
+                            <Label
+                                x:Name="VoiceTranscriptLabel"
+                                Text="Mantén pulsado el botón y habla con normalidad."
+                                TextColor="#9CB4CE"
+                                LineHeight="1.2" />
+
+                            <Button
+                                x:Name="VoiceButton"
+                                Text="Mantén pulsado para hablar"
+                                Style="{StaticResource PrimaryButton}"
+                                Pressed="OnVoicePressed"
+                                Released="OnVoiceReleased"
+                                SemanticProperties.Hint="Mantén pulsado para hablar y suelta para enviar la orden" />
+
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                <Button
+                                    x:Name="VoiceModeButton"
+                                    Text="Modo: mantener pulsado"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Clicked="OnVoiceModeClicked" />
+                                <Button
+                                    x:Name="CancelVoiceButton"
+                                    Grid.Column="1"
+                                    Text="Cancelar"
+                                    Style="{StaticResource SecondaryButton}"
+                                    IsVisible="False"
+                                    Clicked="OnCancelVoiceClicked" />
+                            </Grid>
+
+                            <Label
+                                x:Name="VoiceModeHelpLabel"
+                                Text="Mantén pulsado mientras hablas y suelta para transcribir y enviar."
+                                TextColor="#7890AA"
+                                FontSize="12" />
+                        </VerticalStackLayout>
                     </Border>
 
-                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                        <Button
-                            x:Name="VoiceButton"
-                            Text="Hablar"
-                            Style="{StaticResource SecondaryButton}"
-                            Clicked="OnVoiceClicked" />
+                    <VerticalStackLayout Spacing="7">
+                        <Label Text="También puedes escribir" FontAttributes="Bold" FontSize="13" />
+                        <Border Style="{StaticResource FieldBorder}" Padding="12">
+                            <Editor
+                                x:Name="OrderEditor"
+                                AutoSize="TextChanges"
+                                MinimumHeightRequest="105"
+                                MaxLength="1000"
+                                Placeholder="Por ejemplo: abre YouTube y busca un vídeo"
+                                PlaceholderColor="#68819D"
+                                TextColor="#E8F2FF" />
+                        </Border>
                         <Button
                             x:Name="SendButton"
-                            Grid.Column="1"
-                            Text="Enviar a la IA"
-                            Style="{StaticResource PrimaryButton}"
+                            Text="Enviar texto a la IA"
+                            Style="{StaticResource SecondaryButton}"
                             Clicked="OnSendClicked" />
-                    </Grid>
+                    </VerticalStackLayout>
 
                     <Border BackgroundColor="#081421" Stroke="#203853" StrokeShape="RoundRectangle 14" Padding="13">
                         <Label
@@ -251,88 +285,6 @@
                                 FontSize="13" />
                         </VerticalStackLayout>
                     </VerticalStackLayout>
-                </VerticalStackLayout>
-            </Border>
-
-            <Border x:Name="LayoutPanel" Style="{StaticResource Card}" IsVisible="False">
-                <VerticalStackLayout Spacing="14">
-                    <VerticalStackLayout Spacing="3">
-                        <Label Text="Dibuja cómo quieres las ventanas" FontSize="21" FontAttributes="Bold" />
-                        <Label
-                            Text="Carga las ventanas, toca una y arrástrala. La IA interpretará el dibujo y decidirá los comandos."
-                            TextColor="#AFC2D8"
-                            LineHeight="1.2" />
-                    </VerticalStackLayout>
-
-                    <Button
-                        x:Name="RefreshSceneButton"
-                        Text="Cargar ventanas abiertas"
-                        Style="{StaticResource SecondaryButton}"
-                        Clicked="OnRefreshSceneClicked" />
-
-                    <Picker
-                        x:Name="WindowPicker"
-                        Title="Ventana seleccionada"
-                        TextColor="#E8F2FF"
-                        TitleColor="#9CB4CE"
-                        BackgroundColor="#081421"
-                        SelectedIndexChanged="OnWindowSelected" />
-
-                    <Border
-                        BackgroundColor="#07111F"
-                        Stroke="#2D4968"
-                        StrokeShape="RoundRectangle 16"
-                        Padding="0">
-                        <GraphicsView
-                            x:Name="LayoutCanvas"
-                            HeightRequest="330">
-                            <GraphicsView.GestureRecognizers>
-                                <TapGestureRecognizer Tapped="OnCanvasTapped" />
-                                <PanGestureRecognizer PanUpdated="OnCanvasPanned" />
-                            </GraphicsView.GestureRecognizers>
-                        </GraphicsView>
-                    </Border>
-
-                    <Label
-                        x:Name="SelectedWindowLabel"
-                        Text="Carga las ventanas para empezar."
-                        TextColor="#AFC2D8"
-                        FontAttributes="Bold" />
-
-                    <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*" ColumnSpacing="10" RowSpacing="8">
-                        <Label Text="Ancho" VerticalOptions="Center" />
-                        <Slider
-                            x:Name="WidthSlider"
-                            Grid.Column="1"
-                            Minimum="18"
-                            Maximum="100"
-                            Value="50"
-                            MinimumTrackColor="#60A5FA"
-                            ThumbColor="#BFDBFE"
-                            ValueChanged="OnSizeChanged" />
-                        <Label Grid.Row="1" Text="Alto" VerticalOptions="Center" />
-                        <Slider
-                            x:Name="HeightSlider"
-                            Grid.Row="1"
-                            Grid.Column="1"
-                            Minimum="16"
-                            Maximum="100"
-                            Value="50"
-                            MinimumTrackColor="#60A5FA"
-                            ThumbColor="#BFDBFE"
-                            ValueChanged="OnSizeChanged" />
-                    </Grid>
-
-                    <Button
-                        x:Name="ApplyLayoutButton"
-                        Text="Pedir a la IA que lo coloque así"
-                        Style="{StaticResource PrimaryButton}"
-                        IsEnabled="False"
-                        Clicked="OnApplyLayoutClicked" />
-
-                    <Label
-                        x:Name="LayoutStatusLabel"
-                        TextColor="#9CB4CE" />
                 </VerticalStackLayout>
             </Border>
 

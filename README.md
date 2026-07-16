@@ -54,9 +54,10 @@ La experiencia principal está en `mobile/ControlPCIA.Mobile`. La aplicación:
 - Busca automáticamente el PC en la red local mediante UDP, sin pedir su IP a un usuario normal.
 - Permite introducir la dirección manual como alternativa.
 - Guarda el token de emparejado en el almacén seguro del móvil.
-- Acepta voz y texto y envía la petición natural directamente a Llama.
+- Usa un único micrófono para encender el PC mediante Wake-on-LAN o enviar cualquier otra petición directamente a Llama.
+- Ofrece dos formas de hablar: mantener pulsado y soltar para enviar, o escucha bloqueada hasta tocar detener.
+- Muestra de forma visible cuándo prepara el micrófono, escucha, transcribe y ejecuta, con contador, texto parcial y respuesta háptica.
 - Muestra estado, historial sencillo y recetas aprendidas sin conservar salidas sensibles.
-- Lee las pantallas y ventanas abiertas y ofrece un lienzo para arrastrarlas y cambiar su tamaño. El dibujo se convierte en una petición para Llama; el móvil no ejecuta acciones de escritorio por su cuenta.
 
 APK Android generado para instalación manual:
 
@@ -76,9 +77,9 @@ dotnet publish mobile\ControlPCIA.Mobile\ControlPCIA.Mobile.csproj -f net10.0-an
 
 ## Encendido por voz con Wake-on-LAN
 
-Durante el primer emparejado, con el PC encendido, la aplicación aprende localmente la dirección MAC, el broadcast de su tarjeta activa y el puerto UDP 9. Desde entonces puede tocarse **Hablar** y decir «enciende el ordenador», «arranca el PC» o «despierta el equipo». El móvil reconoce únicamente esta intención de arranque y envía el paquete Wake-on-LAN aunque Llama no esté disponible porque el PC esté apagado.
+Durante el primer emparejado, con el PC encendido, la aplicación aprende localmente la dirección MAC, el broadcast de su tarjeta activa y el puerto UDP 9. Desde entonces la pantalla principal continúa disponible aunque el PC no responda. El mismo botón de voz reconoce «enciende el ordenador», «arranca el PC» o «despierta el equipo» y envía el paquete Wake-on-LAN aunque Llama no esté disponible porque el PC esté apagado.
 
-Es la única orden que se resuelve en el teléfono. Todas las demás siguen el flujo móvil → Llama → PowerShell. Android exige una acción del usuario para activar el micrófono; la aplicación no mantiene una escucha permanente en segundo plano.
+Es la única orden que se resuelve en el teléfono. Todas las demás se transcriben y se envían automáticamente por el flujo móvil → Llama → PowerShell. En el modo normal se mantiene pulsado el botón mientras se habla; en el modo bloqueado se toca una vez para empezar y otra para detener. Android exige una acción del usuario para activar el micrófono y la aplicación no mantiene una escucha permanente en segundo plano.
 
 Wake-on-LAN necesita:
 

@@ -66,9 +66,9 @@ La aplicación nativa .NET MAUI para Android es ahora la experiencia principal. 
 
 - Descubrimiento UDP automático del servidor en el puerto 5188 y dirección manual como alternativa.
 - Emparejado y token en `SecureStorage`.
-- Dictado nativo Android, texto, estado e historial no persistente.
-- Consulta de pantallas y geometría de ventanas mediante `/api/escena`.
-- Lienzo arrastrable y ajustable que entrega a Llama la distribución deseada.
+- Control de voz único para Wake-on-LAN y órdenes normales enviadas automáticamente a Llama.
+- Modos mantener pulsado y escucha bloqueada, con estados visibles, contador, transcripción parcial y respuesta háptica.
+- Entrada de texto, estado e historial no persistente como alternativa.
 - APK Release firmado localmente para instalación manual.
 
 Wake-on-LAN aprende MAC y broadcast durante el emparejado y conserva esos datos en el móvil. La frase de voz de arranque se reconoce localmente porque Llama no existe mientras el PC está apagado; no se ha añadido ningún otro catálogo local de acciones.
@@ -76,27 +76,28 @@ Wake-on-LAN aprende MAC y broadcast durante el emparejado y conserva esos datos 
 ## Verificaciones realizadas
 
 - Compilación Debug sin errores ni advertencias.
-- 104 pruebas automatizadas correctas en Release.
+- 114 pruebas automatizadas correctas en Release.
 - Diagnóstico real de Ollama y `qwen3:8b` correcto.
 - Orden directa «abre la calculadora» → `Start-Process calc.exe` → código 0 → `FIN`.
 - Web móvil comprobada a 390 × 844 píxeles.
 - Manifiesto, service worker y emparejado de la PWA comprobados en navegador.
 - App Android compilada en Debug y publicada en Release sin advertencias de compilación.
-- APK firmado verificado con `jarsigner`; SHA-256 `11FF8DC31554E04E9C81D46A0912B456D4CD00781256E9693E7DCC0B24F55D7B`.
+- APK 1.1 (código 2) firmado y verificado con esquemas v1, v2 y v3; SHA-256 `FDFB8C09363799C756A15CAA5BC7308DF1EAEC7FB110946E1F92091FC21A6082`.
 - `/api/escena` probado con 2 monitores y 13 ventanas reales.
 - Wake-on-LAN detectó 1 adaptador válido, UDP 9 y su broadcast local sin exponer la MAC en la interfaz.
 - Navegación web corregida: Llama puede abrir URL públicas literales `http/https` y búsquedas web, mientras se bloquean redes privadas, `file:` y descargas ejecutables o comprimidas.
 
-## Próximo rediseño móvil acordado
+## Rediseño móvil completado
 
-La siguiente iteración debe simplificar radicalmente la entrada de voz:
+La entrada de voz nativa se ha simplificado de esta forma:
 
-- Eliminar la tarjeta separada «¿El PC está apagado?» y su botón propio. Habrá un único control de voz para todas las peticiones.
-- Ese mismo control reconocerá localmente una orden de encendido cuando el PC no esté disponible y enviará Wake-on-LAN. Las demás frases se transcribirán y se enviarán a Llama.
-- Añadir un modo **mantener pulsado para hablar**: empieza a escuchar al presionar y termina al soltar.
-- Añadir un modo **bloqueado**, similar a una nota de voz de WhatsApp: permite soltar el dedo y continúa escuchando hasta pulsar detener o cancelar. No será una escucha permanente en segundo plano.
-- Mostrar estados inequívocos: inactivo, escuchando, transcribiendo, enviando, completado y error. Mientras escucha debe haber animación, texto visible, duración y respuesta háptica cuando sea posible.
-- Retirar de la interfaz móvil la sección «Colocar ventanas». La edición gráfica de monitores/ventanas no se seguirá priorizando por ser confusa y aportar poca utilidad demostrada.
+- Se ha eliminado la tarjeta separada «¿El PC está apagado?» y existe un único control de voz para todas las peticiones.
+- Ese mismo control reconoce localmente una orden de encendido aunque el PC no esté disponible. Las demás frases se envían automáticamente a Llama.
+- El modo **mantener pulsado para hablar** empieza al presionar y termina al soltar.
+- El modo **bloqueado** permite soltar el dedo y continúa hasta pulsar detener o cancelar. No mantiene escucha permanente en segundo plano.
+- La interfaz muestra preparación, escucha, texto parcial, duración, transcripción, ejecución, resultado y error, con respuesta háptica cuando el dispositivo la ofrece.
+- Se ha retirado de la aplicación móvil la sección «Colocar ventanas» y su código específico.
+- El fallo que rechazaba literalmente «enciende el ordenador» se corrigió añadiendo la forma verbal `enciend…` y pruebas de regresión.
 - Emparejado correcto y API sin token rechazada con HTTP 401.
 - Orden móvil «abre el bloc de notas» → `Start-Process notepad.exe` → completada.
 - Orden móvil «cierra el bloc de notas» → `Stop-Process -Name notepad -Force` → completada.
@@ -121,10 +122,10 @@ La siguiente iteración debe simplificar radicalmente la entrada de voz:
 - [x] Añadir Wake-on-LAN aprendido y la orden local «enciende el ordenador».
 - [x] Mantener la web como PWA de respaldo sin cachear datos de la API.
 - [x] Permitir navegación web pública literal sin habilitar descargas ni acceso a direcciones privadas.
-- [ ] Unificar Wake-on-LAN y órdenes normales en un único control de voz móvil.
-- [ ] Implementar pulsar para hablar, bloqueo hasta detener y estados visuales/hápticos de escucha.
-- [ ] Retirar de la interfaz móvil el editor de colocación de ventanas.
-- [ ] Probar físicamente en un teléfono Android el micrófono, descubrimiento, lienzo y Wake-on-LAN con el PC realmente apagado.
+- [x] Unificar Wake-on-LAN y órdenes normales en un único control de voz móvil.
+- [x] Implementar pulsar para hablar, bloqueo hasta detener y estados visuales/hápticos de escucha.
+- [x] Retirar de la interfaz móvil el editor de colocación de ventanas.
+- [ ] Probar físicamente en un teléfono Android ambos modos de micrófono, descubrimiento y Wake-on-LAN con el PC realmente apagado.
 - [ ] Compilar, firmar y probar la aplicación iOS desde un Mac.
 - [ ] Crear un instalador y una opción explícita de inicio automático.
 - [ ] Evaluar otros modelos locales y órdenes complejas de varias aplicaciones.

@@ -1,6 +1,6 @@
-using ControlPCIA.Mobile.Controles;
 using ControlPCIA.Mobile.Modelos;
 using ControlPCIA.Mobile.Servicios;
+using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Graphics;
 
 namespace ControlPCIA.Mobile;
@@ -11,22 +11,29 @@ public partial class MainPage : ContentPage
         Color.FromArgb("#AFC2D8");
     private static readonly Color ColorCorrecto =
         Color.FromArgb("#86EFAC");
+    private static readonly Color ColorAviso =
+        Color.FromArgb("#FCD34D");
     private static readonly Color ColorError =
         Color.FromArgb("#FCA5A5");
 
     private readonly ControlPciaApi _api = new();
     private readonly DescubrimientoPc _descubrimiento = new();
     private readonly WakeOnLan _wake = new();
-    private readonly DistribucionDrawable _distribucion = new();
+    private SesionReconocimientoVoz? _sesionVoz;
+    private CancellationTokenSource? _temporizadorVoz;
+    private DateTimeOffset _inicioEscucha;
     private bool _inicializada;
-    private bool _actualizandoTamano;
+    private bool _modoBloqueado;
+    private bool _iniciandoVoz;
+    private bool _soltarPendiente;
+    private bool _ejecutandoOrden;
+    private int _idSesionVoz;
 
     public MainPage()
     {
         InitializeComponent();
-        LayoutCanvas.Drawable = _distribucion;
         _wake.Cargar();
-        ActualizarWakePanel();
+        ActualizarModoVoz();
     }
 
     protected override async void OnAppearing()
@@ -43,7 +50,18 @@ public partial class MainPage : ContentPage
 
         if (!_api.EstaConfigurada)
         {
-            ActivarConexion(false);
+            if (_wake.EstaConfigurado)
+            {
+                MostrarControl(pcDisponible: false);
+                MostrarMensaje(
+                    ControlStatusLabel,
+                    "El PC no esta conectado, pero el encendido por voz esta preparado.");
+            }
+            else
+            {
+                MostrarConexion();
+            }
+
             return;
         }
 
@@ -52,17 +70,19 @@ public partial class MainPage : ContentPage
         try
         {
             EstadoPc estado = await _api.ObtenerEstadoAsync();
-            ActivarConexion(true);
             MostrarEstadoPc(estado);
+            MostrarControl(pcDisponible: true);
         }
         catch (Exception ex)
         {
-            ActivarConexion(false);
             AddressEntry.Text = _api.Direccion;
+            MostrarControl(pcDisponible: false);
             MostrarMensaje(
-                ConnectionStatusLabel,
-                MensajeAmigable(ex),
-                error: true);
+                ControlStatusLabel,
+                _wake.EstaConfigurado
+                    ? "El PC no responde. Puedes usar este mismo microfono y decir «enciende el ordenador»."
+                    : MensajeAmigable(ex),
+                error: !_wake.EstaConfigurado);
         }
     }
 
@@ -151,8 +171,8 @@ public partial class MainPage : ContentPage
 
             EstadoPc estado = await _api.ObtenerEstadoAsync();
             CodeEntry.Text = string.Empty;
-            ActivarConexion(true);
             MostrarEstadoPc(estado);
+            MostrarControl(pcDisponible: true);
         }
         catch (Exception ex)
         {
@@ -170,98 +190,384 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private void OnForgetClicked(object? sender, EventArgs e)
+    private async void OnForgetClicked(object? sender, EventArgs e)
     {
+        await CancelarEscuchaAsync(mostrarMensaje: false);
         _api.Olvidar();
-        ActivarConexion(false);
+        _wake.Olvidar();
         AddressEntry.Text = string.Empty;
         CodeEntry.Text = string.Empty;
+        MostrarConexion();
         MostrarMensaje(
             ConnectionStatusLabel,
             "Busca el PC o escribe su direccion para conectarlo de nuevo.");
     }
 
-    private async void OnWakeClicked(object? sender, EventArgs e)
+    private async void OnVoicePressed(object? sender, EventArgs e)
     {
-        WakeButton.IsEnabled = false;
-        MostrarMensaje(
-            WakeStatusLabel,
-            "Escuchando… Di «enciende el ordenador». ");
+        if (_ejecutandoOrden)
+        {
+            return;
+        }
+
+        if (_sesionVoz is not null)
+        {
+            if (_modoBloqueado)
+            {
+                await DetenerEscuchaAsync();
+            }
+
+            return;
+        }
+
+        if (_iniciandoVoz)
+        {
+            return;
+        }
+
+        _soltarPendiente = false;
+        await IniciarEscuchaAsync();
+
+        if (_soltarPendiente && !_modoBloqueado)
+        {
+            await DetenerEscuchaAsync();
+        }
+    }
+
+    private async void OnVoiceReleased(object? sender, EventArgs e)
+    {
+        if (_modoBloqueado)
+        {
+            return;
+        }
+
+        if (_iniciandoVoz)
+        {
+            _soltarPendiente = true;
+            return;
+        }
+
+        if (_sesionVoz is not null)
+        {
+            await DetenerEscuchaAsync();
+        }
+    }
+
+    private void OnVoiceModeClicked(object? sender, EventArgs e)
+    {
+        if (_sesionVoz is not null || _iniciandoVoz)
+        {
+            return;
+        }
+
+        _modoBloqueado = !_modoBloqueado;
+        ActualizarModoVoz();
+        Vibrar();
+    }
+
+    private async void OnCancelVoiceClicked(object? sender, EventArgs e)
+    {
+        await CancelarEscuchaAsync(mostrarMensaje: true);
+    }
+
+    private async Task IniciarEscuchaAsync()
+    {
+        _iniciandoVoz = true;
+        int idSesion = ++_idSesionVoz;
+        PrepararInterfazParaEscuchar();
+        Vibrar();
 
         try
         {
-            string texto = await ReconocimientoVoz.EscucharAsync();
+            SesionReconocimientoVoz sesion =
+                await ReconocimientoVoz.IniciarAsync(
+                    _modoBloqueado,
+                    estado => ActualizarEstadoVoz(idSesion, estado));
 
-            if (!WakeOnLan.EsOrdenEncender(texto))
+            if (idSesion != _idSesionVoz)
+            {
+                await sesion.CancelarAsync();
+                await sesion.DisposeAsync();
+                return;
+            }
+
+            _sesionVoz = sesion;
+            _inicioEscucha = DateTimeOffset.UtcNow;
+            VoiceButton.Text = _modoBloqueado
+                ? "Detener y enviar"
+                : "Suelta para enviar";
+            IniciarTemporizadorVoz(idSesion);
+            _ = RecibirResultadoVozAsync(sesion, idSesion);
+        }
+        catch (Exception ex)
+        {
+            if (idSesion == _idSesionVoz)
+            {
+                RestablecerInterfazVoz();
+                VoiceStateTitle.Text = "No se pudo iniciar el microfono";
+                VoiceTranscriptLabel.Text = MensajeAmigable(ex);
+                VoiceTranscriptLabel.TextColor = ColorError;
+            }
+        }
+        finally
+        {
+            _iniciandoVoz = false;
+        }
+    }
+
+    private async Task DetenerEscuchaAsync()
+    {
+        SesionReconocimientoVoz? sesion = _sesionVoz;
+
+        if (sesion is null)
+        {
+            return;
+        }
+
+        DetenerTemporizadorVoz();
+        VoiceButton.IsEnabled = false;
+        VoiceStateTitle.Text = "Transcribiendo…";
+        VoiceTranscriptLabel.Text = "Espera un momento mientras preparo la orden.";
+        VoiceTranscriptLabel.TextColor = ColorNormal;
+
+        try
+        {
+            await sesion.DetenerAsync();
+        }
+        catch (Exception ex)
+        {
+            await CancelarEscuchaAsync(mostrarMensaje: false);
+            VoiceStateTitle.Text = "No se pudo terminar la escucha";
+            VoiceTranscriptLabel.Text = MensajeAmigable(ex);
+            VoiceTranscriptLabel.TextColor = ColorError;
+        }
+    }
+
+    private async Task RecibirResultadoVozAsync(
+        SesionReconocimientoVoz sesion,
+        int idSesion)
+    {
+        try
+        {
+            TimeSpan limite = _modoBloqueado
+                ? TimeSpan.FromMinutes(2)
+                : TimeSpan.FromSeconds(45);
+            string texto = await sesion.Resultado.WaitAsync(limite);
+
+            if (idSesion != _idSesionVoz)
+            {
+                return;
+            }
+
+            await CerrarSesionVozAsync(sesion, idSesion);
+            Vibrar();
+            await ProcesarTextoReconocidoAsync(texto);
+        }
+        catch (OperationCanceledException)
+        {
+            // La cancelacion solicitada por el usuario ya actualiza la interfaz.
+        }
+        catch (Exception ex)
+        {
+            if (idSesion == _idSesionVoz)
+            {
+                await CerrarSesionVozAsync(sesion, idSesion);
+                VoiceStateTitle.Text = "No se pudo entender la orden";
+                VoiceTranscriptLabel.Text = MensajeAmigable(ex);
+                VoiceTranscriptLabel.TextColor = ColorError;
+            }
+        }
+        finally
+        {
+            await sesion.DisposeAsync();
+        }
+    }
+
+    private async Task CerrarSesionVozAsync(
+        SesionReconocimientoVoz sesion,
+        int idSesion)
+    {
+        if (idSesion != _idSesionVoz
+            || !ReferenceEquals(_sesionVoz, sesion))
+        {
+            return;
+        }
+
+        _sesionVoz = null;
+        DetenerTemporizadorVoz();
+        await sesion.DisposeAsync();
+        RestablecerInterfazVoz();
+    }
+
+    private async Task CancelarEscuchaAsync(bool mostrarMensaje)
+    {
+        ++_idSesionVoz;
+        _soltarPendiente = false;
+        SesionReconocimientoVoz? sesion = _sesionVoz;
+        _sesionVoz = null;
+        DetenerTemporizadorVoz();
+
+        if (sesion is not null)
+        {
+            await sesion.CancelarAsync();
+            await sesion.DisposeAsync();
+        }
+
+        RestablecerInterfazVoz();
+
+        if (mostrarMensaje)
+        {
+            VoiceStateTitle.Text = "Escucha cancelada";
+            VoiceTranscriptLabel.Text = "No se ha enviado ninguna orden.";
+            VoiceTranscriptLabel.TextColor = ColorNormal;
+        }
+    }
+
+    private void ActualizarEstadoVoz(
+        int idSesion,
+        EstadoReconocimientoVoz estado)
+    {
+        if (idSesion != _idSesionVoz)
+        {
+            return;
+        }
+
+        switch (estado.Fase)
+        {
+            case FaseReconocimientoVoz.Preparando:
+                VoiceStateTitle.Text = "Preparando el microfono…";
+                break;
+            case FaseReconocimientoVoz.Preparado:
+                VoiceStateTitle.Text = "Escuchando";
+                VoiceTranscriptLabel.Text = _modoBloqueado
+                    ? "El microfono queda abierto. Toca Detener cuando termines."
+                    : "Habla ahora. Suelta el boton cuando termines.";
+                break;
+            case FaseReconocimientoVoz.VozDetectada:
+                VoiceStateTitle.Text = "Te estoy escuchando";
+                break;
+            case FaseReconocimientoVoz.TextoParcial:
+                VoiceStateTitle.Text = "Te estoy escuchando";
+                VoiceTranscriptLabel.Text = $"«{estado.Texto}»";
+                break;
+            case FaseReconocimientoVoz.Transcribiendo:
+                VoiceStateTitle.Text = "Transcribiendo…";
+                break;
+        }
+    }
+
+    private void PrepararInterfazParaEscuchar()
+    {
+        VoiceActivity.IsVisible = true;
+        VoiceActivity.IsRunning = true;
+        VoiceIdleIndicator.IsVisible = false;
+        VoiceDurationLabel.IsVisible = true;
+        VoiceDurationLabel.Text = "00:00";
+        VoiceModeButton.IsEnabled = false;
+        CancelVoiceButton.IsVisible = true;
+        SendButton.IsEnabled = false;
+        VoiceStateTitle.Text = "Preparando el microfono…";
+        VoiceTranscriptLabel.Text = _modoBloqueado
+            ? "Escucha bloqueada: podras soltar el boton y tocarlo otra vez para detener."
+            : "Manten el boton pulsado mientras hablas.";
+        VoiceTranscriptLabel.TextColor = ColorNormal;
+    }
+
+    private void RestablecerInterfazVoz()
+    {
+        VoiceActivity.IsRunning = false;
+        VoiceActivity.IsVisible = false;
+        VoiceIdleIndicator.IsVisible = true;
+        VoiceDurationLabel.IsVisible = false;
+        CancelVoiceButton.IsVisible = false;
+        VoiceModeButton.IsEnabled = !_ejecutandoOrden;
+        VoiceButton.IsEnabled = !_ejecutandoOrden;
+        SendButton.IsEnabled = !_ejecutandoOrden;
+        VoiceStateTitle.Text = "Preparado para escucharte";
+        ActualizarModoVoz();
+    }
+
+    private void ActualizarModoVoz()
+    {
+        VoiceModeButton.Text = _modoBloqueado
+            ? "Modo: escucha bloqueada"
+            : "Modo: mantener pulsado";
+        VoiceModeHelpLabel.Text = _modoBloqueado
+            ? "Toca una vez para empezar. Puedes soltar el movil; toca de nuevo para detener y enviar."
+            : "Manten pulsado mientras hablas y suelta para transcribir y enviar.";
+
+        if (_sesionVoz is null && !_iniciandoVoz)
+        {
+            VoiceButton.Text = _modoBloqueado
+                ? "Toca para empezar a escuchar"
+                : "Manten pulsado para hablar";
+            SemanticProperties.SetHint(
+                VoiceButton,
+                _modoBloqueado
+                    ? "Toca para empezar una escucha bloqueada"
+                    : "Manten pulsado para hablar y suelta para enviar la orden");
+        }
+    }
+
+    private void IniciarTemporizadorVoz(int idSesion)
+    {
+        DetenerTemporizadorVoz();
+        _temporizadorVoz = new CancellationTokenSource();
+        CancellationToken token = _temporizadorVoz.Token;
+
+        _ = ActualizarDuracionAsync(idSesion, token);
+    }
+
+    private async Task ActualizarDuracionAsync(
+        int idSesion,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested
+                   && idSesion == _idSesionVoz)
+            {
+                TimeSpan duracion = DateTimeOffset.UtcNow - _inicioEscucha;
+                VoiceDurationLabel.Text = $"{(int)duracion.TotalMinutes:00}:{duracion.Seconds:00}";
+                await Task.Delay(250, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private void DetenerTemporizadorVoz()
+    {
+        _temporizadorVoz?.Cancel();
+        _temporizadorVoz?.Dispose();
+        _temporizadorVoz = null;
+    }
+
+    private async Task ProcesarTextoReconocidoAsync(string texto)
+    {
+        string orden = texto.Trim();
+        OrderEditor.Text = orden;
+        VoiceStateTitle.Text = "He entendido la orden";
+        VoiceTranscriptLabel.Text = $"«{orden}»";
+        VoiceTranscriptLabel.TextColor = ColorCorrecto;
+
+        if (WakeOnLan.EsOrdenEncender(orden))
+        {
+            if (!_wake.EstaConfigurado)
             {
                 MostrarMensaje(
-                    WakeStatusLabel,
-                    $"He oído «{texto}». Di «enciende el ordenador» para despertarlo.",
+                    ControlStatusLabel,
+                    "He entendido que quieres encender el ordenador, pero antes debes conectarlo una vez para guardar sus datos Wake-on-LAN.",
                     error: true);
                 return;
             }
 
-            await EnviarWakeOnLanAsync(WakeStatusLabel);
+            await EjecutarWakeOnLanAsync();
+            return;
         }
-        catch (Exception ex)
-        {
-            MostrarMensaje(
-                WakeStatusLabel,
-                MensajeAmigable(ex),
-                error: true);
-        }
-        finally
-        {
-            WakeButton.IsEnabled = true;
-        }
-    }
 
-    private void OnControlTabClicked(object? sender, EventArgs e)
-    {
-        MostrarPestana(control: true);
-    }
-
-    private void OnLayoutTabClicked(object? sender, EventArgs e)
-    {
-        MostrarPestana(control: false);
-    }
-
-    private async void OnVoiceClicked(object? sender, EventArgs e)
-    {
-        VoiceButton.IsEnabled = false;
-        SendButton.IsEnabled = false;
-        MostrarMensaje(ControlStatusLabel, "Escuchando… Habla ahora.");
-
-        try
-        {
-            string texto = await ReconocimientoVoz.EscucharAsync();
-
-            if (WakeOnLan.EsOrdenEncender(texto)
-                &&
-                _wake.EstaConfigurado)
-            {
-                await EnviarWakeOnLanAsync(ControlStatusLabel);
-                return;
-            }
-
-            OrderEditor.Text = texto;
-            MostrarMensaje(
-                ControlStatusLabel,
-                "He escrito la frase. Revisala y pulsa Enviar a la IA.",
-                correcto: true);
-        }
-        catch (Exception ex)
-        {
-            MostrarMensaje(
-                ControlStatusLabel,
-                MensajeAmigable(ex),
-                error: true);
-        }
-        finally
-        {
-            VoiceButton.IsEnabled = true;
-            SendButton.IsEnabled = true;
-        }
+        await EjecutarOrdenAsync(orden);
     }
 
     private async void OnSendClicked(object? sender, EventArgs e)
@@ -272,13 +578,23 @@ public partial class MainPage : ContentPage
         {
             MostrarMensaje(
                 ControlStatusLabel,
-                "Escribe o dicta primero lo que quieres que haga el PC.",
+                "Escribe primero lo que quieres que haga el PC.",
                 error: true);
             return;
         }
 
-        SendButton.IsEnabled = false;
-        VoiceButton.IsEnabled = false;
+        await EjecutarOrdenAsync(orden);
+    }
+
+    private async Task EjecutarOrdenAsync(string orden)
+    {
+        if (_ejecutandoOrden)
+        {
+            return;
+        }
+
+        _ejecutandoOrden = true;
+        BloquearControlesDuranteOrden();
         MostrarMensaje(
             ControlStatusLabel,
             "Llama esta interpretando la orden y decidiendo los comandos…");
@@ -301,190 +617,93 @@ public partial class MainPage : ContentPage
         }
         finally
         {
-            SendButton.IsEnabled = true;
-            VoiceButton.IsEnabled = true;
+            _ejecutandoOrden = false;
+            RestablecerInterfazVoz();
         }
     }
 
-    private async void OnRefreshSceneClicked(object? sender, EventArgs e)
+    private async Task EjecutarWakeOnLanAsync()
     {
-        RefreshSceneButton.IsEnabled = false;
-        ApplyLayoutButton.IsEnabled = false;
-        MostrarMensaje(
-            LayoutStatusLabel,
-            "Leyendo las pantallas y ventanas abiertas del PC…");
+        if (_ejecutandoOrden)
+        {
+            return;
+        }
+
+        _ejecutandoOrden = true;
+        BloquearControlesDuranteOrden();
 
         try
         {
-            EscenaPc escena = await _api.ObtenerEscenaAsync();
-            _distribucion.Cargar(escena);
-            LayoutCanvas.Invalidate();
+            MostrarMensaje(
+                ControlStatusLabel,
+                $"Orden reconocida. Enviando Wake-on-LAN por UDP {_wake.Puerto}…");
 
-            WindowPicker.ItemsSource = _distribucion.Ventanas.ToArray();
-            WindowPicker.SelectedIndex =
-                _distribucion.Ventanas.Count > 0 ? 0 : -1;
-
-            ApplyLayoutButton.IsEnabled =
-                _distribucion.Ventanas.Count > 0;
-            ActualizarSeleccion();
+            int destinos = await _wake.EncenderAsync();
 
             MostrarMensaje(
-                LayoutStatusLabel,
-                _distribucion.Ventanas.Count > 0
-                    ? $"He cargado {_distribucion.Ventanas.Count} ventanas. Toca una y arrastrala."
-                    : "No hay ventanas visibles para colocar.",
-                correcto: _distribucion.Ventanas.Count > 0,
-                error: _distribucion.Ventanas.Count == 0);
+                ControlStatusLabel,
+                $"Señal de encendido enviada a {destinos} destinos. El PC puede tardar unos segundos en arrancar.",
+                correcto: true);
         }
         catch (Exception ex)
         {
             MostrarMensaje(
-                LayoutStatusLabel,
+                ControlStatusLabel,
                 MensajeAmigable(ex),
                 error: true);
-            ComprobarSesion();
         }
         finally
         {
-            RefreshSceneButton.IsEnabled = true;
+            _ejecutandoOrden = false;
+            RestablecerInterfazVoz();
         }
     }
 
-    private void OnWindowSelected(object? sender, EventArgs e)
+    private void BloquearControlesDuranteOrden()
     {
-        if (WindowPicker.SelectedIndex < 0)
+        VoiceButton.IsEnabled = false;
+        VoiceModeButton.IsEnabled = false;
+        SendButton.IsEnabled = false;
+        CancelVoiceButton.IsVisible = false;
+    }
+
+    private void MostrarConexion()
+    {
+        ConnectionPanel.IsVisible = true;
+        ConnectedBar.IsVisible = false;
+        ControlPanel.IsVisible = false;
+    }
+
+    private void MostrarControl(bool pcDisponible)
+    {
+        bool controlGuardado =
+            _api.EstaConfigurada || _wake.EstaConfigurado;
+
+        ConnectionPanel.IsVisible = !controlGuardado;
+        ConnectedBar.IsVisible = controlGuardado;
+        ControlPanel.IsVisible = controlGuardado;
+
+        if (!controlGuardado)
         {
             return;
         }
 
-        _distribucion.Seleccionar(WindowPicker.SelectedIndex);
-        ActualizarSeleccion();
-        LayoutCanvas.Invalidate();
-    }
-
-    private void OnCanvasTapped(object? sender, TappedEventArgs e)
-    {
-        Point? punto = e.GetPosition(LayoutCanvas);
-
-        if (punto is null)
-        {
-            return;
-        }
-
-        int indice = _distribucion.Seleccionar(
-            (float)punto.Value.X,
-            (float)punto.Value.Y);
-
-        if (indice >= 0)
-        {
-            WindowPicker.SelectedIndex = indice;
-            ActualizarSeleccion();
-            LayoutCanvas.Invalidate();
-        }
-    }
-
-    private void OnCanvasPanned(object? sender, PanUpdatedEventArgs e)
-    {
-        if (e.StatusType == GestureStatus.Started)
-        {
-            _distribucion.IniciarArrastre();
-            return;
-        }
-
-        if (e.StatusType == GestureStatus.Running)
-        {
-            _distribucion.Arrastrar(e.TotalX, e.TotalY);
-            LayoutCanvas.Invalidate();
-        }
-    }
-
-    private void OnSizeChanged(object? sender, ValueChangedEventArgs e)
-    {
-        if (_actualizandoTamano)
-        {
-            return;
-        }
-
-        _distribucion.AjustarTamano(
-            (float)(WidthSlider.Value / 100),
-            (float)(HeightSlider.Value / 100));
-        LayoutCanvas.Invalidate();
-    }
-
-    private async void OnApplyLayoutClicked(object? sender, EventArgs e)
-    {
-        string orden = _distribucion.CrearOrden();
-
-        if (string.IsNullOrWhiteSpace(orden))
-        {
-            MostrarMensaje(
-                LayoutStatusLabel,
-                "Carga primero las ventanas abiertas.",
-                error: true);
-            return;
-        }
-
-        ApplyLayoutButton.IsEnabled = false;
-        RefreshSceneButton.IsEnabled = false;
-        MostrarMensaje(
-            LayoutStatusLabel,
-            "Llama esta interpretando el dibujo y decidiendo los comandos…");
-
-        try
-        {
-            ResultadoOrden resultado =
-                await _api.EnviarOrdenAsync(orden);
-
-            MostrarResultado(LayoutStatusLabel, resultado);
-            AgregarHistorial("Distribucion dibujada de ventanas", resultado);
-        }
-        catch (Exception ex)
-        {
-            MostrarMensaje(
-                LayoutStatusLabel,
-                MensajeAmigable(ex),
-                error: true);
-            ComprobarSesion();
-        }
-        finally
-        {
-            ApplyLayoutButton.IsEnabled = _distribucion.Ventanas.Count > 0;
-            RefreshSceneButton.IsEnabled = true;
-        }
-    }
-
-    private void ActivarConexion(bool conectada)
-    {
-        ConnectionPanel.IsVisible = !conectada;
-        ConnectedBar.IsVisible = conectada;
-        NavigationBar.IsVisible = conectada;
-        ConnectedAddressLabel.Text = conectada ? _api.Direccion : string.Empty;
-
-        if (conectada)
-        {
-            MostrarPestana(control: true);
-        }
-        else
-        {
-            ControlPanel.IsVisible = false;
-            LayoutPanel.IsVisible = false;
-        }
-    }
-
-    private void MostrarPestana(bool control)
-    {
-        ControlPanel.IsVisible = control;
-        LayoutPanel.IsVisible = !control;
-        ControlTabButton.BackgroundColor =
-            Color.FromArgb(control ? "#2563EB" : "#172A42");
-        LayoutTabButton.BackgroundColor =
-            Color.FromArgb(control ? "#172A42" : "#2563EB");
+        PcConnectionLabel.Text = pcDisponible
+            ? "PC conectado"
+            : "PC apagado o sin conexion";
+        PcConnectionLabel.TextColor = pcDisponible
+            ? ColorCorrecto
+            : ColorAviso;
+        ConnectedAddressLabel.Text = pcDisponible
+            ? _api.Direccion
+            : _wake.EstaConfigurado
+                ? "El mismo microfono puede enviar la orden de encendido."
+                : _api.Direccion;
     }
 
     private void MostrarEstadoPc(EstadoPc estado)
     {
         _wake.Guardar(estado.WakeOnLan);
-        ActualizarWakePanel();
 
         string recetas = estado.RecetasAprendidas == 1
             ? "1 receta aprendida"
@@ -498,27 +717,6 @@ public partial class MainPage : ContentPage
             mensaje,
             correcto: estado.Disponible,
             error: !estado.Disponible);
-    }
-
-    private void ActualizarWakePanel()
-    {
-        WakePanel.IsVisible = _wake.EstaConfigurado;
-        WakeDescriptionLabel.Text =
-            $"Toca Hablar y di «enciende el ordenador» · UDP {_wake.Puerto}.";
-    }
-
-    private async Task EnviarWakeOnLanAsync(Label estado)
-    {
-        MostrarMensaje(
-            estado,
-            $"Orden reconocida. Enviando Wake‑on‑LAN por UDP {_wake.Puerto}…");
-
-        int destinos = await _wake.EncenderAsync();
-
-        MostrarMensaje(
-            estado,
-            $"Señal de encendido enviada a {destinos} destinos. El PC puede tardar unos segundos en arrancar.",
-            correcto: true);
     }
 
     private void MostrarResultado(
@@ -594,28 +792,23 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private void ActualizarSeleccion()
-    {
-        VentanaLienzo? ventana = _distribucion.VentanaSeleccionada;
-
-        if (ventana is null)
-        {
-            SelectedWindowLabel.Text = "Carga las ventanas para empezar.";
-            return;
-        }
-
-        SelectedWindowLabel.Text = "Seleccionada: " + ventana.Titulo;
-        _actualizandoTamano = true;
-        WidthSlider.Value = ventana.Ancho * 100;
-        HeightSlider.Value = ventana.Alto * 100;
-        _actualizandoTamano = false;
-    }
-
     private void ComprobarSesion()
     {
         if (!_api.EstaConfigurada)
         {
-            ActivarConexion(false);
+            MostrarControl(pcDisponible: false);
+        }
+    }
+
+    private static void Vibrar()
+    {
+        try
+        {
+            HapticFeedback.Default.Perform(HapticFeedbackType.Click);
+        }
+        catch
+        {
+            // Algunos dispositivos no disponen de respuesta haptica.
         }
     }
 
@@ -638,9 +831,11 @@ public partial class MainPage : ContentPage
         return ex switch
         {
             HttpRequestException =>
-                "No puedo contactar con el PC. Comprueba que ControlPCIA esta abierto y que ambos dispositivos usan la misma Wi‑Fi.",
+                "No puedo contactar con el PC. Si esta apagado, di «enciende el ordenador»; si esta encendido, comprueba que ControlPCIA esta abierto y que ambos dispositivos usan la misma Wi‑Fi.",
             TaskCanceledException =>
-                "El PC ha tardado demasiado en responder. Intentalo otra vez.",
+                "La operacion ha tardado demasiado. Intentalo otra vez.",
+            TimeoutException =>
+                "La escucha ha durado demasiado y se ha detenido.",
             _ => ex.Message
         };
     }

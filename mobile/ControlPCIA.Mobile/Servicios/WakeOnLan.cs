@@ -1,7 +1,5 @@
 using System.Net;
 using System.Net.Sockets;
-using System.Globalization;
-using System.Text;
 using System.Text.Json;
 using ControlPCIA.Mobile.Modelos;
 using Microsoft.Maui.Storage;
@@ -66,6 +64,12 @@ public sealed class WakeOnLan
         Preferences.Default.Set(
             ClaveDestinos,
             JsonSerializer.Serialize(validos, OpcionesJson));
+    }
+
+    public void Olvidar()
+    {
+        _destinos = [];
+        Preferences.Default.Remove(ClaveDestinos);
     }
 
     public async Task<int> EncenderAsync(
@@ -140,26 +144,7 @@ public sealed class WakeOnLan
 
     public static bool EsOrdenEncender(string? texto)
     {
-        string normalizada = Normalizar(texto);
-
-        if (string.IsNullOrWhiteSpace(normalizada)
-            ||
-            normalizada.StartsWith("no ", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        string[] palabras = normalizada.Split(
-            ' ',
-            StringSplitOptions.RemoveEmptyEntries);
-        bool accion = palabras.Any(palabra =>
-            palabra.StartsWith("encend", StringComparison.Ordinal)
-            || palabra.StartsWith("arranc", StringComparison.Ordinal)
-            || palabra.StartsWith("despiert", StringComparison.Ordinal));
-        bool dispositivo = palabras.Any(palabra =>
-            palabra is "pc" or "ordenador" or "computador" or "computadora" or "equipo");
-
-        return accion && dispositivo;
+        return DetectorOrdenEncendido.EsOrdenEncender(texto);
     }
 
     internal static byte[] CrearPaquete(byte[] mac)
@@ -213,28 +198,4 @@ public sealed class WakeOnLan
         }
     }
 
-    private static string Normalizar(string? texto)
-    {
-        string descompuesto = (texto ?? string.Empty)
-            .Trim()
-            .ToLowerInvariant()
-            .Normalize(NormalizationForm.FormD);
-        var resultado = new StringBuilder(descompuesto.Length);
-
-        foreach (char caracter in descompuesto)
-        {
-            if (CharUnicodeInfo.GetUnicodeCategory(caracter)
-                != UnicodeCategory.NonSpacingMark)
-            {
-                resultado.Append(
-                    char.IsLetterOrDigit(caracter) || char.IsWhiteSpace(caracter)
-                        ? caracter
-                        : ' ');
-            }
-        }
-
-        return resultado
-            .ToString()
-            .Normalize(NormalizationForm.FormC);
-    }
 }

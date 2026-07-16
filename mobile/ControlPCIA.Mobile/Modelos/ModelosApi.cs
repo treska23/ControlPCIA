@@ -35,22 +35,3 @@ public sealed record ResultadoOrden(
     string? Mensaje,
     IReadOnlyList<PasoOrden>? Pasos,
     bool Aprendido);
-
-public sealed record PantallaPc(
-    int X,
-    int Y,
-    int Ancho,
-    int Alto,
-    bool Principal);
-
-public sealed record VentanaPc(
-    string Titulo,
-    int X,
-    int Y,
-    int Ancho,
-    int Alto,
-    bool Minimizada);
-
-public sealed record EscenaPc(
-    IReadOnlyList<PantallaPc>? Pantallas,
-    IReadOnlyList<VentanaPc>? Ventanas);

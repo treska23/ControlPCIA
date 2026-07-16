@@ -8,22 +8,84 @@ using Android.Speech;
 
 namespace ControlPCIA.Mobile.Servicios;
 
+public enum FaseReconocimientoVoz
+{
+    Preparando,
+    Preparado,
+    VozDetectada,
+    TextoParcial,
+    Transcribiendo
+}
+
+public sealed record EstadoReconocimientoVoz(
+    FaseReconocimientoVoz Fase,
+    string? Texto = null);
+
+public sealed class SesionReconocimientoVoz : IAsyncDisposable
+{
+    private readonly Func<Task> _detener;
+    private readonly Func<Task> _cancelar;
+    private readonly Func<Task> _liberar;
+    private int _liberada;
+
+    internal SesionReconocimientoVoz(
+        Task<string> resultado,
+        Func<Task> detener,
+        Func<Task> cancelar,
+        Func<Task> liberar)
+    {
+        Resultado = resultado;
+        _detener = detener;
+        _cancelar = cancelar;
+        _liberar = liberar;
+    }
+
+    public Task<string> Resultado { get; }
+
+    public Task DetenerAsync()
+    {
+        return _detener();
+    }
+
+    public Task CancelarAsync()
+    {
+        return _cancelar();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _liberada, 1) == 0)
+        {
+            await _liberar();
+        }
+    }
+}
+
 public static class ReconocimientoVoz
 {
-    public static async Task<string> EscucharAsync(
+    public static async Task<SesionReconocimientoVoz> IniciarAsync(
+        bool escuchaBloqueada,
+        Action<EstadoReconocimientoVoz>? alCambiarEstado = null,
         CancellationToken cancellationToken = default)
     {
+        alCambiarEstado?.Invoke(
+            new EstadoReconocimientoVoz(
+                FaseReconocimientoVoz.Preparando));
+
         PermissionStatus permiso =
             await Permissions.RequestAsync<Permissions.Microphone>();
 
         if (permiso != PermissionStatus.Granted)
         {
             throw new InvalidOperationException(
-                "Activa el permiso de microfono para dictar. Tambien puedes usar el microfono del teclado.");
+                "Activa el permiso de microfono para hablar al PC.");
         }
 
 #if ANDROID
-        return await EscucharAndroidAsync(cancellationToken);
+        return await IniciarAndroidAsync(
+            escuchaBloqueada,
+            alCambiarEstado,
+            cancellationToken);
 #else
         throw new PlatformNotSupportedException(
             "En este dispositivo usa el microfono del teclado para dictar.");
@@ -31,7 +93,9 @@ public static class ReconocimientoVoz
     }
 
 #if ANDROID
-    private static async Task<string> EscucharAndroidAsync(
+    private static async Task<SesionReconocimientoVoz> IniciarAndroidAsync(
+        bool escuchaBloqueada,
+        Action<EstadoReconocimientoVoz>? alCambiarEstado,
         CancellationToken cancellationToken)
     {
         Context contexto = Android.App.Application.Context;
@@ -44,61 +108,121 @@ public static class ReconocimientoVoz
 
         SpeechRecognizer? reconocedor = null;
         OyenteReconocimiento? oyente = null;
+        CancellationTokenRegistration registroCancelacion = default;
         var resultado =
             new TaskCompletionSource<string>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
 
-        await MainThread.InvokeOnMainThreadAsync(() =>
+        void Publicar(EstadoReconocimientoVoz estado)
         {
-            reconocedor = SpeechRecognizer.CreateSpeechRecognizer(contexto);
-            oyente = new OyenteReconocimiento(resultado);
-            reconocedor!.SetRecognitionListener(oyente);
+            if (alCambiarEstado is null)
+            {
+                return;
+            }
 
-            var intencion = new Intent(RecognizerIntent.ActionRecognizeSpeech);
-            intencion.PutExtra(
-                RecognizerIntent.ExtraLanguageModel,
-                RecognizerIntent.LanguageModelFreeForm);
-            intencion.PutExtra(RecognizerIntent.ExtraLanguage, "es-ES");
-            intencion.PutExtra(
-                RecognizerIntent.ExtraLanguagePreference,
-                "es-ES");
-            intencion.PutExtra(RecognizerIntent.ExtraPartialResults, false);
-            reconocedor.StartListening(intencion);
-        });
+            MainThread.BeginInvokeOnMainThread(
+                () => alCambiarEstado(estado));
+        }
+
+        async Task CancelarInternamenteAsync()
+        {
+            resultado.TrySetCanceled();
+            await MainThread.InvokeOnMainThreadAsync(
+                () => reconocedor?.Cancel());
+        }
 
         try
         {
-            return await resultado.Task.WaitAsync(
-                TimeSpan.FromSeconds(25),
-                cancellationToken);
+            await MainThread.InvokeOnMainThreadAsync(() =>
+            {
+                reconocedor =
+                    SpeechRecognizer.CreateSpeechRecognizer(contexto);
+                oyente = new OyenteReconocimiento(resultado, Publicar);
+                reconocedor!.SetRecognitionListener(oyente);
+
+                var intencion =
+                    new Intent(RecognizerIntent.ActionRecognizeSpeech);
+                intencion.PutExtra(
+                    RecognizerIntent.ExtraLanguageModel,
+                    RecognizerIntent.LanguageModelFreeForm);
+                intencion.PutExtra(
+                    RecognizerIntent.ExtraLanguage,
+                    "es-ES");
+                intencion.PutExtra(
+                    RecognizerIntent.ExtraLanguagePreference,
+                    "es-ES");
+                intencion.PutExtra(
+                    RecognizerIntent.ExtraPartialResults,
+                    true);
+                intencion.PutExtra(
+                    RecognizerIntent.ExtraMaxResults,
+                    5);
+                intencion.PutExtra(
+                    RecognizerIntent.ExtraSpeechInputMinimumLengthMillis,
+                    1_000L);
+                intencion.PutExtra(
+                    RecognizerIntent.ExtraSpeechInputCompleteSilenceLengthMillis,
+                    escuchaBloqueada ? 120_000L : 4_000L);
+                intencion.PutExtra(
+                    RecognizerIntent.ExtraSpeechInputPossiblyCompleteSilenceLengthMillis,
+                    escuchaBloqueada ? 120_000L : 2_000L);
+
+                reconocedor.StartListening(intencion);
+            });
         }
-        catch (TimeoutException)
-        {
-            throw new InvalidOperationException(
-                "No he oido ninguna frase. Toca Hablar e intentalo otra vez.");
-        }
-        finally
+        catch
         {
             await MainThread.InvokeOnMainThreadAsync(() =>
             {
-                reconocedor?.Cancel();
                 reconocedor?.Destroy();
                 reconocedor?.Dispose();
                 oyente?.Dispose();
             });
+            throw;
         }
+
+        if (cancellationToken.CanBeCanceled)
+        {
+            registroCancelacion = cancellationToken.Register(
+                () => _ = CancelarInternamenteAsync());
+        }
+
+        return new SesionReconocimientoVoz(
+            resultado.Task,
+            detener: async () =>
+            {
+                if (!resultado.Task.IsCompleted)
+                {
+                    Publicar(
+                        new EstadoReconocimientoVoz(
+                            FaseReconocimientoVoz.Transcribiendo));
+                    await MainThread.InvokeOnMainThreadAsync(
+                        () => reconocedor?.StopListening());
+                }
+            },
+            cancelar: CancelarInternamenteAsync,
+            liberar: async () =>
+            {
+                registroCancelacion.Dispose();
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    reconocedor?.Cancel();
+                    reconocedor?.Destroy();
+                    reconocedor?.Dispose();
+                    oyente?.Dispose();
+                });
+            });
     }
 
     private sealed class OyenteReconocimiento(
-        TaskCompletionSource<string> resultado)
+        TaskCompletionSource<string> resultado,
+        Action<EstadoReconocimientoVoz> publicar)
         : Java.Lang.Object,
           IRecognitionListener
     {
         public void OnResults(Bundle? resultados)
         {
-            string? texto = resultados?
-                .GetStringArrayList(SpeechRecognizer.ResultsRecognition)?
-                .FirstOrDefault();
+            string? texto = ObtenerPrimerTexto(resultados);
 
             if (string.IsNullOrWhiteSpace(texto))
             {
@@ -124,7 +248,10 @@ public static class ReconocimientoVoz
                 SpeechRecognizerError.Network or
                 SpeechRecognizerError.NetworkTimeout =>
                     "El reconocimiento de voz del movil no tiene conexion.",
-                _ => "No se pudo usar el reconocimiento de voz del movil."
+                SpeechRecognizerError.RecognizerBusy =>
+                    "El microfono ya esta ocupado. Espera un momento y vuelve a intentarlo.",
+                _ =>
+                    "No se pudo usar el reconocimiento de voz del movil."
             };
 
             resultado.TrySetException(
@@ -133,6 +260,36 @@ public static class ReconocimientoVoz
 
         public void OnBeginningOfSpeech()
         {
+            publicar(
+                new EstadoReconocimientoVoz(
+                    FaseReconocimientoVoz.VozDetectada));
+        }
+
+        public void OnEndOfSpeech()
+        {
+            publicar(
+                new EstadoReconocimientoVoz(
+                    FaseReconocimientoVoz.Transcribiendo));
+        }
+
+        public void OnPartialResults(Bundle? partialResults)
+        {
+            string? texto = ObtenerPrimerTexto(partialResults);
+
+            if (!string.IsNullOrWhiteSpace(texto))
+            {
+                publicar(
+                    new EstadoReconocimientoVoz(
+                        FaseReconocimientoVoz.TextoParcial,
+                        texto.Trim()));
+            }
+        }
+
+        public void OnReadyForSpeech(Bundle? parameters)
+        {
+            publicar(
+                new EstadoReconocimientoVoz(
+                    FaseReconocimientoVoz.Preparado));
         }
 
         public void OnBufferReceived(byte[]? buffer)
@@ -140,10 +297,6 @@ public static class ReconocimientoVoz
         }
 
         public void OnEndOfSegmentedSession()
-        {
-        }
-
-        public void OnEndOfSpeech()
         {
         }
 
@@ -155,20 +308,19 @@ public static class ReconocimientoVoz
         {
         }
 
-        public void OnPartialResults(Bundle? partialResults)
-        {
-        }
-
-        public void OnReadyForSpeech(Bundle? parameters)
-        {
-        }
-
         public void OnRmsChanged(float rmsdB)
         {
         }
 
         public void OnSegmentResults(Bundle? segmentResults)
         {
+        }
+
+        private static string? ObtenerPrimerTexto(Bundle? resultados)
+        {
+            return resultados?
+                .GetStringArrayList(SpeechRecognizer.ResultsRecognition)?
+                .FirstOrDefault();
         }
     }
 #endif

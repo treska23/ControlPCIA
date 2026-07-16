@@ -16,4 +16,9 @@
     <ProjectReference Include="..\..\ControlPCIA\ControlPCIA.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\..\mobile\ControlPCIA.Mobile\Servicios\DetectorOrdenEncendido.cs"
+             Link="Servicios\DetectorOrdenEncendido.cs" />
+  </ItemGroup>
+
 </Project>

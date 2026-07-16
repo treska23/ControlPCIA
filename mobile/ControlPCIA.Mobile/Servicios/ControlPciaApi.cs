@@ -99,12 +99,6 @@ public sealed class ControlPciaApi
         return ObtenerAsync<EstadoPc>("/api/estado", cancellationToken);
     }
 
-    public Task<EscenaPc> ObtenerEscenaAsync(
-        CancellationToken cancellationToken = default)
-    {
-        return ObtenerAsync<EscenaPc>("/api/escena", cancellationToken);
-    }
-
     public async Task<ResultadoOrden> EnviarOrdenAsync(
         string texto,
         CancellationToken cancellationToken = default)
