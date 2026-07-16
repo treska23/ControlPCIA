@@ -20,6 +20,11 @@ public sealed class ValidadorPowerShellTests
         "Get-Process -Name notepad | ForEach-Object { $_.CloseMainWindow() }",
         "$shell = New-Object -ComObject WScript.Shell; $shell.SendKeys([char]175)",
         "$shell = New-Object -ComObject WScript.Shell; $shell.SendKeys('{F11}')",
+        "ControlPCIA.exe ui windows",
+        "ControlPCIA.exe ui inspect 'Cubase' 4",
+        "ControlPCIA.exe ui invoke 'Cubase' 'Add Track' 'MenuItem'",
+        "ControlPCIA.exe ui text 'Cubase' 'Search' 'Kontakt 7'",
+        "ControlPCIA.exe ui shortcut 'Cubase' 'CTRL+T'",
         "$ventana = Get-Process -Name Spotify; $ventana | Select-Object MainWindowTitle",
         "DisplaySwitch.exe /extend"
     };
@@ -85,6 +90,13 @@ public sealed class ValidadorPowerShellTests
         ,"Start-Process 'https://example.com/programa.exe'"
         ,"Start-Process 'https://example.com/archivo.zip'"
         ,"Start-Process 'file:///C:/secreto.txt'"
+        ,"ControlPCIA.exe --servidor"
+        ,"ControlPCIA.exe --activar-inicio"
+        ,"ControlPCIA.exe ui inspect 'PowerShell'"
+        ,"ControlPCIA.exe ui invoke 'Cubase' 'Save As' 'MenuItem'"
+        ,"ControlPCIA.exe ui text 'Cubase' 'Search' 'C:\\secreto.txt'"
+        ,"ControlPCIA.exe ui shortcut 'Cubase' 'CTRL+S'"
+        ,"$accion = 'inspect'; ControlPCIA.exe ui $accion 'Cubase'"
     };
 
     [Theory]

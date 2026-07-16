@@ -99,6 +99,32 @@ http://192.168.1.15:5187
 
 La IP puede cambiar si el router no la reserva. Además, los navegadores exigen HTTPS para la instalación PWA completa fuera de `localhost`; por eso, sobre HTTP en la LAN puede aparecer solo **Añadir a pantalla de inicio**. La app Android evita esa limitación y queda como opción principal.
 
+## Control de aplicaciones por voz
+
+Las órdenes de la aplicación móvil también pueden actuar dentro de programas abiertos. No existe una función específica para Cubase, Spotify o cada aplicación: Llama recibe las ventanas controlables y utiliza primitivas genéricas de UI Automation para:
+
+- Enumerar ventanas e inspeccionar botones, menús, pestañas, listas, árboles y cuadros de edición.
+- Enfocar una aplicación, invocar un control, seleccionar elementos, alternar opciones y expandir secciones.
+- Escribir texto breve en controles identificados y enviar atajos de teclado validados.
+- Volver a inspeccionar la interfaz después de abrir un menú o diálogo y encadenar hasta diez pasos.
+
+Por ejemplo, para «crea una pista en Cubase» o «inserta Kontakt», Llama debe observar los nombres reales que expone Cubase, decidir la secuencia y ejecutarla. Cuando una secuencia termina bien, la memoria de recetas puede reutilizarla en peticiones parecidas. Si una aplicación dibuja una interfaz personalizada que no expone controles accesibles, sólo podrán utilizarse los atajos seguros que esa aplicación admita.
+
+La capa de UI bloquea consolas, exploradores de archivos, credenciales, herramientas de desarrollo, campos de contraseña y controles relacionados con abrir, guardar, importar, exportar, descargar, instalar, imprimir, eliminar o descartar contenido. Los atajos de guardado, apertura, impresión, cierre, portapapeles y borrado también están bloqueados.
+
+## Agente residente de Windows
+
+Al iniciar el servidor por primera vez, ControlPCIA registra su propio arranque para el usuario actual. En los siguientes inicios de sesión se ejecuta con `--servidor --oculto`: no deja una consola abierta, mantiene el servidor móvil y el descubrimiento UDP activos y muestra únicamente un icono en la bandeja del sistema.
+
+Desde ese icono se puede abrir la página local, mostrar u ocultar la consola, activar o desactivar «Iniciar con Windows» y cerrar el agente. También existen estas opciones explícitas:
+
+```powershell
+ControlPCIA.exe --activar-inicio
+ControlPCIA.exe --desactivar-inicio
+```
+
+Esta configuración la realiza código de confianza de ControlPCIA en `HKCU`, sin administrador y sólo para la sesión del usuario. Llama no puede ejecutar estas opciones: el validador continúa bloqueando registro, arranque y configuración sensible.
+
 ## Aprendizaje local
 
 Cuando una petición termina correctamente, la aplicación guarda una receta formada por:
@@ -125,6 +151,7 @@ La barrera de seguridad se aplica después del modelo y no depende de que Llama 
 - `Start-Process` requiere un destino literal sin rutas ni argumentos arbitrarios.
 - Los programas nativos sólo reciben argumentos literales limitados y sin rutas.
 - COM queda limitado al mecanismo de interfaz `WScript.Shell`, y `SendKeys` no admite texto libre.
+- La automatización de aplicaciones sólo admite las primitivas `ControlPCIA.exe ui` validadas; comprueba tanto el selector pedido como el nombre real del control antes de actuar.
 - Cada proceso PowerShell tiene 20 segundos de límite, salida acotada y terminación del árbol completo si vence el tiempo.
 
 El acceso móvil añade código de emparejado, token aleatorio de sesión, caducidad, límite de intentos, restricción a direcciones privadas, cabeceras de seguridad y una sola orden simultánea. Ollama sólo escucha para ControlPCIA en `127.0.0.1`.

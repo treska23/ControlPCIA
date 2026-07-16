@@ -15,7 +15,7 @@ internal sealed class MemoriaRecetas
 {
     private const int VersionActual = 1;
     private const int MaximoRecetas = 300;
-    private const int MaximoComandosPorReceta = 6;
+    private const int MaximoComandosPorReceta = 10;
     private const int MaximoCaracteresComando = 4000;
 
     private static readonly HashSet<string> PalabrasVacias =

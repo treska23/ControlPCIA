@@ -374,7 +374,7 @@ internal static class ServidorMovil
                    caracter is not '\r' and not '\n' and not '\t');
     }
 
-    private static int ObtenerPuerto()
+    internal static int ObtenerPuerto()
     {
         string? valor =
             Environment.GetEnvironmentVariable(

@@ -5,11 +5,99 @@ Console.InputEncoding = Encoding.UTF8;
 Console.OutputEncoding = new UTF8Encoding(
     encoderShouldEmitUTF8Identifier: false);
 
+if (args.Length > 0
+    && args[0].Equals("ui", StringComparison.OrdinalIgnoreCase))
+{
+    ResultadoAutomatizacionAplicacion automatizacion =
+        AutomatizadorAplicaciones.Ejecutar(args);
+
+    if (!string.IsNullOrWhiteSpace(automatizacion.Salida))
+    {
+        Console.WriteLine(automatizacion.Salida);
+    }
+
+    if (!string.IsNullOrWhiteSpace(automatizacion.Error))
+    {
+        Console.Error.WriteLine(automatizacion.Error);
+    }
+
+    Environment.ExitCode = automatizacion.CodigoSalida;
+    return;
+}
+
+if (args.Length > 0
+    && args[0].Equals("--activar-inicio", StringComparison.OrdinalIgnoreCase))
+{
+    GestorInicioWindows.Activar();
+    Console.WriteLine("ControlPCIA se iniciará automáticamente con Windows.");
+    return;
+}
+
+if (args.Length > 0
+    && args[0].Equals("--desactivar-inicio", StringComparison.OrdinalIgnoreCase))
+{
+    GestorInicioWindows.Desactivar();
+    Console.WriteLine("Inicio automático de ControlPCIA desactivado.");
+    return;
+}
+
 if (args.Length == 0
     ||
     args[0].Equals("--servidor", StringComparison.OrdinalIgnoreCase))
 {
-    await ServidorMovil.IniciarAsync();
+    using var instancia = new Mutex(
+        initiallyOwned: true,
+        name: @"Local\ControlPCIA.Servidor",
+        createdNew: out bool primeraInstancia);
+
+    if (!primeraInstancia)
+    {
+        Console.WriteLine("ControlPCIA ya está activo en esta sesión.");
+        return;
+    }
+
+    bool configurarInicio = !args.Any(argumento =>
+        argumento.Equals(
+            "--sin-inicio",
+            StringComparison.OrdinalIgnoreCase));
+
+    try
+    {
+        if (configurarInicio)
+        {
+            GestorInicioWindows.AsegurarConfiguracionInicial();
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine(
+            "No se pudo configurar el inicio automático: " + ex.Message);
+    }
+
+    using var cancelacion = new CancellationTokenSource();
+    ConsoleCancelEventHandler cancelar = (_, evento) =>
+    {
+        evento.Cancel = true;
+        cancelacion.Cancel();
+    };
+    Console.CancelKeyPress += cancelar;
+    bool oculto = args.Any(argumento =>
+        argumento.Equals("--oculto", StringComparison.OrdinalIgnoreCase));
+    using var bandeja = new AgenteBandeja(cancelacion, oculto);
+
+    try
+    {
+        await ServidorMovil.IniciarAsync(cancelacion.Token);
+    }
+    catch (OperationCanceledException)
+        when (cancelacion.IsCancellationRequested)
+    {
+    }
+    finally
+    {
+        Console.CancelKeyPress -= cancelar;
+    }
+
     return;
 }
 

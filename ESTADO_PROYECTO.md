@@ -1,6 +1,6 @@
 # ControlPCIA — estado y tareas
 
-Última actualización: 15 de julio de 2026
+Última actualización: 16 de julio de 2026
 
 ## Objetivo vigente
 
@@ -17,7 +17,7 @@ móvil
 → FIN
 ```
 
-La aplicación no contiene un catálogo cerrado de monitores, audio, ventanas o programas. Las antiguas clases de tool calling y UI Automation por acciones fueron retiradas.
+La aplicación no contiene un catálogo cerrado de monitores, audio, ventanas o programas. Las antiguas acciones específicas fueron retiradas. La automatización actual expone primitivas genéricas de UI Automation que Llama compone después de observar la interfaz real.
 
 ## Decisiones de seguridad
 
@@ -73,10 +73,20 @@ La aplicación nativa .NET MAUI para Android es ahora la experiencia principal. 
 
 Wake-on-LAN aprende MAC y broadcast durante el emparejado y conserva esos datos en el móvil. La frase de voz de arranque se reconoce localmente porque Llama no existe mientras el PC está apagado; no se ha añadido ningún otro catálogo local de acciones.
 
+## Control genérico de aplicaciones
+
+`ControlPCIA.exe ui` ofrece a Llama primitivas genéricas y validadas: `windows`, `inspect`, `focus`, `invoke`, `select`, `toggle`, `expand`, `collapse`, `text` y `shortcut`. Llama observa títulos, procesos, nombres, `AutomationId`, tipos y patrones disponibles antes de decidir cada paso. No hay código específico para Cubase ni para plugins concretos.
+
+La capa vuelve a comprobar la ventana y el control reales en el momento de ejecutar. Bloquea procesos y superficies sensibles, campos de contraseña, diálogos de archivos y acciones de abrir, guardar, importar, exportar, descargar, instalar, imprimir, eliminar o descartar. Los atajos de archivos, cierre, portapapeles y borrado tampoco están disponibles. Las secuencias exitosas de hasta diez pasos pasan a la memoria normal de recetas y se revalidan al reutilizarlas.
+
+## Ejecución residente
+
+El servidor configura una vez el inicio por usuario en `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` y conserva una preferencia separada para respetar una desactivación posterior. Windows lo inicia con `--servidor --oculto`. Un mutex impide servidores duplicados y la bandeja permite abrir la página local, mostrar la consola, cambiar el inicio automático o salir. Estas operaciones pertenecen al código de confianza y no son invocables desde los comandos de Llama.
+
 ## Verificaciones realizadas
 
 - Compilación Debug sin errores ni advertencias.
-- 114 pruebas automatizadas correctas en Release.
+- 165 pruebas automatizadas correctas en Release.
 - Diagnóstico real de Ollama y `qwen3:8b` correcto.
 - Orden directa «abre la calculadora» → `Start-Process calc.exe` → código 0 → `FIN`.
 - Web móvil comprobada a 390 × 844 píxeles.
@@ -86,6 +96,10 @@ Wake-on-LAN aprende MAC y broadcast durante el emparejado y conserva esos datos 
 - `/api/escena` probado con 2 monitores y 13 ventanas reales.
 - Wake-on-LAN detectó 1 adaptador válido, UDP 9 y su broadcast local sin exponer la MAC en la interfaz.
 - Navegación web corregida: Llama puede abrir URL públicas literales `http/https` y búsquedas web, mientras se bloquean redes privadas, `file:` y descargas ejecutables o comprimidas.
+- UI Automation real: una ventana WPF temporal fue inspeccionada, recibió `Kontakt 7`, procesó `CTRL+T` e invocó «Añadir plugin»; un botón «Guardar como» oculto tras un ID inocente fue bloqueado.
+- Escritorio real: se enumeraron ventanas, se inspeccionó una pestaña vacía de Bloc de notas y se cerró únicamente mediante `id:Close`, conservando otra pestaña existente.
+- Llama eligió y ejecutó por sí sola `ControlPCIA.exe ui inspect "ChatGPT" 4`, recibió el árbol real y terminó en `FIN`.
+- Modo residente probado en puerto 5190: proceso sin ventana, servidor HTTP 200 y cierre limpio del PID temporal sin registrar el inicio durante la prueba.
 
 ## Rediseño móvil completado
 
@@ -118,16 +132,18 @@ La entrada de voz nativa se ha simplificado de esta forma:
 - [x] Añadir aprendizaje persistente con revalidación.
 - [x] Retirar la arquitectura antigua por herramientas específicas.
 - [x] Crear una aplicación Android nativa con descubrimiento, voz, texto y estado.
-- [x] Añadir un lienzo móvil para describir a Llama la colocación de ventanas.
+- [x] Prototipar y después retirar el lienzo móvil de colocación de ventanas por resultar confuso.
 - [x] Añadir Wake-on-LAN aprendido y la orden local «enciende el ordenador».
 - [x] Mantener la web como PWA de respaldo sin cachear datos de la API.
 - [x] Permitir navegación web pública literal sin habilitar descargas ni acceso a direcciones privadas.
 - [x] Unificar Wake-on-LAN y órdenes normales en un único control de voz móvil.
 - [x] Implementar pulsar para hablar, bloqueo hasta detener y estados visuales/hápticos de escucha.
 - [x] Retirar de la interfaz móvil el editor de colocación de ventanas.
+- [x] Añadir control genérico de aplicaciones mediante observación UI, acciones seguras y aprendizaje de secuencias.
+- [x] Añadir agente residente con inicio por usuario, modo oculto, exclusión de duplicados y bandeja de sistema.
 - [ ] Probar físicamente en un teléfono Android ambos modos de micrófono, descubrimiento y Wake-on-LAN con el PC realmente apagado.
 - [ ] Compilar, firmar y probar la aplicación iOS desde un Mac.
-- [ ] Crear un instalador y una opción explícita de inicio automático.
+- [ ] Crear un instalador firmado; el inicio automático explícito y la bandeja ya están implementados.
 - [ ] Evaluar otros modelos locales y órdenes complejas de varias aplicaciones.
 - [ ] Mantener una revisión continua de nuevas vías de evasión del validador.
 - [ ] Valorar HTTPS local o un túnel autenticado antes de permitir uso fuera de una LAN de confianza.

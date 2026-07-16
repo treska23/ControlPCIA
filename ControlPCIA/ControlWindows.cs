@@ -4,7 +4,7 @@ namespace ControlPCIA;
 
 internal static class ControlWindows
 {
-    private const int MaximoPasos = 6;
+    private const int MaximoPasos = 10;
 
     public static async Task<ResultadoControl> ControlarAsync(
         string instruccion,
@@ -45,6 +45,12 @@ internal static class ControlWindows
                 ObservadorWindows
                     .ObtenerVentanasAbiertas()
                     .Select(ventana => "- " + ventana));
+        string ventanaActiva = ObservadorWindows.ObtenerVentanaActiva();
+        ResultadoAutomatizacionAplicacion ventanasUi =
+            AutomatizadorAplicaciones.ListarVentanas();
+        string estadoInterfaz = ventanasUi.CodigoSalida == 0
+            ? ventanasUi.Salida
+            : "No se pudo enumerar la interfaz accesible: " + ventanasUi.Error;
 
         var mensajes = new List<MensajeOllama>
         {
@@ -91,6 +97,42 @@ internal static class ControlWindows
                 - No uses Invoke-WebRequest, Invoke-RestMethod ni descargues
                   archivos. El navegador predeterminado debe gestionar la página.
 
+                CONTROL GENÉRICO DE APLICACIONES:
+
+                - Para controlar la interfaz de una aplicación usa exclusivamente
+                  el comando local ControlPCIA.exe ui. No existe código específico
+                  para Cubase ni para ninguna otra aplicación.
+                - Empieza inspeccionando la ventana real cuando no conozcas sus
+                  controles:
+                  ControlPCIA.exe ui inspect "Título de ventana" 4
+                - Para cualquier comando `ui`, elige el título EXCLUSIVAMENTE de
+                  la sección VENTANAS CONTROLABLES POR UI AUTOMATION y cópialo
+                  literalmente, conservando espacios y signos. La lista VENTANAS
+                  VISIBLES sólo aporta contexto general y no autoriza títulos de
+                  automatización. Si la petición coincide exactamente con un
+                  `WINDOW|title=...`, debes usar ese título, no otro parecido.
+                - Las primitivas disponibles son:
+                  ControlPCIA.exe ui windows
+                  ControlPCIA.exe ui focus "Ventana"
+                  ControlPCIA.exe ui invoke "Ventana" "Botón o menú" "Button"
+                  ControlPCIA.exe ui select "Ventana" "Elemento" "ListItem"
+                  ControlPCIA.exe ui toggle "Ventana" "Control" "CheckBox"
+                  ControlPCIA.exe ui expand "Ventana" "Control" "TreeItem"
+                  ControlPCIA.exe ui collapse "Ventana" "Control" "TreeItem"
+                  ControlPCIA.exe ui text "Ventana" "Cuadro de búsqueda" "texto"
+                  ControlPCIA.exe ui shortcut "Ventana" "CTRL+T"
+                - El tipo final es opcional en invoke, select, toggle, expand y
+                  collapse. Si inspect muestra un AutomationId, puedes seleccionar
+                  de forma precisa con "id:AutomationId".
+                - Usa nombres y títulos que aparezcan realmente en la inspección;
+                  no inventes controles. Después de abrir un menú o diálogo,
+                  inspecciona otra vez si necesitas ver su contenido.
+                - En aplicaciones con interfaz personalizada que no expongan sus
+                  controles, enfoca la ventana y usa sólo atajos seguros conocidos.
+                - Nunca intentes usar esta interfaz para abrir, guardar, importar,
+                  exportar, descargar, instalar, imprimir o manipular archivos,
+                  credenciales, consolas o superficies sensibles.
+
                 SEGURIDAD:
 
                 - Nunca crees, leas, borres, copies, muevas, renombres ni escribas
@@ -121,6 +163,14 @@ internal static class ControlWindows
                 VENTANAS VISIBLES:
 
                 {estadoWindows}
+
+                VENTANA ACTIVA:
+
+                {ventanaActiva}
+
+                VENTANAS CONTROLABLES POR UI AUTOMATION:
+
+                {estadoInterfaz}
 
                 RECETAS LOCALES RELACIONADAS:
 

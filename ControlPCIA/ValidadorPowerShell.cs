@@ -301,10 +301,21 @@ internal static class ValidadorPowerShell
             {
                 bloqueo = ValidarExplorer(comandoAst);
             }
+            else if (EsComandoControlPcia(nombre))
+            {
+                IReadOnlyList<string>? argumentos =
+                    ObtenerArgumentosLiterales(comandoAst);
+
+                bloqueo = argumentos is null
+                    ? Bloquear(
+                        "ControlPCIA.exe sólo admite argumentos literales verificables.")
+                    : ValidadorAutomatizacionAplicaciones.Validar(argumentos);
+            }
 
             if (bloqueo is null
                 &&
-                EsComandoNativo(nombre))
+                EsComandoNativo(nombre)
+                && !EsComandoControlPcia(nombre))
             {
                 bloqueo = ValidarArgumentosNativos(comandoAst);
             }
@@ -742,6 +753,39 @@ internal static class ValidadorPowerShell
     private static bool EsComandoNativo(string nombre)
     {
         return !nombre.Contains('-');
+    }
+
+    private static bool EsComandoControlPcia(string nombre)
+    {
+        return nombre.Equals(
+            "ControlPCIA.exe",
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IReadOnlyList<string>? ObtenerArgumentosLiterales(
+        CommandAst comando)
+    {
+        var argumentos = new List<string>();
+
+        for (int indice = 1; indice < comando.CommandElements.Count; indice++)
+        {
+            if (comando.CommandElements[indice] is CommandParameterAst)
+            {
+                return null;
+            }
+
+            IReadOnlyList<string>? valores =
+                ExtraerLiterales(comando.CommandElements[indice]);
+
+            if (valores is null)
+            {
+                return null;
+            }
+
+            argumentos.AddRange(valores);
+        }
+
+        return argumentos;
     }
 
     private static IReadOnlyList<string>? ObtenerLiterales(

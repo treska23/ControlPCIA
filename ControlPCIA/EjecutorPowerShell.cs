@@ -53,8 +53,19 @@ namespace ControlPCIA
                         true,
 
                     CreateNoWindow =
-                        true
+                        true,
+
+                    WorkingDirectory =
+                        AppContext.BaseDirectory
                 };
+
+            string pathActual =
+                Environment.GetEnvironmentVariable("PATH")
+                ?? string.Empty;
+            inicio.Environment["PATH"] =
+                AppContext.BaseDirectory
+                + Path.PathSeparator
+                + pathActual;
 
             inicio.ArgumentList.Add(
                 "-NoLogo");
