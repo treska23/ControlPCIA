@@ -92,6 +92,54 @@ public sealed class PlanificadorTareasIATests
                 """));
     }
 
+    [Theory]
+    [InlineData(
+        "dónde está informe.pdf",
+        "buscar informe.pdf",
+        "archivos.buscar")]
+    [InlineData(
+        "abre el informe anual.pdf",
+        "abrir informe anual.pdf",
+        "archivos.abrir")]
+    public void Conserva_el_archivo_pronunciado_y_corrige_la_receta(
+        string instruccion,
+        string tareaEsperada,
+        string conocimientoEsperado)
+    {
+        var planDefectuoso = new PlanTareasControl(
+            ["abrir archivos.abrir"],
+            ["archivos.abrir"]);
+
+        PlanTareasControl corregido =
+            PlanificadorTareasIA.CorregirLiteralArchivo(
+                instruccion,
+                planDefectuoso);
+
+        Assert.Equal(
+            tareaEsperada,
+            Assert.Single(corregido.Tareas));
+        Assert.Equal(
+            conocimientoEsperado,
+            Assert.Single(
+                corregido.ConocimientosSeleccionados));
+    }
+
+    [Theory]
+    [InlineData("dónde está informe.pdf", "informe.pdf")]
+    [InlineData(
+        "abre el informe anual.pdf",
+        "informe anual.pdf")]
+    public void Extrae_el_literal_de_archivo_de_la_peticion(
+        string instruccion,
+        string esperado)
+    {
+        Assert.Equal(
+            esperado,
+            PlanificadorTareasIA
+                .ExtraerLiteralArchivoSolicitado(
+                    instruccion));
+    }
+
     [Fact]
     public void Tolera_json_envuelto_pero_no_texto_sin_plan()
     {

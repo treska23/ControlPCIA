@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using ControlPCIA;
 
 Console.InputEncoding = Encoding.UTF8;
@@ -100,6 +101,45 @@ if (args[0].Equals("--diagnostico", StringComparison.OrdinalIgnoreCase))
 
     Console.WriteLine(diagnostico.Mensaje);
     Environment.ExitCode = diagnostico.Disponible ? 0 : 1;
+    return;
+}
+
+if (args[0].Equals(
+        "--traducir-sin-ejecutar",
+        StringComparison.OrdinalIgnoreCase))
+{
+    if (args.Length < 2)
+    {
+        Console.Error.WriteLine(
+            "Uso: ControlPCIA --traducir-sin-ejecutar <petición>.");
+        Environment.ExitCode = 2;
+        return;
+    }
+
+    string peticion = string.Join(' ', args.Skip(1));
+    long inicio = Environment.TickCount64;
+    ResultadoTraduccionControl traduccion =
+        await ControlWindows.TraducirSinEjecutarAsync(peticion);
+    long duracion = Environment.TickCount64 - inicio;
+
+    Console.WriteLine(
+        JsonSerializer.Serialize(
+            new
+            {
+                estado = traduccion.Estado,
+                tareas = traduccion.Plan.Tareas,
+                conocimientos = traduccion.Conocimientos,
+                comando = traduccion.Comando,
+                permitido = traduccion.Permitido,
+                motivo = traduccion.Motivo,
+                ejecutado = false,
+                duracionMs = duracion
+            },
+            new JsonSerializerOptions
+            {
+                WriteIndented = true
+            }));
+    Environment.ExitCode = traduccion.Permitido ? 0 : 1;
     return;
 }
 

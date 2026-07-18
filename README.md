@@ -45,7 +45,7 @@ ControlPCIA muestra las direcciones de red local y un código de seis cifras. En
 
 Si Windows muestra un aviso del firewall, se debe permitir únicamente en redes privadas. El servidor no modifica el firewall por su cuenta.
 
-El botón de dictado usa el reconocimiento de voz del navegador cuando está disponible. Si el navegador no lo ofrece en una página HTTP local, se puede usar el micrófono del propio teclado de Android o iOS dentro del cuadro de texto.
+El botón de dictado usa el reconocimiento de voz del navegador cuando está disponible. Si el navegador no lo ofrece en una página HTTP local, se puede usar el micrófono del propio teclado de Android dentro del cuadro de texto.
 
 ## Aplicación Android
 
@@ -82,7 +82,7 @@ solicite. Una actualización conserva la configuración de la app porque usa la
 misma firma. Después abre ControlPCIA en el móvil, pulsa **Buscar mi PC** y
 escribe el código de seis cifras.
 
-El APK actual tiene una firma local de desarrollo. Es instalable manualmente, pero para Google Play será necesario crear y proteger una clave de publicación definitiva. El mismo código está preparado para iPhone, aunque compilar y firmar la versión iOS requiere un Mac y una cuenta de Apple Developer.
+El APK actual tiene una firma local de desarrollo. Es instalable manualmente, pero para Google Play será necesario crear y proteger una clave de publicación definitiva.
 
 Para volver a generar el APK:
 
@@ -118,7 +118,11 @@ La IP puede cambiar si el router no la reserva. Además, los navegadores exigen 
 
 Las órdenes no se resuelven con capturas, OCR ni reconocimiento gráfico. El flujo es:
 
-    móvil → Llama propone un comando literal → validador local → proceso PowerShell → salida/código real → Llama responde
+    móvil → Llama entiende tareas y selecciona conocimiento
+          → receta conocida o investigación general
+          → validación local + correspondencia con la petición
+          → proceso PowerShell
+          → salida/código real → Llama responde
 
 Llama no ejecuta acciones ni afirma resultados por su cuenta. ControlPCIA valida cada comando, lo ejecuta en un proceso externo de PowerShell y devuelve a Llama stdout, stderr y el código de salida. Si falla, el móvil recibe el error y puede continuar la conversación para aclarar la petición.
 
@@ -155,7 +159,7 @@ No guarda stdout, stderr, contenido de archivos ni datos obtenidos del PC. Las r
 
 Ante una orden parecida, Llama recibe primero las recetas relacionadas. La memoria extrae además recursos comprobados —por ejemplo AppID, ejecutables, plantillas y rutas— y evita repetir una investigación cuando el recurso sigue existiendo. La IA adapta los datos variables, como el nombre y destino de un proyecto nuevo, y cada comando vuelve a pasar por el validador actual. Una receta que deje de cumplir la política queda descartada automáticamente.
 
-El planificador también dispone de una biblioteca de conocimientos reutilizables. Llama relaciona la petición por significado, no por frase exacta, con identificadores como `ventanas.estado`, `aplicaciones.abrir`, `aplicaciones.inventario`, `archivos.buscar` y `archivos.abrir`. Cuando existe una receta, usa un camino corto: traducir la frase, adaptar la receta, ejecutar y comprobar. Sólo investiga mediante `Get-Command`, `Get-Help`, inventarios de Windows o la CLI instalada cuando no hay conocimiento suficiente. Las soluciones nuevas verificadas pasan a la memoria local.
+El planificador también dispone de una biblioteca de conocimientos reutilizables. Llama relaciona la petición por significado, no por frase exacta, con identificadores como `ventanas.estado`, `aplicaciones.abrir`, `aplicaciones.inventario`, `archivos.buscar` y `archivos.abrir`. Los cinco identificadores están conectados al camino corto real. Las consultas iniciales de procesos, aplicaciones y archivos son plantillas fijas y estructuradas. Para activar, maximizar, minimizar o restaurar una ventana, ControlPCIA usa únicamente un `PROCESS_NAME` observado en la salida real y construye el bloque Win32 fijo; Llama no improvisa ese código. Sólo investiga mediante `Get-Command`, `Get-Help`, inventarios de Windows o la CLI instalada cuando no hay conocimiento suficiente. Las soluciones nuevas verificadas pasan a la memoria local.
 
 ## Seguridad
 
@@ -169,7 +173,7 @@ Todo lo demás que pueda invocarse desde consola está permitido: leer, buscar, 
 
 El validador rechaza código codificado o nombres de comando dinámicos únicamente cuando impedirían comprobar esas tres prohibiciones. `SendKeys`, UI Automation y `ControlPCIA.exe ui` permanecen fuera porque la arquitectura gráfica fue retirada, no porque formen una cuarta categoría de seguridad. `AppActivate`, `ShowWindowAsync`, `SetForegroundWindow`, `SetWindowPos` y otras APIs de estado de ventanas superiores están permitidas. Las aplicaciones se controlan mediante comandos, CLI, cmdlets, APIs o protocolos reales.
 
-La correspondencia semántica se comprueba además antes de ejecutar: una receta de activar o maximizar una ventana no acepta cerrar el proceso, abrir otra aplicación, modificar el registro ni simular teclas. Esto no añade una prohibición global; evita ejecutar un comando que no corresponde a la petición traducida.
+La correspondencia semántica se comprueba además antes de ejecutar: una receta de activar o maximizar una ventana no acepta cerrar el proceso, abrir otra aplicación, modificar el registro ni simular teclas. El agente general somete cada propuesta a una segunda comprobación contra las tareas pendientes y rechaza objetivos o efectos ajenos antes de llegar al ejecutor. Esto no añade una prohibición global; evita ejecutar una traducción equivocada.
 
 Los nombres `Move-*` no se bloquean de forma genérica: colocar una ventana u
 otro objeto está permitido. Se bloquean los movimientos persistentes
@@ -204,6 +208,16 @@ Enviar una orden directamente:
 dotnet run --project ControlPCIA\ControlPCIA.csproj -- "abre la calculadora"
 ```
 
+Traducir y validar el primer paso sin ejecutar ningún comando:
+
+```powershell
+dotnet run --project ControlPCIA\ControlPCIA.csproj -- --traducir-sin-ejecutar "pon Edge delante"
+```
+
+La salida JSON incluye tareas, conocimientos seleccionados, comando propuesto,
+resultado de validación, duración y `ejecutado: false`. Este modo permite probar
+variaciones de lenguaje y medir Llama sin tocar aplicaciones ni ventanas.
+
 Probar el validador con PowerShell, sólo para desarrollo:
 
 ```powershell
@@ -222,12 +236,14 @@ Configuración opcional mediante variables de entorno:
 dotnet test ControlPCIA.slnx
 ```
 
-La batería actual contiene 242 pruebas y cubre una matriz amplia de operaciones permitidas, las tres prohibiciones y sus evasiones, ejecución con tiempo y salida limitados, red local, conversación, memoria persistente, selección de conocimientos por significado, control de ventanas y reutilización de recursos aprendidos.
+La batería actual contiene 286 pruebas y cubre una matriz amplia de operaciones permitidas, las tres prohibiciones y sus evasiones, ejecución con tiempo y salida limitados, red local, conversación, memoria persistente, selección de conocimientos por significado, procedencia de AppID y archivos, plantillas fijas de ventanas, revisión de correspondencia y reutilización de recursos aprendidos.
 
 ## Componentes principales
 
 - `ControlWindows.cs`: traductor por recetas conocidas y agente de investigación para peticiones nuevas.
 - `PlanificadorTareasIA.cs`: descomposición, selección semántica de conocimientos y auditoría de peticiones con una o varias tareas.
+- `TraductorRecetasConocidas.cs`: recetas rápidas, procedencia de datos y plantillas fijas sin ejecución propia.
+- `RevisorAlineacionComandoIA.cs`: comprobación de que una propuesta general corresponde a una tarea pendiente.
 - `ClienteOllama.cs`: conexión exclusivamente local con Ollama.
 - `ValidadorPowerShell.cs`: análisis estructural y política de denegación.
 - `EjecutorPowerShell.cs`: ejecución acotada después de validar.

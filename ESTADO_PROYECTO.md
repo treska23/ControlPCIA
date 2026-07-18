@@ -1,6 +1,6 @@
 # ControlPCIA — estado y tareas
 
-Última actualización: 18 de julio de 2026
+Última actualización: 19 de julio de 2026
 
 ## Objetivo vigente
 
@@ -13,8 +13,8 @@ móvil
 → voz o texto
 → Ollama / qwen3:8b
 → tareas + selección semántica de receta conocida
-→ comando PowerShell
-→ validador local
+→ plantilla conocida o comando investigado
+→ validador local + comprobación de correspondencia
 → proceso PowerShell
 → stdout, stderr y código de salida
 → siguiente paso o respuesta al móvil
@@ -94,11 +94,24 @@ Llama ya no puede contradecir después ese resultado.
 
 El planificador selecciona además conocimientos integrados por significado:
 `ventanas.estado`, `aplicaciones.abrir`, `aplicaciones.inventario`,
-`archivos.buscar` y `archivos.abrir`. Una petición conocida usa el camino corto
-traducir → adaptar receta → ejecutar → verificar. Una desconocida investiga por
-consola y, si funciona, se convierte en memoria reutilizable. Para una receta de
-ventana se rechazan estrategias que cierren el proceso, abran otra aplicación,
-toquen el registro o simulen teclas, porque no corresponden a la intención.
+`archivos.buscar` y `archivos.abrir`. Los cinco están conectados al camino corto
+real. Una petición conocida usa traducir → adaptar receta → ejecutar → verificar.
+Las consultas iniciales de procesos, aplicaciones y archivos son plantillas
+fijas. Para activar, maximizar, minimizar o restaurar una ventana se selecciona
+únicamente un `PROCESS_NAME` aparecido en stdout y ControlPCIA construye el
+bloque Win32; Llama no redacta ese bloque. Una desconocida investiga por consola
+y, si funciona, se convierte en memoria reutilizable.
+
+La procedencia también se valida: un AppID sólo se abre si apareció en
+`Get-StartApps` o en una receta comprobada, y un archivo sólo se abre desde un
+`FULL_NAME` observado. El agente general pasa además por
+`RevisorAlineacionComandoIA`: una propuesta que cierre, abra o modifique un
+objetivo ajeno a las tareas pendientes no se ejecuta. Esto corrige traducciones
+equivocadas sin convertir la correspondencia semántica en otra prohibición.
+
+Existe `--traducir-sin-ejecutar`, que devuelve JSON con el plan, las recetas, el
+primer comando, su validación, duración y `ejecutado: false`. Se ha usado para
+probar formulaciones distintas sin manipular el escritorio.
 
 ## Aplicación móvil
 
@@ -130,7 +143,7 @@ automático o salir.
 
 ## Verificaciones actuales
 
-- 242 pruebas automatizadas correctas en Release.
+- 286 pruebas automatizadas correctas en Release.
 - Matriz positiva explícita para lectura, escritura, creación, copia,
   sobrescritura, descargas, instalación, registro, servicios, red, Defender,
   apagado/reinicio, WMI/CIM, intérpretes, .NET y COM.
@@ -152,18 +165,23 @@ automático o salir.
   `install -r`: conserva la fecha de primera instalación y los datos, declara
   código 8, alcanza `192.168.1.15:5187` desde Android y arranca sin excepciones
   fatales.
-- Agente Release actualizado en
-  `%LOCALAPPDATA%\ControlPCIA\App`, hash idéntico al publicado, HTTP 200 en
-  puerto 5187, 16 recetas conservadas e inicio oculto registrado.
+- El agente instalado conserva 16 recetas y el inicio oculto registrado. El
+  proceso residente está detenido intencionadamente mientras se publica y
+  revisa esta corrección; ninguna prueba nueva ejecuta órdenes sobre
+  aplicaciones reales.
 
 ## Tareas pendientes
 
 - [x] Ejecutar pruebas y compilación Release completas tras estos cambios.
-- [x] Publicar e instalar el agente residente actualizado.
+- [x] Añadir traducción diagnóstica sin ejecución y probar variaciones naturales.
+- [x] Impedir que una orden de ventana cierre Edge o abra propiedades del sistema.
+- [ ] Publicar e instalar los binarios de esta corrección.
+- [ ] Reactivar el agente residente sólo después de la revisión final.
 - [x] Instalar APK 1.4.2 en el móvil conservando datos.
+- [ ] Verificar manualmente en Android los estados de escucha/proceso y que
+      Cancelar no envía ni cierra la aplicación.
 - [ ] Verificar desde el móvil una conversación con error real y continuación.
 - [ ] Probar Wake-on-LAN con el PC realmente apagado.
-- [ ] Compilar y firmar iOS desde un Mac.
 - [ ] Crear un instalador firmado para Windows.
 - [ ] Valorar HTTPS local o un túnel autenticado antes de uso fuera de la LAN.
 

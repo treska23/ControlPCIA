@@ -72,20 +72,22 @@ internal static class ControlWindows
                     plan.Tareas.Select((tarea, indice) =>
                         $"{indice + 1}. {tarea}"))));
 
-        if (PlanSolicitaSoloEstadoDeVentanas(plan))
-        {
-            return await ControlarEstadoVentanaConRecetaAsync(
-                instruccion,
-                plan,
-                informar,
-                cancellationToken);
-        }
-
         IReadOnlyList<RecetaReferencia> recetas =
             await BuscarRecetasAsync(
                 instruccion,
                 informar,
                 cancellationToken);
+
+        if (TraductorRecetasConocidas.PuedeResolverPlan(plan))
+        {
+            return await ControlarConRecetaConocidaAsync(
+                instruccion,
+                plan,
+                recetas,
+                informar,
+                cancellationToken);
+        }
+
         IReadOnlyList<string> recursosAprendidos =
             ObtenerOrigenesCopyItemAprendidos(recetas);
         IReadOnlyList<string> carpetasAprendidas =
@@ -1238,6 +1240,86 @@ internal static class ControlWindows
                     continue;
                 }
 
+                ResultadoValidacionPowerShell validacionLocal =
+                    ValidadorPowerShell.Validar(comando);
+
+                if (!validacionLocal.Permitido)
+                {
+                    var pasoBloqueado = new ResultadoPasoControl(
+                        pasos.Count + 1,
+                        comando,
+                        false,
+                        -1,
+                        string.Empty,
+                        "BLOQUEADO: " + validacionLocal.Motivo);
+                    pasos.Add(pasoBloqueado);
+                    Informar(
+                        informar,
+                        new EventoControl(
+                            "bloqueado",
+                            pasoBloqueado.Error,
+                            comando,
+                            pasoBloqueado));
+                    mensajes.Add(
+                        new MensajeOllama(
+                            "assistant",
+                            comando));
+                    mensajes.Add(
+                        new MensajeOllama(
+                            "user",
+                            "El validador local rechazó el comando y no se ejecutó: "
+                            + validacionLocal.Motivo
+                            + Environment.NewLine
+                            + "Propón otra estrategia para una tarea pendiente."));
+                    continue;
+                }
+
+                Informar(
+                    informar,
+                    new EventoControl(
+                        "pensando",
+                        "ControlPCIA está comprobando que el comando corresponda a la petición."));
+                RevisionAlineacionComando alineacion =
+                    await RevisorAlineacionComandoIA.RevisarAsync(
+                        plan,
+                        tareasPendientes,
+                        comando,
+                        pasos,
+                        cancellationToken);
+
+                if (!alineacion.Alineado)
+                {
+                    var pasoDesalineado = new ResultadoPasoControl(
+                        pasos.Count + 1,
+                        comando,
+                        false,
+                        -1,
+                        string.Empty,
+                        "NO EJECUTADO: " + alineacion.Motivo);
+                    pasos.Add(pasoDesalineado);
+                    Informar(
+                        informar,
+                        new EventoControl(
+                            "bloqueado",
+                            pasoDesalineado.Error,
+                            comando,
+                            pasoDesalineado));
+                    mensajes.Add(
+                        new MensajeOllama(
+                            "assistant",
+                            comando));
+                    mensajes.Add(
+                        new MensajeOllama(
+                            "user",
+                            $"""
+                            PROPUESTA NO EJECUTADA POR NO CORRESPONDER A LA PETICIÓN:
+                            {alineacion.Motivo}
+                            Conserva las tareas pendientes y propón un comando
+                            que actúe únicamente sobre sus objetivos.
+                            """));
+                    continue;
+                }
+
                 Informar(
                     informar,
                     new EventoControl(
@@ -1558,44 +1640,172 @@ internal static class ControlWindows
         }
     }
 
+    internal static async Task<ResultadoTraduccionControl>
+        TraducirSinEjecutarAsync(
+            string instruccion,
+            IReadOnlyList<MensajeConversacionControl>? contextoConversacion = null,
+            CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(instruccion))
+        {
+            return new ResultadoTraduccionControl(
+                "orden_vacia",
+                new PlanTareasControl([]),
+                [],
+                string.Empty,
+                null,
+                false,
+                "No se ha recibido ninguna orden.");
+        }
+
+        if (instruccion.Length > 1000)
+        {
+            return new ResultadoTraduccionControl(
+                "orden_demasiado_larga",
+                new PlanTareasControl([]),
+                [],
+                string.Empty,
+                null,
+                false,
+                "La orden supera los 1000 caracteres.");
+        }
+
+        PlanTareasControl plan =
+            await PlanificadorTareasIA.CrearAsync(
+                instruccion,
+                NormalizarContexto(contextoConversacion),
+                cancellationToken);
+        IReadOnlyList<string> conocimientos =
+            TraductorRecetasConocidas
+                .ObtenerConocimientosAplicables(plan);
+
+        if (!string.IsNullOrWhiteSpace(plan.Pregunta))
+        {
+            return new ResultadoTraduccionControl(
+                "requiere_aclaracion",
+                plan,
+                conocimientos,
+                plan.Pregunta,
+                null,
+                false,
+                plan.Pregunta);
+        }
+
+        if (!TraductorRecetasConocidas.PuedeResolverPlan(plan))
+        {
+            return new ResultadoTraduccionControl(
+                "sin_receta_conocida",
+                plan,
+                conocimientos,
+                string.Empty,
+                null,
+                false,
+                "La petición necesita el traductor general; no se ha ejecutado nada.");
+        }
+
+        IReadOnlyList<RecetaReferencia> recetas =
+            await BuscarRecetasAsync(
+                instruccion,
+                informar: null,
+                cancellationToken);
+        List<MensajeOllama> mensajes =
+            TraductorRecetasConocidas.CrearMensajes(
+                instruccion,
+                plan,
+                recetas);
+        string respuestaModelo =
+            TraductorRecetasConocidas
+                .TryCrearPrimerComandoDeterminista(
+                    plan,
+                    recetas,
+                    out string primerComando)
+                ? primerComando
+                : LimpiarComando(
+                    await ClienteOllama.ConversarAsync(
+                        mensajes,
+                        cancellationToken));
+
+        if (TryObtenerPreguntaUsuario(
+                respuestaModelo,
+                out string pregunta))
+        {
+            return new ResultadoTraduccionControl(
+                "requiere_aclaracion",
+                plan,
+                conocimientos,
+                respuestaModelo,
+                null,
+                false,
+                pregunta);
+        }
+
+        if (string.IsNullOrWhiteSpace(respuestaModelo)
+            || respuestaModelo.Equals(
+                "FIN",
+                StringComparison.OrdinalIgnoreCase)
+            || respuestaModelo.Equals(
+                "SIN_COMANDO",
+                StringComparison.OrdinalIgnoreCase)
+            || TryObtenerLimitacion(respuestaModelo, out _)
+            || TryObtenerRespuestaNatural(respuestaModelo, out _)
+            || TryObtenerExplicacionNatural(
+                respuestaModelo,
+                out _,
+                out _))
+        {
+            return new ResultadoTraduccionControl(
+                "sin_comando",
+                plan,
+                conocimientos,
+                respuestaModelo,
+                null,
+                false,
+                "Llama no devolvió un comando literal.");
+        }
+
+        ResultadoValidacionPowerShell alineacion =
+            TraductorRecetasConocidas.ValidarAlineacion(
+                plan,
+                respuestaModelo,
+                [],
+                recetas);
+        ResultadoValidacionPowerShell validacion =
+            alineacion.Permitido
+                ? ValidadorPowerShell.Validar(respuestaModelo)
+                : alineacion;
+
+        return new ResultadoTraduccionControl(
+            validacion.Permitido
+                ? "comando_propuesto"
+                : "comando_rechazado",
+            plan,
+            conocimientos,
+            respuestaModelo,
+            respuestaModelo,
+            validacion.Permitido,
+            validacion.Motivo);
+    }
+
     private static async Task<ResultadoControl>
-        ControlarEstadoVentanaConRecetaAsync(
+        ControlarConRecetaConocidaAsync(
             string instruccion,
             PlanTareasControl plan,
+            IReadOnlyList<RecetaReferencia> recetas,
             Action<EventoControl>? informar,
             CancellationToken cancellationToken)
     {
         var pasos = new List<ResultadoPasoControl>();
-        var mensajes = new List<MensajeOllama>
-        {
-            new(
-                "system",
-                """
-                Eres un traductor rápido de lenguaje natural a comandos
-                PowerShell. El programa ya ha seleccionado una receta conocida:
-                no busques en Internet, no inventes otro método y no controles
-                ninguna aplicación distinta de la solicitada.
+        List<MensajeOllama> mensajes =
+            TraductorRecetasConocidas.CrearMensajes(
+                instruccion,
+                plan,
+                recetas);
+        int maximoIntentos =
+            PlanSolicitaSoloEstadoDeVentanas(plan)
+                ? 4
+                : Math.Min(12, 2 + plan.Tareas.Count * 3);
 
-                Devuelve un único comando PowerShell literal, sin Markdown ni
-                explicación. Puedes usar primero una consulta Get-Process si el
-                nombre del proceso no es deducible. Si falta una decisión que
-                sólo puede tomar el usuario, responde PREGUNTAR: y una pregunta.
-                """),
-            new(
-                "user",
-                $"""
-                PETICIÓN:
-                {instruccion.Trim()}
-
-                TAREAS TRADUCIDAS:
-                {plan.Formatear()}
-
-                RECETA CONOCIDA SELECCIONADA:
-                {CrearInstruccionControlEstadoVentana()}
-                """)
-        };
-
-        for (int intento = 0; intento < 4; intento++)
+        for (int intento = 0; intento < maximoIntentos; intento++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Informar(
@@ -1603,16 +1813,29 @@ internal static class ControlWindows
                 new EventoControl(
                     "pensando",
                     intento == 0
-                        ? "Llama está adaptando una receta conocida."
-                        : "Llama está corrigiendo el comando con la salida real."));
+                        ? "Llama está traduciendo la petición con una receta conocida."
+                        : "Llama está adaptando la receta a la salida real."));
 
-            string comando = LimpiarComando(
-                await ClienteOllama.ConversarAsync(
-                    mensajes,
-                    cancellationToken));
+            string? comandoFijo = intento == 0
+                && TraductorRecetasConocidas
+                    .TryCrearPrimerComandoDeterminista(
+                        plan,
+                        recetas,
+                        out string primerComando)
+                    ? primerComando
+                    : await TraductorRecetasConocidas
+                        .CrearComandoEstadoVentanaAsync(
+                            plan,
+                            pasos,
+                            cancellationToken);
+            string respuestaModelo = comandoFijo
+                ?? LimpiarComando(
+                    await ClienteOllama.ConversarAsync(
+                        mensajes,
+                        cancellationToken));
 
             if (TryObtenerPreguntaUsuario(
-                    comando,
+                    respuestaModelo,
                     out string pregunta))
             {
                 return Finalizar(
@@ -1623,46 +1846,95 @@ internal static class ControlWindows
                     informar);
             }
 
-            if (string.IsNullOrWhiteSpace(comando)
-                || comando.Equals(
+            if (respuestaModelo.Equals(
                     "FIN",
-                    StringComparison.OrdinalIgnoreCase)
-                || comando.Equals(
-                    "SIN_COMANDO",
-                    StringComparison.OrdinalIgnoreCase)
-                || TryObtenerLimitacion(comando, out _)
-                || TryObtenerRespuestaNatural(comando, out _)
-                || TryObtenerExplicacionNatural(
-                    comando,
-                    out _,
-                    out _)
-                || EsEstrategiaInvalidaParaEstadoVentana(
-                    comando)
-                || !EsComandoCompatibleConModoConsola(comando))
+                    StringComparison.OrdinalIgnoreCase))
             {
+                RevisionTareasControl revision =
+                    await RevisarTareasAsync(
+                        plan,
+                        pasos,
+                        cancellationToken);
+
+                if (revision.Completa)
+                {
+                    bool aprendido =
+                        await AprenderRecetaAsync(
+                            instruccion,
+                            pasos,
+                            informar,
+                            cancellationToken);
+
+                    return Finalizar(
+                        true,
+                        "completado",
+                        "Petición completada y comprobada por consola.",
+                        pasos,
+                        informar,
+                        aprendido);
+                }
+
                 mensajes.Add(
-                    new MensajeOllama("assistant", comando));
+                    new MensajeOllama(
+                        "assistant",
+                        respuestaModelo));
                 mensajes.Add(
                     new MensajeOllama(
                         "user",
-                        CrearInstruccionControlEstadoVentana()));
+                        "FIN fue rechazado porque falta evidencia: "
+                        + revision.Motivo
+                        + Environment.NewLine
+                        + "Continúa únicamente con las recetas seleccionadas."));
                 continue;
             }
 
+            if (string.IsNullOrWhiteSpace(respuestaModelo)
+                || respuestaModelo.Equals(
+                    "SIN_COMANDO",
+                    StringComparison.OrdinalIgnoreCase)
+                || TryObtenerLimitacion(respuestaModelo, out _)
+                || TryObtenerRespuestaNatural(respuestaModelo, out _)
+                || TryObtenerExplicacionNatural(
+                    respuestaModelo,
+                    out _,
+                    out _))
+            {
+                mensajes.Add(
+                    new MensajeOllama(
+                        "assistant",
+                        respuestaModelo));
+                mensajes.Add(
+                    new MensajeOllama(
+                        "user",
+                        TraductorRecetasConocidas.CrearCorreccion(
+                            plan,
+                            "La respuesta no es un comando literal ni una pregunta válida.")));
+                continue;
+            }
+
+            ResultadoValidacionPowerShell alineacion =
+                TraductorRecetasConocidas.ValidarAlineacion(
+                    plan,
+                    respuestaModelo,
+                    pasos,
+                    recetas);
             ResultadoValidacionPowerShell validacion =
-                ValidadorPowerShell.Validar(comando);
+                alineacion.Permitido
+                    ? ValidadorPowerShell.Validar(respuestaModelo)
+                    : alineacion;
 
             if (!validacion.Permitido)
             {
                 mensajes.Add(
-                    new MensajeOllama("assistant", comando));
+                    new MensajeOllama(
+                        "assistant",
+                        respuestaModelo));
                 mensajes.Add(
                     new MensajeOllama(
                         "user",
-                        "El validador rechazó el comando: "
-                        + validacion.Motivo
-                        + Environment.NewLine
-                        + CrearInstruccionControlEstadoVentana()));
+                        TraductorRecetasConocidas.CrearCorreccion(
+                            plan,
+                            validacion.Motivo)));
                 continue;
             }
 
@@ -1671,14 +1943,14 @@ internal static class ControlWindows
                 new EventoControl(
                     "comando",
                     "Llama ha adaptado una receta conocida.",
-                    comando));
+                    respuestaModelo));
             ResultadoEjecucionPowerShell ejecucion =
                 await EjecutorPowerShell.EjecutarAsync(
-                    comando,
+                    respuestaModelo,
                     cancellationToken);
             var paso = new ResultadoPasoControl(
                 pasos.Count + 1,
-                comando,
+                respuestaModelo,
                 ejecucion.Ejecutado,
                 ejecucion.CodigoSalida,
                 ejecucion.Salida,
@@ -1694,11 +1966,12 @@ internal static class ControlWindows
                     ejecucion.Ejecutado
                         ? $"Comando ejecutado con código {ejecucion.CodigoSalida}."
                         : ejecucion.Error,
-                    comando,
+                    respuestaModelo,
                     paso));
 
             if (ejecucion.Ejecutado
                 && ejecucion.CodigoSalida == 0
+                && PlanSolicitaSoloEstadoDeVentanas(plan)
                 && SalidaCompletaPlanEstadoVentana(
                     plan,
                     ejecucion.Salida))
@@ -1719,24 +1992,59 @@ internal static class ControlWindows
                     aprendido);
             }
 
+            if (TryCrearRespuestaConsultasEstructuradas(
+                    plan,
+                    pasos,
+                    out string respuestaEstructurada))
+            {
+                bool aprendido =
+                    await AprenderRecetaAsync(
+                        instruccion,
+                        pasos,
+                        informar,
+                        cancellationToken);
+
+                return Finalizar(
+                    true,
+                    "respuesta",
+                    respuestaEstructurada,
+                    pasos,
+                    informar,
+                    aprendido);
+            }
+
+            if (EsAperturaUnicaVerificada(plan, pasos))
+            {
+                bool aprendido =
+                    await AprenderRecetaAsync(
+                        instruccion,
+                        pasos,
+                        informar,
+                        cancellationToken);
+
+                return Finalizar(
+                    true,
+                    "completado",
+                    "Aplicación abierta y comprobada por consola.",
+                    pasos,
+                    informar,
+                    aprendido);
+            }
+
             mensajes.Add(
-                new MensajeOllama("assistant", comando));
+                new MensajeOllama(
+                    "assistant",
+                    respuestaModelo));
             mensajes.Add(
                 new MensajeOllama(
                     "user",
-                    CrearResultadoEjecutado(
-                        comando,
-                        ejecucion)
-                    + Environment.NewLine
-                    + Environment.NewLine
-                    + "La receta todavía no está demostrada. "
-                    + "Usa la salida real y vuelve a adaptar únicamente "
-                    + "la receta seleccionada."));
+                    TraductorRecetasConocidas.CrearResultadoPaso(
+                        paso)));
         }
 
         ResultadoPasoControl? ultimo = pasos.LastOrDefault();
         string detalle = ultimo is null
-            ? "Llama no devolvió un comando válido de la receta conocida."
+            ? "Llama no devolvió un comando alineado con las recetas seleccionadas."
             : !string.IsNullOrWhiteSpace(ultimo.Error)
                 ? ultimo.Error
                 : ultimo.Salida;
@@ -1744,7 +2052,7 @@ internal static class ControlWindows
         return Finalizar(
             false,
             "sin_comando",
-            "No se pudo adaptar la receta de ventana tras cuatro intentos. "
+            $"No se pudo completar la receta tras {maximoIntentos} intentos. "
             + LimitarTexto(detalle),
             pasos,
             informar);

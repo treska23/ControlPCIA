@@ -180,6 +180,10 @@ internal static class PlanificadorTareasIA
                     literal. Por ejemplo, «pon Edge delante», «tráeme el
                     navegador» y «activa la ventana» seleccionan
                     `ventanas.estado`.
+                    Cuando el usuario diga «a pantalla grande», «que ocupe la
+                    pantalla» o una expresión equivalente sobre una ventana,
+                    tradúcelo como maximizar salvo que proporcione medidas o
+                    pida explícitamente redimensionar.
 
                     En la misma respuesta decide si falta una elección personal
                     imprescindible que no figure en la petición ni en el
@@ -218,7 +222,7 @@ internal static class PlanificadorTareasIA
             string? pregunta =
                 ExtraerPreguntaPlan(respuesta);
 
-            return tareas.Count == 0
+            PlanTareasControl plan = tareas.Count == 0
                 ? CrearPlanMinimo(instruccion)
                 : new PlanTareasControl(
                     ConservarNombreLiteralExacto(
@@ -226,6 +230,10 @@ internal static class PlanificadorTareasIA
                         tareas),
                     conocimientos,
                     pregunta);
+
+            return CorregirLiteralArchivo(
+                instruccion,
+                plan);
         }
         catch (Exception ex) when (
             !cancellationToken.IsCancellationRequested
@@ -273,6 +281,91 @@ internal static class PlanificadorTareasIA
             + $" con el nombre literal exacto «{nombre}»";
 
         return resultado;
+    }
+
+    internal static PlanTareasControl CorregirLiteralArchivo(
+        string instruccion,
+        PlanTareasControl plan)
+    {
+        string? literal = ExtraerLiteralArchivoSolicitado(
+            instruccion);
+
+        if (literal is null || plan.Tareas.Count != 1)
+        {
+            return plan;
+        }
+
+        string normalizada = InventarioTexto.Normalizar(instruccion);
+        bool pideAbrir = Regex.IsMatch(
+            normalizada,
+            @"\b(?:abre|abrir|inicia|iniciar|lanza|lanzar|ejecuta|ejecutar)\b",
+            RegexOptions.CultureInvariant);
+        bool pideBuscar = Regex.IsMatch(
+            normalizada,
+            @"\b(?:donde|busca|buscar|encuentra|encontrar|localiza|localizar)\b",
+            RegexOptions.CultureInvariant);
+
+        if (!pideAbrir && !pideBuscar)
+        {
+            return plan;
+        }
+
+        string tarea = pideAbrir
+            ? $"abrir {literal}"
+            : $"buscar {literal}";
+        var conocimientos = plan.ConocimientosSeleccionados
+            .Where(conocimiento =>
+                conocimiento is not (
+                    "archivos.buscar" or "archivos.abrir"))
+            .ToList();
+        conocimientos.Add(
+            pideAbrir
+                ? "archivos.abrir"
+                : "archivos.buscar");
+
+        return new PlanTareasControl(
+            [tarea],
+            conocimientos,
+            plan.Pregunta);
+    }
+
+    internal static string? ExtraerLiteralArchivoSolicitado(
+        string instruccion)
+    {
+        if (string.IsNullOrWhiteSpace(instruccion))
+        {
+            return null;
+        }
+
+        Match contextual = Regex.Match(
+            instruccion,
+            """
+            \b(?:d[oó]nde(?:\s+est[aá])?|busca|buscar|encuentra|encontrar|
+               localiza|localizar|abre|abrir|inicia|iniciar|lanza|lanzar)
+            \s+(?:(?:el|la|un|una|archivo|fichero|documento)\s+)*
+            ["“«']?(?<nombre>[^"”»'\r\n;|<>]+?\.[\p{L}\p{N}]{1,16})["”»']?
+            \s*$
+            """,
+            RegexOptions.IgnoreCase
+            | RegexOptions.CultureInvariant
+            | RegexOptions.IgnorePatternWhitespace);
+        Match coincidencia = contextual.Success
+            ? contextual
+            : Regex.Match(
+                instruccion,
+                @"(?<nombre>[\p{L}\p{N}_()-]+\.[\p{L}\p{N}]{1,16})(?:\s|[,.!?])*$",
+                RegexOptions.CultureInvariant);
+
+        if (!coincidencia.Success)
+        {
+            return null;
+        }
+
+        string nombre = coincidencia.Groups["nombre"].Value.Trim();
+        return nombre.Length is >= 3 and <= 260
+               && !nombre.Contains("..", StringComparison.Ordinal)
+            ? nombre
+            : null;
     }
 
     internal static string? ExtraerNombreLiteralSolicitado(
