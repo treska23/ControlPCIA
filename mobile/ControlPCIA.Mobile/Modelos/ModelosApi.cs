@@ -29,6 +29,10 @@ public sealed record PasoOrden(
     string? Salida,
     string? Error);
 
+public sealed record MensajeConversacion(
+    string Rol,
+    string Texto);
+
 public sealed record ResultadoOrden(
     bool Completado,
     string? Estado,

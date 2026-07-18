@@ -10,6 +10,7 @@ internal static class ControlWindows
     public static async Task<ResultadoControl> ControlarAsync(
         string instruccion,
         Action<EventoControl>? informar = null,
+        IReadOnlyList<MensajeConversacionControl>? contextoConversacion = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(instruccion))
@@ -32,6 +33,11 @@ internal static class ControlWindows
                 informar);
         }
 
+        IReadOnlyList<MensajeConversacionControl> contexto =
+            NormalizarContexto(contextoConversacion);
+        bool permitirDescarte =
+            EsDescarteConfirmado(instruccion, contexto);
+
         IReadOnlyList<RecetaReferencia> recetas =
             await BuscarRecetasAsync(
                 instruccion,
@@ -46,13 +52,6 @@ internal static class ControlWindows
                 ObservadorWindows
                     .ObtenerVentanasAbiertas()
                     .Select(ventana => "- " + ventana));
-        string ventanaActiva = ObservadorWindows.ObtenerVentanaActiva();
-        ResultadoAutomatizacionAplicacion ventanasUi =
-            AutomatizadorAplicaciones.ListarVentanas();
-        string estadoInterfaz = ventanasUi.CodigoSalida == 0
-            ? ventanasUi.Salida
-            : "No se pudo enumerar la interfaz accesible: " + ventanasUi.Error;
-
         var mensajes = new List<MensajeOllama>
         {
             new(
@@ -63,13 +62,32 @@ internal static class ControlWindows
                 el comando de consola necesario. No existe un catálogo de acciones:
                 debes razonar qué comandos de Windows resuelven cada petición.
 
+                SEPARACIÓN DE RESPONSABILIDADES:
+
+                - Tú sólo investigas y propones un comando literal de PowerShell
+                  por paso. No ejecutas acciones por tu cuenta ni simulas haberlas
+                  realizado.
+                - ControlPCIA valida el comando con una política independiente,
+                  lo ejecuta en un proceso PowerShell externo y te devuelve su
+                  salida, error y código de salida reales.
+                - Nunca afirmes que algo se hizo sólo porque propusiste el comando.
+
                 FUNCIONAMIENTO:
 
                 - Genera UN comando PowerShell por paso.
                 - Devuelve únicamente el comando, sin Markdown ni explicación.
                 - Recibirás stdout, stderr y el código de salida reales para
-                  decidir el siguiente paso.
+                  decidir el siguiente paso. Si stdout contiene el resultado
+                  pedido, responde FIN inmediatamente; no inventes otra
+                  consulta ni escribas una explicación como si fuera comando.
                 - Cuando la petición esté completamente realizada, responde FIN.
+                - Si la petición pide información o una explicación para el
+                  usuario, observa primero lo necesario y responde
+                  RESPONDER: seguido de una respuesta natural, breve y útil.
+                - Para saber qué aplicaciones o ventanas están abiertas, usa una
+                  consulta nativa de PowerShell como
+                  `Get-Process | Where-Object MainWindowTitle | Select-Object ProcessName,MainWindowTitle`.
+                  No uses reconocimiento gráfico ni inspección visual de pantalla.
                 - Si no existe una forma permitida de realizarla, responde
                   SIN_COMANDO.
                 - Si la petición es ambigua o una acción permitida puede causar
@@ -82,6 +100,17 @@ internal static class ControlWindows
                   nunca intentes eludir deliberadamente la política.
                 - Un código de salida distinto de 0 significa que la petición
                   todavía no está completada.
+                - Si el comando falla y no hay una alternativa segura, responde
+                  RESPONDER: explicando el error real y pidiendo al usuario la
+                  aclaración mínima que falte. No respondas FIN ni digas que se
+                  completó.
+                - Un código de salida cero sólo confirma que ese comando se
+                  ejecutó. Si la salida no demuestra el resultado pedido,
+                  ejecuta una consulta nativa adicional o responde RESPONDER:
+                  explicando qué falta comprobar.
+                - Nunca afirmes que una aplicación se abrió, cerró o cambió si
+                  la salida de PowerShell no lo demuestra. Mantén la petición
+                  limitada a las aplicaciones nombradas por el usuario.
 
                 APRENDIZAJE:
 
@@ -92,8 +121,7 @@ internal static class ControlWindows
                 - Cada comando, aunque proceda de la memoria, volverá a pasar por
                   el validador local.
                 - Si no conoces la solución, puedes investigar de forma segura con
-                  Get-Command, Get-Help, Get-StartApps y consultas del sistema que
-                  no lean archivos ni cambien configuración sensible.
+                  Get-Command, Get-Help, Get-StartApps y consultas del sistema.
 
                 NAVEGACIÓN WEB:
 
@@ -104,57 +132,58 @@ internal static class ControlWindows
                 - No uses Invoke-WebRequest, Invoke-RestMethod ni descargues
                   archivos. El navegador predeterminado debe gestionar la página.
 
-                CONTROL GENÉRICO DE APLICACIONES:
+                COMANDOS DE CONSOLA Y APLICACIONES:
 
-                - Para controlar la interfaz de una aplicación usa exclusivamente
-                  el comando local ControlPCIA.exe ui. No existe código específico
-                  para Cubase ni para ninguna otra aplicación.
-                - "Abrir" o "iniciar" una aplicación significa dejar su ventana
-                  visible, restaurada y en primer plano. Start-Process sólo inicia
-                  el proceso y NO completa por sí solo una petición de apertura.
-                  Después de iniciarlo, usa el título real de la ventana que
-                  aparece en el estado actualizado y ejecuta
-                  ControlPCIA.exe ui focus "Ventana" antes de responder FIN.
-                - Empieza inspeccionando la ventana real cuando no conozcas sus
-                  controles:
-                  ControlPCIA.exe ui inspect "Título de ventana" 4
-                - Para cualquier comando `ui`, elige el título EXCLUSIVAMENTE de
-                  la sección VENTANAS CONTROLABLES POR UI AUTOMATION y cópialo
-                  literalmente: es sólo el texto encerrado entre comillas después
-                  de `title=`. Nunca incluyas `|process=...` dentro del título.
-                  Conserva sus espacios y signos. La lista VENTANAS
-                  VISIBLES sólo aporta contexto general y no autoriza títulos de
-                  automatización. Si la petición coincide exactamente con un
-                  `WINDOW|title="..."`, debes usar ese título, no otro parecido.
-                - Las primitivas disponibles son:
-                  ControlPCIA.exe ui windows
-                  ControlPCIA.exe ui focus "Ventana"
-                  ControlPCIA.exe ui invoke "Ventana" "Botón o menú" "Button"
-                  ControlPCIA.exe ui select "Ventana" "Elemento" "ListItem"
-                  ControlPCIA.exe ui toggle "Ventana" "Control" "CheckBox"
-                  ControlPCIA.exe ui expand "Ventana" "Control" "TreeItem"
-                  ControlPCIA.exe ui collapse "Ventana" "Control" "TreeItem"
-                  ControlPCIA.exe ui text "Ventana" "Cuadro de búsqueda" "texto"
-                  ControlPCIA.exe ui shortcut "Ventana" "CTRL+T"
-                - El tipo final es opcional en invoke, select, toggle, expand y
-                  collapse. Si inspect muestra un AutomationId, puedes seleccionar
-                  de forma precisa con "id:AutomationId".
-                - Usa nombres y títulos que aparezcan realmente en la inspección;
-                  no inventes controles. Después de abrir un menú o diálogo,
-                  inspecciona otra vez si necesitas ver su contenido.
-                - En aplicaciones con interfaz personalizada que no expongan sus
-                  controles, enfoca la ventana y usa sólo atajos seguros conocidos.
-                - Nunca intentes usar esta interfaz para abrir, guardar, importar,
-                  exportar, descargar, instalar, imprimir o manipular archivos,
-                  credenciales, consolas o superficies sensibles.
+                - Llama NO ejecuta acciones, NO pulsa controles, NO escribe en
+                  cuadros de texto y NO interpreta capturas o gráficos. Su único
+                  trabajo es traducir la petición a un comando literal de
+                  PowerShell que pueda ejecutar el sistema.
+                - ControlPCIA valida ese comando y lo ejecuta en un proceso
+                  externo de Windows PowerShell. Devuelve siempre al usuario el
+                  comando, la salida estándar, la salida de error y el código de
+                  salida. No afirmes que algo se hizo sólo porque propusiste un
+                  comando.
+                - Para consultar aplicaciones abiertas usa comandos nativos como
+                  `Get-Process | Where-Object MainWindowTitle | Select-Object ProcessName,MainWindowTitle`.
+                  No uses `ControlPCIA.exe ui`, UI Automation, OCR, capturas ni
+                  reconocimiento gráfico.
+                - Para iniciar, cerrar, enfocar o controlar una aplicación usa
+                  los comandos de consola propios de Windows o de esa aplicación
+                  (por ejemplo `Start-Process`, `Stop-Process` sólo cuando sea
+                  seguro, `Get-Process`, `Get-CimInstance` o su CLI/PowerShell).
+                  No inventes una API: si no conoces el comando, responde
+                  `RESPONDER:` explicando qué dato falta para investigarlo.
+                - Las acciones internas de aplicaciones como Cubase también se
+                  deben traducir a comandos o interfaces de automatización de
+                  consola de la propia aplicación. No intentes resolverlas
+                  manipulando su ventana.
+                - Un código de salida cero sólo demuestra que PowerShell terminó
+                  sin error. Si la salida está vacía o no prueba el resultado,
+                  responde `RESPONDER:` indicando qué se ejecutó y pide al usuario
+                  que aclare el resultado esperado o el siguiente paso.
+                - Si PowerShell devuelve un error o código distinto de cero,
+                  responde `RESPONDER:` con el error real, sin ocultarlo, y pide
+                  una aclaración mínima. El usuario puede continuar la
+                  conversación y Llama recibirá el contexto anterior.
+                - Si una operación de cierre detecta trabajo sin guardar, no
+                  guardes ni descartes automáticamente: informa del proceso y
+                  pregunta explícitamente si el usuario quiere guardarlo.
+                - No controles credenciales, consolas ni superficies de
+                  seguridad.
 
                 SEGURIDAD:
 
-                - Nunca crees, leas, borres, copies, muevas, renombres ni escribas
-                  archivos o carpetas.
-                - Nunca modifiques registro, discos, particiones, permisos,
-                  usuarios, servicios, tareas programadas, red, firewall,
-                  Defender, arranque ni configuración crítica.
+                - Puedes crear elementos nuevos y copiar a destinos nuevos.
+                  Nunca borres archivos o carpetas, nunca uses cortar/mover para
+                  trasladarlos y nunca sobrescribas un destino existente.
+                - Nunca desinstales programas ni borres, formatees, reparticiones
+                  o dañes discos, particiones o volúmenes.
+                - No accedas a credenciales ni cambies seguridad, Defender,
+                  cuentas, permisos o arranque. Los ajustes normales de pantalla,
+                  sonido, ventanas y aplicaciones sí están permitidos.
+                - Para instalar software, investiga primero el identificador con
+                  `winget search`/`winget show` y usa `winget install --id ...`
+                  desde el catálogo winget. No inventes URLs ni instaladores.
                 - No abras PowerShell, CMD, Terminal ni otra consola anidada.
                 - No uses ejecución dinámica, reflexión ni código destinado a
                   sortear el validador.
@@ -167,7 +196,16 @@ internal static class ControlWindows
                 Nunca inventes rutas de instalación. Si necesitas descubrir cómo
                 está registrada una aplicación, consulta Windows con Get-StartApps
                 o con otros comandos de consulta seguros.
-                """),
+                """)
+        };
+
+        mensajes.AddRange(
+            contexto.Select(mensaje =>
+                new MensajeOllama(
+                    mensaje.Rol,
+                    mensaje.Texto)));
+
+        mensajes.Add(
             new(
                 "user",
                 $"""
@@ -179,21 +217,12 @@ internal static class ControlWindows
 
                 {estadoWindows}
 
-                VENTANA ACTIVA:
-
-                {ventanaActiva}
-
-                VENTANAS CONTROLABLES POR UI AUTOMATION:
-
-                {estadoInterfaz}
-
                 RECETAS LOCALES RELACIONADAS:
 
                 {memoriaLocal}
 
                 Decide el primer paso necesario.
-                """)
-        };
+                """));
 
         var pasos = new List<ResultadoPasoControl>();
 
@@ -215,20 +244,39 @@ internal static class ControlWindows
                             mensajes,
                             cancellationToken));
 
+                if (TryObtenerRespuestaNatural(
+                        comando,
+                        out string respuestaNatural))
+                {
+                    return Finalizar(
+                        true,
+                        "respuesta",
+                        respuestaNatural,
+                        pasos,
+                        informar);
+                }
+
+                // Algunos modelos devuelven una explicación sin el prefijo
+                // RESPONDER:. Nunca la envíes a PowerShell como si fuera un
+                // comando: entrégala al móvil para que el usuario pueda
+                // continuar la conversación.
+                if (TryObtenerExplicacionNatural(
+                        comando,
+                        out string explicacion,
+                        out bool explicacionCompletada))
+                {
+                    return Finalizar(
+                        explicacionCompletada,
+                        "respuesta",
+                        explicacion,
+                        pasos,
+                        informar);
+                }
+
                 if (comando.Equals(
                         "FIN",
                         StringComparison.OrdinalIgnoreCase))
                 {
-                    if (RequiereEnfoqueTrasInicio(pasos))
-                    {
-                        mensajes.Add(new MensajeOllama("assistant", comando));
-                        mensajes.Add(
-                            new MensajeOllama(
-                                "user",
-                                CrearAvisoEnfoquePendiente()));
-                        continue;
-                    }
-
                     bool aprendido =
                         await AprenderRecetaAsync(
                             instruccion,
@@ -296,17 +344,6 @@ internal static class ControlWindows
                         informar);
                 }
 
-                if (RequiereEnfoqueTrasInicio(pasos)
-                    && !EsComandoPermitidoMientrasEnfoca(comando))
-                {
-                    return Finalizar(
-                        false,
-                        "enfoque_inseguro",
-                        "La IA intentó realizar otra acción antes de enfocar la aplicación abierta. La orden se ha detenido sin ejecutar ese comando.",
-                        pasos,
-                        informar);
-                }
-
                 Informar(
                     informar,
                     new EventoControl(
@@ -317,19 +354,8 @@ internal static class ControlWindows
                 ResultadoEjecucionPowerShell ejecucion =
                     await EjecutorPowerShell.EjecutarAsync(
                         comando,
-                        cancellationToken);
-
-                bool inicioAplicacion =
-                    ejecucion.Ejecutado
-                    && ejecucion.CodigoSalida == 0
-                    && EsInicioAplicacion(comando);
-
-                if (inicioAplicacion)
-                {
-                    // Las aplicaciones empaquetadas de Windows suelen publicar
-                    // su ventana unas décimas después de terminar Start-Process.
-                    await Task.Delay(1_200, cancellationToken);
-                }
+                        cancellationToken,
+                        permitirDescarte);
 
                 var paso = new ResultadoPasoControl(
                     indice + 1,
@@ -353,9 +379,7 @@ internal static class ControlWindows
 
                 string informacionResultado =
                     ejecucion.Ejecutado
-                        ? CrearResultadoEjecutado(
-                            ejecucion,
-                            incluirEstadoInterfaz: inicioAplicacion)
+                        ? CrearResultadoEjecutado(ejecucion)
                         : CrearResultadoBloqueado(ejecucion);
 
                 mensajes.Add(new MensajeOllama("assistant", comando));
@@ -365,7 +389,7 @@ internal static class ControlWindows
             return Finalizar(
                 false,
                 "limite_pasos",
-                $"El agente alcanzó el límite de {MaximoPasos} pasos sin completar la petición.",
+                CrearMensajeLimitePasos(pasos),
                 pasos,
                 informar);
         }
@@ -409,14 +433,26 @@ internal static class ControlWindows
             """;
     }
 
-    private static string CrearResultadoEjecutado(
-        ResultadoEjecucionPowerShell resultado,
-        bool incluirEstadoInterfaz)
+    private static string CrearMensajeLimitePasos(
+        IReadOnlyList<ResultadoPasoControl> pasos)
     {
-        string estadoActual = incluirEstadoInterfaz
-            ? CrearAvisoEnfoquePendiente()
-            : string.Empty;
+        ResultadoPasoControl? ultimo = pasos.LastOrDefault();
+        string detalle = ultimo is null
+            ? string.Empty
+            : !string.IsNullOrWhiteSpace(ultimo.Error)
+                ? $" Último error de PowerShell: {LimitarTexto(ultimo.Error)}"
+                : ultimo.CodigoSalida != 0
+                    ? $" Último código de salida: {ultimo.CodigoSalida}."
+                    : string.Empty;
 
+        return
+            $"No se ha completado la petición tras {MaximoPasos} pasos.{detalle} " +
+            "Puedes explicarme qué resultado esperabas o repetir la orden con más detalle.";
+    }
+
+    private static string CrearResultadoEjecutado(
+        ResultadoEjecucionPowerShell resultado)
+    {
         return $"""
             RESULTADO DEL COMANDO:
 
@@ -429,32 +465,9 @@ internal static class ControlWindows
             Error:
             {LimitarTexto(resultado.Error)}
 
-            {estadoActual}
-
             Decide si la petición original ya está completada o si necesitas
-            ejecutar otro comando.
-            """;
-    }
-
-    private static string CrearAvisoEnfoquePendiente()
-    {
-        ResultadoAutomatizacionAplicacion ventanas =
-            AutomatizadorAplicaciones.ListarVentanas();
-        string listaVentanas = ventanas.CodigoSalida == 0
-            ? ventanas.Salida
-            : "No se pudo enumerar la interfaz: " + ventanas.Error;
-
-        return $"""
-            ESTADO DE VENTANAS DESPUÉS DEL COMANDO:
-
-            Ventana activa: {ObservadorWindows.ObtenerVentanaActiva()}
-
-            Ventanas controlables:
-            {listaVentanas}
-
-            Si la petición era abrir o iniciar una aplicación, todavía NO está
-            completada: enfoca su ventana real con
-            ControlPCIA.exe ui focus "Ventana" antes de responder FIN.
+            ejecutar otro comando. Si la salida está vacía o no demuestra el
+            resultado esperado, responde RESPONDER: y pide una aclaración.
             """;
     }
 
@@ -487,6 +500,89 @@ internal static class ControlWindows
         return ultimoInicio >= 0 && ultimaActivacion < ultimoInicio;
     }
 
+    internal static bool RequiereVerificacionTrasCambio(
+        IReadOnlyList<ResultadoPasoControl> pasos)
+    {
+        int ultimoCambio = -1;
+        int ultimaObservacion = -1;
+
+        for (int indice = 0; indice < pasos.Count; indice++)
+        {
+            ResultadoPasoControl paso = pasos[indice];
+
+            if (!paso.Ejecutado || paso.CodigoSalida != 0)
+            {
+                continue;
+            }
+
+            if (EsComandoQueCambiaEstado(paso.Comando))
+            {
+                ultimoCambio = indice;
+            }
+
+            if (EsComandoDeObservacion(
+                    paso.Comando,
+                    ultimoCambio >= 0
+                        ? pasos[ultimoCambio].Comando
+                        : string.Empty))
+            {
+                ultimaObservacion = indice;
+            }
+        }
+
+        return ultimoCambio >= 0 && ultimaObservacion < ultimoCambio;
+    }
+
+    private static bool EsComandoQueCambiaEstado(string comando)
+    {
+        return Regex.IsMatch(
+                   comando,
+                   @"\bControlPCIA(?:\.exe)?\s+ui\s+(?:close|invoke|select|toggle|expand|collapse|text|shortcut)\b",
+                   RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+               || Regex.IsMatch(
+                   comando,
+                   @"(?:^|[;|]\s*)(?:Stop-Process|spps|kill|New-Item|ni|md|mkdir|Copy-Item|cp|copy|cpi)\b",
+                   RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+               || Regex.IsMatch(
+                   comando,
+                   @"^\s*winget(?:\.exe)?\s+install\b",
+                   RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+               || comando.Contains(
+                   ".CloseMainWindow(",
+                   StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool EsComandoDeObservacion(
+        string comando,
+        string ultimoCambio)
+    {
+        bool esInteraccionUi = Regex.IsMatch(
+            ultimoCambio,
+            @"\bControlPCIA(?:\.exe)?\s+ui\s+(?:invoke|select|toggle|expand|collapse|text|shortcut)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        if (esInteraccionUi)
+        {
+            return Regex.IsMatch(
+                comando,
+                @"\bControlPCIA(?:\.exe)?\s+ui\s+inspect\b",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        }
+
+        return Regex.IsMatch(
+                   comando,
+                   @"\bControlPCIA(?:\.exe)?\s+ui\s+(?:windows|inspect|status)\b",
+                   RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+               || Regex.IsMatch(
+                   comando,
+                   @"(?:^|[;|]\s*)(?:Get-Process|gps|Test-Path|Get-Item|gi|Get-ChildItem|gci|dir|ls)\b",
+                   RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+               || Regex.IsMatch(
+                   comando,
+                   @"^\s*winget(?:\.exe)?\s+(?:list|show)\b",
+                   RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
     private static bool EsInicioAplicacion(string comando)
     {
         return Regex.IsMatch(
@@ -509,6 +605,151 @@ internal static class ControlWindows
             comando,
             @"^\s*ControlPCIA(?:\.exe)?\s+ui\s+(?:windows|focus\s+.+?)\s*$",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    private static IReadOnlyList<string> ExtraerTitulosVentanas(
+        string salida)
+    {
+        return Regex.Matches(
+                salida,
+                @"(?:^|\n)WINDOW\|title=""(?<titulo>[^""]+)""",
+                RegexOptions.CultureInvariant)
+            .Select(coincidencia =>
+                coincidencia.Groups["titulo"].Value.Trim())
+            .Where(titulo => titulo.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static IReadOnlySet<string> DeterminarVentanasObjetivo(
+        string instruccion,
+        IReadOnlyList<MensajeConversacionControl> contexto,
+        IReadOnlyList<string> ventanas)
+    {
+        string referencia =
+            instruccion
+            + Environment.NewLine
+            + string.Join(
+                Environment.NewLine,
+                contexto.Select(mensaje => mensaje.Texto));
+        var resultado = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (string ventana in ventanas)
+        {
+            if (TextosRelacionados(referencia, ventana))
+            {
+                resultado.Add(ventana);
+            }
+        }
+
+        return resultado;
+    }
+
+    private static string? ValidarAmbitoAplicaciones(
+        string comando,
+        IReadOnlyList<string> ventanasIniciales,
+        IReadOnlySet<string> ventanasObjetivo)
+    {
+        Match coincidencia = Regex.Match(
+            comando,
+            @"^\s*ControlPCIA(?:\.exe)?\s+ui\s+(?<accion>[a-z]+)(?:\s+(?:""(?<doble>[^""]+)""|'(?<simple>[^']+)'|(?<libre>\S+)))?",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        if (!coincidencia.Success
+            || coincidencia.Groups["accion"].Value.Equals(
+                "windows",
+                StringComparison.OrdinalIgnoreCase)
+            || ventanasObjetivo.Count == 0)
+        {
+            return null;
+        }
+
+        string ventana =
+            coincidencia.Groups["doble"].Success
+                ? coincidencia.Groups["doble"].Value
+                : coincidencia.Groups["simple"].Success
+                    ? coincidencia.Groups["simple"].Value
+                    : coincidencia.Groups["libre"].Value;
+
+        if (ventanasObjetivo.Contains(ventana))
+        {
+            return null;
+        }
+
+        ResultadoAutomatizacionAplicacion actuales =
+            AutomatizadorAplicaciones.ListarVentanas();
+        IReadOnlyList<string> ventanasActuales =
+            actuales.CodigoSalida == 0
+                ? ExtraerTitulosVentanas(actuales.Salida)
+                : [];
+        bool ventanaNueva =
+            ventanasActuales.Contains(
+                ventana,
+                StringComparer.OrdinalIgnoreCase)
+            && !ventanasIniciales.Contains(
+                ventana,
+                StringComparer.OrdinalIgnoreCase);
+
+        if (ventanaNueva)
+        {
+            return null;
+        }
+
+        return
+            $"La petición está dirigida a {string.Join(", ", ventanasObjetivo.Select(titulo => $"'{titulo}'"))}; no se permite controlar la ventana ajena '{ventana}'.";
+    }
+
+    private static bool TextosRelacionados(
+        string referencia,
+        string titulo)
+    {
+        string[] tokensReferencia = ObtenerTokens(referencia);
+        string[] tokensTitulo = ObtenerTokens(titulo);
+
+        foreach (string tokenReferencia in tokensReferencia)
+        {
+            foreach (string tokenTitulo in tokensTitulo)
+            {
+                if (tokenReferencia.Equals(
+                        tokenTitulo,
+                        StringComparison.Ordinal)
+                    || PrefijoComun(tokenReferencia, tokenTitulo) >= 5)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static string[] ObtenerTokens(string texto)
+    {
+        return Regex.Split(
+                ValidadorAutomatizacionAplicaciones.Normalizar(texto),
+                @"[^\p{L}\p{Nd}]+",
+                RegexOptions.CultureInvariant)
+            .Where(token => token.Length >= 4)
+            .Where(token => token is not (
+                "microsoft" or "aplicacion" or "application"
+                or "ventana" or "window" or "documento" or "document"))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static int PrefijoComun(string primero, string segundo)
+    {
+        int limite = Math.Min(primero.Length, segundo.Length);
+        int indice = 0;
+
+        while (indice < limite
+               && primero[indice] == segundo[indice])
+        {
+            indice++;
+        }
+
+        return indice;
     }
 
     internal static bool TryObtenerPreguntaConfirmacion(
@@ -540,6 +781,67 @@ internal static class ControlWindows
         return true;
     }
 
+    internal static bool TryObtenerRespuestaNatural(
+        string respuesta,
+        out string texto)
+    {
+        const string prefijo = "RESPONDER:";
+        string limpia = respuesta.Trim();
+
+        if (!limpia.StartsWith(
+                prefijo,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            texto = string.Empty;
+            return false;
+        }
+
+        texto = limpia[prefijo.Length..].Trim();
+
+        if (texto.Length == 0)
+        {
+            texto =
+                "No he podido preparar una respuesta útil con la información disponible.";
+        }
+        else if (texto.Length > 1200)
+        {
+            texto = texto[..1200].Trim();
+        }
+
+        return true;
+    }
+
+    private static bool TryObtenerExplicacionNatural(
+        string respuesta,
+        out string texto,
+        out bool completada)
+    {
+        string limpia = respuesta.Trim();
+        string minusculas = limpia.ToLowerInvariant();
+
+        bool pareceExplicacion =
+            minusculas.StartsWith("la petición", StringComparison.Ordinal)
+            || minusculas.StartsWith("el comando", StringComparison.Ordinal)
+            || minusculas.StartsWith("la salida", StringComparison.Ordinal)
+            || minusculas.Contains("ejecuta el siguiente comando", StringComparison.Ordinal)
+            || minusculas.Contains("si necesitas información", StringComparison.Ordinal);
+
+        if (!pareceExplicacion)
+        {
+            texto = string.Empty;
+            completada = false;
+            return false;
+        }
+
+        texto = limpia.Length > 1200 ? limpia[..1200].Trim() : limpia;
+        completada =
+            !minusculas.Contains("no está completada", StringComparison.Ordinal)
+            && !minusculas.Contains("aún no", StringComparison.Ordinal)
+            && !minusculas.Contains("todavía no", StringComparison.Ordinal)
+            && !minusculas.Contains("no proporcionó", StringComparison.Ordinal);
+        return true;
+    }
+
     private static ResultadoControl Finalizar(
         bool completado,
         string estado,
@@ -548,6 +850,11 @@ internal static class ControlWindows
         Action<EventoControl>? informar,
         bool aprendido = false)
     {
+        if (!completado)
+        {
+            mensaje = AñadirDetalleUltimoFallo(mensaje, pasos);
+        }
+
         Informar(informar, new EventoControl("final", mensaje));
 
         return new ResultadoControl(
@@ -556,6 +863,152 @@ internal static class ControlWindows
             mensaje,
             pasos.ToArray(),
             aprendido);
+    }
+
+    private static string AñadirDetalleUltimoFallo(
+        string mensaje,
+        IReadOnlyList<ResultadoPasoControl> pasos)
+    {
+        ResultadoPasoControl? ultimo = pasos.LastOrDefault();
+
+        if (ultimo is null
+            || ultimo.CodigoSalida == 0
+            || string.IsNullOrWhiteSpace(ultimo.Error)
+            || mensaje.Contains(
+                ultimo.Error,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return mensaje;
+        }
+
+        return mensaje
+            + Environment.NewLine
+            + "Error real de PowerShell: "
+            + LimitarTexto(ultimo.Error);
+    }
+
+    private static IReadOnlyList<MensajeConversacionControl>
+        NormalizarContexto(
+            IReadOnlyList<MensajeConversacionControl>? contexto)
+    {
+        if (contexto is null || contexto.Count == 0)
+        {
+            return [];
+        }
+
+        const int maximoMensajes = 12;
+        const int maximoCaracteresMensaje = 800;
+        const int maximoCaracteresTotal = 6000;
+        var normalizados = new List<MensajeConversacionControl>();
+        int caracteres = 0;
+
+        foreach (MensajeConversacionControl mensaje in contexto
+                     .TakeLast(maximoMensajes))
+        {
+            string rol = mensaje.Rol.Trim().ToLowerInvariant();
+            string texto = mensaje.Texto.Trim();
+
+            if (rol is not ("user" or "assistant")
+                || texto.Length == 0
+                || texto.Any(caracter =>
+                    char.IsControl(caracter)
+                    && caracter is not '\r' and not '\n' and not '\t'))
+            {
+                continue;
+            }
+
+            if (texto.Length > maximoCaracteresMensaje)
+            {
+                texto = texto[..maximoCaracteresMensaje].Trim();
+            }
+
+            if (caracteres + texto.Length > maximoCaracteresTotal)
+            {
+                break;
+            }
+
+            normalizados.Add(new MensajeConversacionControl(rol, texto));
+            caracteres += texto.Length;
+        }
+
+        return normalizados;
+    }
+
+    internal static bool EsDescarteConfirmado(
+        string instruccion,
+        IReadOnlyList<MensajeConversacionControl> contexto)
+    {
+        string literal = instruccion.Trim().ToLowerInvariant();
+
+        if (literal.Contains("sin guardar", StringComparison.Ordinal)
+            && (literal.Contains("cierr", StringComparison.Ordinal)
+                || literal.Contains("cerr", StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        string actual =
+            ValidadorAutomatizacionAplicaciones.Normalizar(instruccion);
+        string[] frasesDirectas =
+        [
+            "cerrar sin guardar", "cierra sin guardar",
+            "cerralo sin guardar", "close without saving",
+            "descarta los cambios", "descartar los cambios",
+            "no guardes los cambios", "no quiero guardar y cierra"
+        ];
+
+        if (frasesDirectas.Any(frase =>
+                actual.Contains(
+                    ValidadorAutomatizacionAplicaciones.Normalizar(frase),
+                    StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        if (actual.Contains("sin guardar", StringComparison.Ordinal)
+            && (actual.Contains("cerr", StringComparison.Ordinal)
+                || Regex.IsMatch(
+                    actual,
+                    @"\bcerr\w*\b.*\bsin\s+guardar\b",
+                    RegexOptions.CultureInvariant)))
+        {
+            return true;
+        }
+
+        bool afirmativa = actual is
+            "si" or "vale" or "de acuerdo" or "adelante"
+            or "hazlo" or "confirmo";
+
+        if (!afirmativa)
+        {
+            return false;
+        }
+
+        MensajeConversacionControl? pregunta = contexto
+            .LastOrDefault(mensaje =>
+                mensaje.Rol.Equals(
+                    "assistant",
+                    StringComparison.OrdinalIgnoreCase));
+
+        if (pregunta is null)
+        {
+            return false;
+        }
+
+        string textoPregunta =
+            ValidadorAutomatizacionAplicaciones.Normalizar(
+                pregunta.Texto);
+
+        return frasesDirectas.Any(frase =>
+                   textoPregunta.Contains(
+                       ValidadorAutomatizacionAplicaciones.Normalizar(frase),
+                       StringComparison.Ordinal))
+               || textoPregunta.Contains(
+                   "descartar",
+                   StringComparison.Ordinal)
+               || textoPregunta.Contains(
+                   "no guardar",
+                   StringComparison.Ordinal);
     }
 
     private static async Task<IReadOnlyList<RecetaReferencia>>
@@ -570,17 +1023,20 @@ internal static class ControlWindows
                 await MemoriaRecetas.Predeterminada.BuscarAsync(
                     instruccion,
                     cancellationToken: cancellationToken);
+            RecetaReferencia[] recetasDeConsola = recetas
+                .Where(receta => receta.Comandos.All(comando => !EsComandoUiObsoleto(comando)))
+                .ToArray();
 
-            if (recetas.Count > 0)
+            if (recetasDeConsola.Length > 0)
             {
                 Informar(
                     informar,
                     new EventoControl(
                         "memoria",
-                        $"Se encontraron {recetas.Count} recetas relacionadas."));
+                        $"Se encontraron {recetasDeConsola.Length} recetas relacionadas."));
             }
 
-            return recetas;
+            return recetasDeConsola;
         }
         catch (OperationCanceledException)
             when (cancellationToken.IsCancellationRequested)
@@ -654,7 +1110,11 @@ internal static class ControlWindows
     private static string CrearResumenRecetas(
         IReadOnlyList<RecetaReferencia> recetas)
     {
-        if (recetas.Count == 0)
+        RecetaReferencia[] recetasDeConsola = recetas
+            .Where(receta => receta.Comandos.All(comando => !EsComandoUiObsoleto(comando)))
+            .ToArray();
+
+        if (recetasDeConsola.Length == 0)
         {
             return "No hay recetas relacionadas. Investiga con consultas seguras si lo necesitas.";
         }
@@ -662,9 +1122,9 @@ internal static class ControlWindows
         const int limite = 8000;
         var resumen = new StringBuilder();
 
-        for (int indice = 0; indice < recetas.Count; indice++)
+        for (int indice = 0; indice < recetasDeConsola.Length; indice++)
         {
-            RecetaReferencia receta = recetas[indice];
+            RecetaReferencia receta = recetasDeConsola[indice];
             var bloque = new StringBuilder();
 
             bloque.AppendLine($"Receta {indice + 1}:");
@@ -690,6 +1150,14 @@ internal static class ControlWindows
         return resumen.Length == 0
             ? "No hay recetas que quepan de forma segura en el contexto."
             : resumen.ToString();
+    }
+
+    private static bool EsComandoUiObsoleto(string comando)
+    {
+        return Regex.IsMatch(
+            comando,
+            @"\bControlPCIA(?:\.exe)?\s+ui\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
     private static void Informar(

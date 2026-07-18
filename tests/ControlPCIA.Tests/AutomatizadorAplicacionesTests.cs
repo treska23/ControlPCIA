@@ -54,16 +54,24 @@ public sealed class AutomatizadorAplicacionesTests
 
                 var botonSensible = new Button
                 {
-                    Content = "Guardar como"
+                    Content = "Don't Save"
                 };
                 AutomationProperties.SetName(
                     botonSensible,
-                    "Guardar como");
+                    "Don't Save");
                 AutomationProperties.SetAutomationId(
                     botonSensible,
                     "InnocentButton42");
                 botonSensible.Click += (_, _) =>
                     sensibleInvocada = true;
+
+                var pestanas = new TabControl();
+                pestanas.Items.Add(
+                    new TabItem
+                    {
+                        Header = "Proyecto.cpr*",
+                        Content = "Contenido de prueba"
+                    });
 
                 ventana = new Window
                 {
@@ -77,6 +85,7 @@ public sealed class AutomatizadorAplicacionesTests
                         Margin = new Thickness(16),
                         Children =
                         {
+                            pestanas,
                             busqueda,
                             boton,
                             botonSensible
@@ -114,7 +123,7 @@ public sealed class AutomatizadorAplicacionesTests
         try
         {
             await Task.Delay(
-                150,
+                600,
                 TestContext.Current.CancellationToken);
 
             ResultadoAutomatizacionAplicacion inspeccion =
@@ -137,6 +146,16 @@ public sealed class AutomatizadorAplicacionesTests
             Assert.DoesNotContain(
                 "InnocentButton42",
                 inspeccion.Salida,
+                StringComparison.Ordinal);
+
+            ResultadoAutomatizacionAplicacion estado =
+                AutomatizadorAplicaciones.Ejecutar(
+                    ["ui", "status", titulo]);
+
+            Assert.Equal(0, estado.CodigoSalida);
+            Assert.Contains(
+                "modified=true",
+                estado.Salida,
                 StringComparison.Ordinal);
 
             ResultadoAutomatizacionAplicacion texto =
@@ -179,6 +198,83 @@ public sealed class AutomatizadorAplicacionesTests
         finally
         {
             await dispatcher.InvokeAsync(() => ventana?.Close());
+            dispatcher.InvokeShutdown();
+            hilo.Join(TimeSpan.FromSeconds(5));
+        }
+    }
+
+    [Fact]
+    public async Task Solicita_cierre_nativo_y_confirma_que_la_ventana_desaparece()
+    {
+        string titulo =
+            "ControlPCIA Close Test " + Guid.NewGuid().ToString("N");
+        var preparada =
+            new TaskCompletionSource<Dispatcher>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        var cerrada =
+            new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        Window? ventana = null;
+
+        var hilo = new Thread(() =>
+        {
+            ventana = new Window
+            {
+                Title = titulo,
+                Width = 320,
+                Height = 140,
+                Content = new TextBlock
+                {
+                    Text = "Ventana de cierre"
+                }
+            };
+            ventana.Closed += (_, _) =>
+            {
+                cerrada.TrySetResult(true);
+                ventana.Dispatcher.BeginInvokeShutdown(
+                    DispatcherPriority.Background);
+            };
+            ventana.Show();
+            preparada.TrySetResult(ventana.Dispatcher);
+            Dispatcher.Run();
+        });
+
+        hilo.SetApartmentState(ApartmentState.STA);
+        hilo.Start();
+        Dispatcher dispatcher =
+            await preparada.Task.WaitAsync(
+                TimeSpan.FromSeconds(10),
+                TestContext.Current.CancellationToken);
+
+        try
+        {
+            await Task.Delay(
+                150,
+                TestContext.Current.CancellationToken);
+
+            ResultadoAutomatizacionAplicacion cierre =
+                AutomatizadorAplicaciones.Ejecutar(
+                    ["ui", "close", titulo]);
+
+            Assert.True(
+                cierre.CodigoSalida == 0,
+                cierre.Error);
+            Assert.Contains(
+                "still-visible=false",
+                cierre.Salida,
+                StringComparison.Ordinal);
+            Assert.True(
+                await cerrada.Task.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            if (!cerrada.Task.IsCompleted)
+            {
+                await dispatcher.InvokeAsync(() => ventana?.Close());
+            }
+
             dispatcher.InvokeShutdown();
             hilo.Join(TimeSpan.FromSeconds(5));
         }

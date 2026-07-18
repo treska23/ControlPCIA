@@ -76,6 +76,91 @@ public sealed class ControlWindowsTests
         Assert.False(ControlWindows.EsComandoPermitidoMientrasEnfoca(comando));
     }
 
+    [Fact]
+    public void Una_accion_de_interfaz_exige_observar_despues()
+    {
+        ResultadoPasoControl[] pasos =
+        [
+            Exito("ControlPCIA.exe ui inspect \"Calculator\" 6"),
+            Exito("ControlPCIA.exe ui invoke \"Calculator\" \"id:num2Button\" \"Button\"")
+        ];
+
+        Assert.True(
+            ControlWindows.RequiereVerificacionTrasCambio(pasos));
+    }
+
+    [Fact]
+    public void Una_inspeccion_posterior_verifica_el_cambio()
+    {
+        ResultadoPasoControl[] pasos =
+        [
+            Exito("ControlPCIA.exe ui invoke \"Calculator\" \"id:equalButton\" \"Button\""),
+            Exito("ControlPCIA.exe ui inspect \"Calculator\" 6")
+        ];
+
+        Assert.False(
+            ControlWindows.RequiereVerificacionTrasCambio(pasos));
+    }
+
+    [Fact]
+    public void Un_cierre_exige_enumerar_despues()
+    {
+        ResultadoPasoControl[] pasos =
+        [
+            Exito("ControlPCIA.exe ui status \"Visual Studio\""),
+            Exito("ControlPCIA.exe ui close \"Visual Studio\"")
+        ];
+
+        Assert.True(
+            ControlWindows.RequiereVerificacionTrasCambio(pasos));
+
+        pasos =
+        [
+            .. pasos,
+            Exito("ControlPCIA.exe ui windows")
+        ];
+
+        Assert.False(
+            ControlWindows.RequiereVerificacionTrasCambio(pasos));
+    }
+
+    [Fact]
+    public void Reconoce_una_respuesta_natural()
+    {
+        Assert.True(
+            ControlWindows.TryObtenerRespuestaNatural(
+                "RESPONDER: Tienes abiertas Calculadora y Word.",
+                out string respuesta));
+        Assert.Equal(
+            "Tienes abiertas Calculadora y Word.",
+            respuesta);
+    }
+
+    [Fact]
+    public void Solo_autoriza_descartar_con_frase_directa_o_confirmacion_contextual()
+    {
+        Assert.True(
+            ControlWindows.EsDescarteConfirmado(
+                "cierra Visual Studio sin guardar",
+                []));
+        Assert.False(
+            ControlWindows.EsDescarteConfirmado(
+                "no",
+                [
+                    new MensajeConversacionControl(
+                        "assistant",
+                        "¿Quieres que guarde el trabajo?")
+                ]));
+        Assert.True(
+            ControlWindows.EsDescarteConfirmado(
+                "sí",
+                [
+                    new MensajeConversacionControl(
+                        "assistant",
+                        "¿Quieres cerrar sin guardar?")
+                ]));
+    }
+
     private static ResultadoPasoControl Exito(string comando)
     {
         return new ResultadoPasoControl(1, comando, true, 0, string.Empty, string.Empty);

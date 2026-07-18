@@ -7,12 +7,13 @@ namespace ControlPCIA;
 internal static class ValidadorAutomatizacionAplicaciones
 {
     private const int LongitudMaximaArgumento = 300;
-    private const int LongitudMaximaTexto = 200;
+    private const int LongitudMaximaTexto = 1000;
 
     private static readonly HashSet<string> Acciones =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            "windows", "inspect", "focus", "invoke", "select", "toggle",
+            "windows", "inspect", "status", "focus", "close",
+            "invoke", "select", "toggle",
             "expand", "collapse", "text", "shortcut"
         };
 
@@ -27,37 +28,50 @@ internal static class ValidadorAutomatizacionAplicaciones
     private static readonly string[] SuperficiesProtegidas =
     [
         "powershell", "terminal", "simbolo del sistema", "command prompt",
-        "editor del registro", "registry editor", "explorador de archivos",
-        "file explorer", "administrador de tareas", "task manager",
+        "editor del registro", "registry editor",
+        "administrador de tareas", "task manager",
         "seguridad de windows", "windows security", "credenciales",
         "credentials", "control de cuentas de usuario", "user account control"
     ];
 
-    private static readonly string[] AccionesProtegidas =
+    private static readonly string[] AccionesDestructivasDeArchivos =
     [
-        "guardar", "save", "abrir archivo", "open file", "importar",
-        "import", "exportar", "export", "descargar", "download",
-        "subir archivo", "upload file", "imprimir", "print", "instalar",
-        "install", "desinstalar", "uninstall", "examinar", "browse",
-        "seleccionar archivo", "choose file", "eliminar archivo", "delete file",
-        "nombre de archivo", "file name", "seleccionar carpeta", "choose folder",
-        "nueva carpeta", "new folder", "eliminar", "delete", "remove",
-        "borrar", "vaciar", "clear all", "restablecer", "reset", "factory",
-        "descartar", "discard", "no guardar", "don't save", "dont save",
-        "terminal", "script", "editor de codigo",
-        "code editor"
+        "eliminar archivo", "delete file", "eliminar carpeta",
+        "delete folder", "remove file", "remove folder", "borrar archivo",
+        "borrar carpeta", "cortar", "cut", "mover a", "move to",
+        "vaciar papelera", "empty recycle bin", "eliminar permanentemente",
+        "delete permanently"
+    ];
+
+    private static readonly string[] AccionesSiempreProtegidas =
+    [
+        "desinstalar", "uninstall", "formatear", "format disk",
+        "particionar", "partition disk", "borrar disco", "wipe disk",
+        "credencial", "credential", "contraseña", "password",
+        "control de cuentas de usuario", "user account control"
+    ];
+
+    private static readonly string[] AccionesDescarte =
+    [
+        "descartar", "discard", "no guardar", "don't save",
+        "dont save", "cerrar sin guardar", "close without saving"
     ];
 
     private static readonly HashSet<string> AtajosBloqueados =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            "ALT+F4", "CTRL+O", "CTRL+S", "CTRL+SHIFT+S", "CTRL+P",
-            "CTRL+N", "CTRL+W", "CTRL+C", "CTRL+X", "CTRL+V",
-            "CTRL+ALT+DELETE", "DELETE", "SHIFT+DELETE"
+            "ALT+F4", "CTRL+ALT+DELETE", "SHIFT+DELETE"
+        };
+
+    private static readonly HashSet<string> AtajosArchivosDestructivos =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "CTRL+X", "DELETE"
         };
 
     public static ResultadoValidacionPowerShell Validar(
-        IReadOnlyList<string> argumentos)
+        IReadOnlyList<string> argumentos,
+        bool permitirDescarte = false)
     {
         if (argumentos.Count < 2
             || !argumentos[0].Equals("ui", StringComparison.OrdinalIgnoreCase))
@@ -98,11 +112,10 @@ internal static class ValidadorAutomatizacionAplicaciones
 
         string ventana = argumentos[2];
 
-        if (PareceRuta(ventana)
-            || ContieneFrase(ventana, SuperficiesProtegidas))
+        if (ContieneFrase(ventana, SuperficiesProtegidas))
         {
             return Bloquear(
-                "La ventana indicada pertenece a una superficie protegida o parece una ruta de archivo.");
+                "La ventana indicada pertenece a una superficie protegida.");
         }
 
         if (accion.Equals("inspect", StringComparison.OrdinalIgnoreCase))
@@ -118,7 +131,9 @@ internal static class ValidadorAutomatizacionAplicaciones
             return Permitir();
         }
 
-        if (accion.Equals("focus", StringComparison.OrdinalIgnoreCase))
+        if (accion.Equals("status", StringComparison.OrdinalIgnoreCase)
+            || accion.Equals("focus", StringComparison.OrdinalIgnoreCase)
+            || accion.Equals("close", StringComparison.OrdinalIgnoreCase))
         {
             return Permitir();
         }
@@ -133,22 +148,28 @@ internal static class ValidadorAutomatizacionAplicaciones
 
         string selector = argumentos[3];
 
-        if (PareceRuta(selector)
-            || ContieneFrase(selector, AccionesProtegidas))
+        if (ContieneFrase(selector, AccionesSiempreProtegidas)
+            || !permitirDescarte
+               && ContieneFrase(selector, AccionesDescarte))
         {
             return Bloquear(
-                "No se permite automatizar controles relacionados con archivos, instalación, descarga, exportación o impresión.");
+                "El control solicitado pertenece a una operación destructiva del sistema o a una superficie de credenciales.");
         }
 
         if (accion.Equals("text", StringComparison.OrdinalIgnoreCase))
         {
             string texto = argumentos[4];
 
-            if (texto.Length > LongitudMaximaTexto
-                || PareceRuta(texto))
+            if (texto.Length > LongitudMaximaTexto)
             {
                 return Bloquear(
-                    "El texto de interfaz no puede contener rutas ni superar los 200 caracteres.");
+                    $"El texto de interfaz no puede superar los {LongitudMaximaTexto} caracteres.");
+            }
+
+            if (texto.Any(char.IsControl))
+            {
+                return Bloquear(
+                    "El texto de interfaz no puede contener caracteres de control.");
             }
 
             return Permitir();
@@ -199,7 +220,7 @@ internal static class ValidadorAutomatizacionAplicaciones
         bool teclaNavegacion = tecla is
             "ENTER" or "ESC" or "TAB" or "SPACE" or "UP" or "DOWN"
             or "LEFT" or "RIGHT" or "HOME" or "END" or "PGUP" or "PGDN"
-            or "BACKSPACE";
+            or "BACKSPACE" or "DELETE";
         bool teclaFuncion = Regex.IsMatch(
             tecla,
             "^F(?:[1-9]|1[0-9]|2[0-4])$",
@@ -215,6 +236,23 @@ internal static class ValidadorAutomatizacionAplicaciones
         }
 
         return !letraONumero || modificadores.Length > 0;
+    }
+
+    internal static bool EsAtajoPermitidoEnVentana(
+        string atajo,
+        bool superficieArchivos)
+    {
+        if (!EsAtajoSeguro(atajo))
+        {
+            return false;
+        }
+
+        string normalizado = atajo
+            .Replace(" ", string.Empty, StringComparison.Ordinal)
+            .ToUpperInvariant();
+
+        return !superficieArchivos
+               || !AtajosArchivosDestructivos.Contains(normalizado);
     }
 
     internal static string Normalizar(string texto)
@@ -239,9 +277,18 @@ internal static class ValidadorAutomatizacionAplicaciones
             .Normalize(NormalizationForm.FormC);
     }
 
-    internal static bool EsControlSensible(string texto)
+    internal static bool EsControlSiempreProtegido(
+        string texto,
+        bool permitirDescarte = false)
     {
-        return ContieneFrase(texto, AccionesProtegidas);
+        return ContieneFrase(texto, AccionesSiempreProtegidas)
+               || !permitirDescarte
+                  && ContieneFrase(texto, AccionesDescarte);
+    }
+
+    internal static bool EsAccionDestructivaDeArchivos(string texto)
+    {
+        return ContieneFrase(texto, AccionesDestructivasDeArchivos);
     }
 
     private static bool TieneNumeroArgumentosValido(
@@ -252,23 +299,11 @@ internal static class ValidadorAutomatizacionAplicaciones
         {
             "windows" => cantidad == 2,
             "inspect" => cantidad is 3 or 4,
-            "focus" => cantidad == 3,
+            "status" or "focus" or "close" => cantidad == 3,
             "text" => cantidad == 5,
             "shortcut" => cantidad == 4,
             _ => cantidad is 4 or 5
         };
-    }
-
-    private static bool PareceRuta(string texto)
-    {
-        return texto.Contains('\\')
-               || texto.Contains('/')
-               || texto.Contains("..", StringComparison.Ordinal)
-               || texto.Contains("file:", StringComparison.OrdinalIgnoreCase)
-               || Regex.IsMatch(
-                   texto,
-                   "(?:^|\\s)[A-Za-z]:",
-                   RegexOptions.CultureInvariant);
     }
 
     private static bool ContieneFrase(

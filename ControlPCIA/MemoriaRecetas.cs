@@ -84,7 +84,8 @@ internal sealed class MemoriaRecetas
                     candidata.Receta.Comandos.Count > 0
                     &&
                     candidata.Receta.Comandos.All(comando =>
-                        ValidadorPowerShell.Validar(comando).Permitido))
+                        ValidadorPowerShell.Validar(comando).Permitido)
+                    && TieneVerificacionSuficiente(candidata.Receta))
                 .OrderByDescending(candidata => candidata.Similitud)
                 .ThenByDescending(candidata => candidata.Receta.Exitos)
                 .ThenByDescending(candidata => candidata.Receta.UltimoExitoUtc)
@@ -344,7 +345,24 @@ internal sealed class MemoriaRecetas
                receta.Comandos.All(comando =>
                    comando.Length is > 0 and <= MaximoCaracteresComando)
                &&
-               receta.Exitos > 0;
+                receta.Exitos > 0;
+    }
+
+    private static bool TieneVerificacionSuficiente(
+        RecetaPersistida receta)
+    {
+        ResultadoPasoControl[] pasos = receta.Comandos
+            .Select((comando, indice) =>
+                new ResultadoPasoControl(
+                    indice + 1,
+                    comando,
+                    true,
+                    0,
+                    string.Empty,
+                    string.Empty))
+            .ToArray();
+
+        return !ControlWindows.RequiereVerificacionTrasCambio(pasos);
     }
 
     private static double CalcularSimilitud(

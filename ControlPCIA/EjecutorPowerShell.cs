@@ -21,11 +21,13 @@ namespace ControlPCIA
         public static async Task<ResultadoEjecucionPowerShell>
             EjecutarAsync(
                 string comando,
-                CancellationToken cancellationToken = default)
+                CancellationToken cancellationToken = default,
+                bool permitirDescarte = false)
         {
             ResultadoValidacionPowerShell validacion =
                 ValidadorPowerShell.Validar(
-                    comando);
+                    comando,
+                    permitirDescarte);
 
             if (!validacion.Permitido)
             {
@@ -66,6 +68,17 @@ namespace ControlPCIA
                 AppContext.BaseDirectory
                 + Path.PathSeparator
                 + pathActual;
+
+            if (permitirDescarte)
+            {
+                inicio.Environment["CONTROLPCIA_PERMITIR_DESCARTE"] =
+                    "1";
+            }
+            else
+            {
+                inicio.Environment.Remove(
+                    "CONTROLPCIA_PERMITIR_DESCARTE");
+            }
 
             inicio.ArgumentList.Add(
                 "-NoLogo");

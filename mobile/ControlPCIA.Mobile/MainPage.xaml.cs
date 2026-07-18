@@ -19,6 +19,7 @@ public partial class MainPage : ContentPage
     private readonly ControlPciaApi _api = new();
     private readonly DescubrimientoPc _descubrimiento = new();
     private readonly WakeOnLan _wake = new();
+    private readonly List<MensajeConversacion> _conversacion = [];
     private SesionReconocimientoVoz? _sesionVoz;
     private CancellationTokenSource? _temporizadorVoz;
     private DateTimeOffset _inicioEscucha;
@@ -197,6 +198,10 @@ public partial class MainPage : ContentPage
         _api.Olvidar();
         _wake.Olvidar();
         _ordenPendienteConfirmacion = null;
+        _conversacion.Clear();
+        HistoryStack.Children.Clear();
+        HistoryStack.Children.Add(EmptyHistoryLabel);
+        EmptyHistoryLabel.IsVisible = true;
         AddressEntry.Text = string.Empty;
         CodeEntry.Text = string.Empty;
         MostrarConexion();
@@ -597,39 +602,8 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        string ordenMostrada = orden;
-        string ordenParaIa = orden;
-
-        if (!string.IsNullOrWhiteSpace(_ordenPendienteConfirmacion))
-        {
-            string pendiente = _ordenPendienteConfirmacion;
-
-            if (DetectorConfirmacion.EsNegativa(orden))
-            {
-                _ordenPendienteConfirmacion = null;
-                VoiceStateTitle.Text = "Orden cancelada";
-                VoiceTranscriptLabel.Text = "De acuerdo. No haré esa acción.";
-                VoiceTranscriptLabel.TextColor = ColorNormal;
-                MostrarMensaje(
-                    ControlStatusLabel,
-                    "Orden cancelada. No se ha ejecutado nada.",
-                    correcto: true);
-                return;
-            }
-
-            if (DetectorConfirmacion.EsAfirmativa(orden))
-            {
-                ordenMostrada = pendiente;
-                ordenParaIa =
-                    $"El usuario confirma explícitamente esta orden pendiente: {pendiente}";
-                _ordenPendienteConfirmacion = null;
-            }
-            else
-            {
-                // Una frase distinta de sí/no se trata como una orden nueva.
-                _ordenPendienteConfirmacion = null;
-            }
-        }
+        MensajeConversacion[] contexto =
+            _conversacion.TakeLast(12).ToArray();
 
         _ejecutandoOrden = true;
         BloquearControlesDuranteOrden();
@@ -640,22 +614,32 @@ public partial class MainPage : ContentPage
         try
         {
             ResultadoOrden resultado =
-                await _api.EnviarOrdenAsync(ordenParaIa);
+                await _api.EnviarOrdenAsync(orden, contexto);
+
+            AgregarAlContexto("user", orden);
+            AgregarAlContexto(
+                "assistant",
+                resultado.Mensaje ?? "No he podido preparar una respuesta.");
 
             if (resultado.Estado?.Equals(
                     "requiere_confirmacion",
                     StringComparison.OrdinalIgnoreCase) == true)
             {
-                _ordenPendienteConfirmacion = ordenMostrada;
+                _ordenPendienteConfirmacion = orden;
                 VoiceStateTitle.Text = "Necesito tu confirmación";
                 VoiceTranscriptLabel.Text =
                     (resultado.Mensaje ?? "¿Quieres que continúe?")
                     + " Responde sí o no.";
                 VoiceTranscriptLabel.TextColor = ColorAviso;
             }
+            else
+            {
+                _ordenPendienteConfirmacion = null;
+            }
 
             MostrarResultado(ControlStatusLabel, resultado);
-            AgregarHistorial(ordenMostrada, resultado);
+            AgregarIntercambio(orden, resultado);
+            OrderEditor.Text = string.Empty;
         }
         catch (Exception ex)
         {
@@ -798,66 +782,96 @@ public partial class MainPage : ContentPage
                    && confirmacion.Length == 0);
     }
 
-    private void AgregarHistorial(
+    private void AgregarIntercambio(
         string orden,
         ResultadoOrden resultado)
     {
         EmptyHistoryLabel.IsVisible = false;
 
+        HistoryStack.Children.Add(
+            CrearBurbujaChat(
+                "Tú",
+                orden,
+                Color.FromArgb("#14325A"),
+                Color.FromArgb("#3B82F6")));
+        HistoryStack.Children.Add(
+            CrearBurbujaChat(
+                "IA",
+                resultado.Mensaje ?? "No he podido preparar una respuesta.",
+                Color.FromArgb("#102A25"),
+                resultado.Estado?.Equals(
+                    "requiere_confirmacion",
+                    StringComparison.OrdinalIgnoreCase) == true
+                    ? ColorAviso
+                    : resultado.Completado
+                        ? ColorCorrecto
+                        : ColorError));
+
+        while (HistoryStack.Children.Count > 21)
+        {
+            HistoryStack.Children.RemoveAt(1);
+        }
+    }
+
+    private static Border CrearBurbujaChat(
+        string autor,
+        string texto,
+        Color fondo,
+        Color colorAutor)
+    {
         var contenido = new VerticalStackLayout
         {
-            Spacing = 2
+            Spacing = 4
         };
-
         contenido.Children.Add(
             new Label
             {
-                Text = orden,
+                Text = autor,
                 FontAttributes = FontAttributes.Bold,
-                FontSize = 13,
-                TextColor = Color.FromArgb("#E8F2FF"),
-                MaxLines = 2,
-                LineBreakMode = LineBreakMode.TailTruncation
+                FontSize = 12,
+                TextColor = colorAutor
             });
-
         contenido.Children.Add(
             new Label
             {
-                Text = resultado.Completado
-                    ? "Completada"
-                    : resultado.Estado?.Equals(
-                        "requiere_confirmacion",
-                        StringComparison.OrdinalIgnoreCase) == true
-                        ? "Pendiente de confirmación"
-                        : "No completada",
-                FontSize = 12,
-                TextColor = resultado.Completado
-                    ? ColorCorrecto
-                    : resultado.Estado?.Equals(
-                        "requiere_confirmacion",
-                        StringComparison.OrdinalIgnoreCase) == true
-                        ? ColorAviso
-                        : ColorError
+                Text = texto,
+                FontSize = 14,
+                TextColor = Color.FromArgb("#E8F2FF"),
+                LineBreakMode = LineBreakMode.WordWrap
             });
 
-        var tarjeta = new Border
+        return new Border
         {
-            BackgroundColor = Color.FromArgb("#081421"),
-            Stroke = Color.FromArgb("#203853"),
+            BackgroundColor = fondo,
+            Stroke = Color.FromArgb("#29425E"),
             StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle
             {
-                CornerRadius = 12
+                CornerRadius = 14
             },
-            Padding = 11,
+            Padding = 12,
             Content = contenido
         };
+    }
 
-        HistoryStack.Children.Insert(0, tarjeta);
+    private void AgregarAlContexto(string rol, string texto)
+    {
+        string limpio = texto.Trim();
 
-        while (HistoryStack.Children.Count > 6)
+        if (limpio.Length == 0)
         {
-            HistoryStack.Children.RemoveAt(
-                HistoryStack.Children.Count - 1);
+            return;
+        }
+
+        if (limpio.Length > 800)
+        {
+            limpio = limpio[..800].Trim();
+        }
+
+        _conversacion.Add(new MensajeConversacion(rol, limpio));
+
+        while (_conversacion.Count > 12)
+        {
+            _conversacion.RemoveAt(0);
         }
     }
 

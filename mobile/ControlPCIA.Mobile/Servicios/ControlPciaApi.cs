@@ -101,6 +101,7 @@ public sealed class ControlPciaApi
 
     public async Task<ResultadoOrden> EnviarOrdenAsync(
         string texto,
+        IReadOnlyList<MensajeConversacion>? contexto = null,
         CancellationToken cancellationToken = default)
     {
         ComprobarConfiguracion();
@@ -109,7 +110,12 @@ public sealed class ControlPciaApi
             HttpMethod.Post,
             CrearUri("/api/orden"))
         {
-            Content = JsonContent.Create(new { texto = texto.Trim() })
+            Content = JsonContent.Create(
+                new
+                {
+                    texto = texto.Trim(),
+                    contexto = contexto ?? []
+                })
         };
 
         Autorizar(peticion);

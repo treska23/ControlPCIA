@@ -14,6 +14,10 @@ internal sealed record EventoControl(
     string? Comando = null,
     ResultadoPasoControl? Paso = null);
 
+internal sealed record MensajeConversacionControl(
+    string Rol,
+    string Texto);
+
 internal sealed record ResultadoControl(
     bool Completado,
     string Estado,

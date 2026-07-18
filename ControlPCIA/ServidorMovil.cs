@@ -14,7 +14,9 @@ using Microsoft.Extensions.Logging;
 namespace ControlPCIA;
 
 internal sealed record SolicitudEmparejado(string? Codigo);
-internal sealed record SolicitudOrden(string? Texto);
+internal sealed record SolicitudOrden(
+    string? Texto,
+    IReadOnlyList<MensajeConversacionControl>? Contexto);
 internal sealed record EstadoInicioServidor(
     int Puerto,
     string CodigoEmparejado,
@@ -24,7 +26,7 @@ internal static class ServidorMovil
 {
     private const int PuertoPredeterminado = 5187;
     private const int LongitudMaximaOrden = 1000;
-    private const int LongitudMaximaPeticion = 4096;
+    private const int LongitudMaximaPeticion = 12_000;
 
     public static async Task IniciarAsync(
         CancellationToken cancellationToken = default,
@@ -286,6 +288,7 @@ internal static class ServidorMovil
                     ResultadoControl resultado =
                         await ControlWindows.ControlarAsync(
                             texto,
+                            contextoConversacion: solicitud.Contexto,
                             cancellationToken:
                                 contexto.RequestAborted);
 
@@ -891,6 +894,8 @@ internal static class ServidorMovil
             .state.ok { color: #86efac; }
             #result { display: grid; gap: 10px; }
             .step { border: 1px solid #2b3852; border-radius: 14px; padding: 12px; background: #0b1220; }
+            .chat-user { background: #12315a; border-color: #315f9e; }
+            .chat-assistant { background: #102a25; border-color: #285a4d; }
             .step strong { display: block; margin-bottom: 7px; }
             code, pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .78rem; }
             code { color: #c4b5fd; }
@@ -924,7 +929,7 @@ internal static class ServidorMovil
 
             <section id="controlCard" class="card" hidden>
               <form id="orderForm">
-                <label for="order">¿Qué quieres que haga el PC?</label>
+                <label for="order">Habla con la IA del PC</label>
                 <textarea id="order" maxlength="1000" placeholder="Por ejemplo: abre la calculadora y colócala a la izquierda" required></textarea>
                 <div class="actions">
                   <button id="mic" type="button" aria-label="Dictar orden">🎙 Dictar</button>
@@ -953,6 +958,7 @@ internal static class ServidorMovil
             const installHint = document.querySelector('#installHint');
             let token = localStorage.getItem('controlpcia_token') || '';
             let installPrompt = null;
+            let conversation = [];
 
             function showControl(show) {
               pairCard.hidden = show;
@@ -1007,15 +1013,35 @@ internal static class ServidorMovil
               if (!text) return;
               send.disabled = true;
               mic.disabled = true;
-              result.replaceChildren();
               setState(controlState, 'Llama está interpretando la orden…');
               try {
+                const context = conversation.slice(-12);
                 const data = await request('/api/orden', {
                   method: 'POST',
-                  body: JSON.stringify({ texto: text })
+                  body: JSON.stringify({ texto: text, contexto: context })
                 });
+                conversation.push(
+                  { rol: 'user', texto: text.slice(0, 800) },
+                  { rol: 'assistant', texto: (data.mensaje || '').slice(0, 800) }
+                );
+                conversation = conversation.slice(-12);
                 const learned = data.aprendido ? ' Receta guardada en la memoria local.' : '';
                 setState(controlState, data.mensaje + learned, data.completado ? 'ok' : 'error');
+                const userBox = document.createElement('div');
+                userBox.className = 'step chat-user';
+                const userTitle = document.createElement('strong');
+                userTitle.textContent = 'Tú';
+                const userText = document.createElement('div');
+                userText.textContent = text;
+                userBox.append(userTitle, userText);
+                const assistantBox = document.createElement('div');
+                assistantBox.className = 'step chat-assistant';
+                const assistantTitle = document.createElement('strong');
+                assistantTitle.textContent = 'IA';
+                const assistantText = document.createElement('div');
+                assistantText.textContent = data.mensaje || 'Sin respuesta.';
+                assistantBox.append(assistantTitle, assistantText);
+                result.append(userBox, assistantBox);
                 for (const step of data.pasos || []) {
                   const box = document.createElement('div');
                   box.className = 'step';
@@ -1032,6 +1058,8 @@ internal static class ServidorMovil
                   }
                   result.append(box);
                 }
+                while (result.children.length > 30) result.firstElementChild.remove();
+                order.value = '';
               } catch (error) {
                 setState(controlState, error.message, 'error');
               } finally {

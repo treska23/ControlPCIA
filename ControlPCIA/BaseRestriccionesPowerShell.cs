@@ -33,29 +33,22 @@
 
 
         # =========================================================
-        # CREAR O MODIFICAR ARCHIVOS Y CARPETAS
+        # MODIFICAR, MOVER O RENOMBRAR ARCHIVOS Y CARPETAS
+        #
+        # New-Item y Copy-Item se validan aparte para permitir únicamente
+        # destinos nuevos, literales y locales. Nunca pueden sobrescribir.
         # =========================================================
 
-        CMD|New-Item
         CMD|Set-Content
         CMD|Add-Content
         CMD|Out-File
         CMD|Tee-Object
 
-        CMD|Copy-Item
         CMD|Move-Item
         CMD|Rename-Item
         CMD|Set-Item
 
         # Aliases habituales
-        CMD|ni
-        CMD|md
-        CMD|mkdir
-
-        CMD|cp
-        CMD|copy
-        CMD|cpi
-
         CMD|mv
         CMD|move
         CMD|mi
@@ -175,6 +168,7 @@
         TEXT|HKU:
         TEXT|HKCC:
         TEXT|Registry::
+        TEXT|$env:
 
 
         # =========================================================

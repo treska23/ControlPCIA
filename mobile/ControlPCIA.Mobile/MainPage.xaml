@@ -276,11 +276,11 @@
                     </Border>
 
                     <VerticalStackLayout Spacing="8">
-                        <Label Text="Últimas órdenes" FontAttributes="Bold" />
+                        <Label Text="Conversación con la IA" FontAttributes="Bold" />
                         <VerticalStackLayout x:Name="HistoryStack" Spacing="7">
                             <Label
                                 x:Name="EmptyHistoryLabel"
-                                Text="Todavía no has enviado ninguna."
+                                Text="Aquí aparecerán tus mensajes y las respuestas de la IA. El contexto sólo se conserva durante esta sesión."
                                 TextColor="#7890AA"
                                 FontSize="13" />
                         </VerticalStackLayout>
@@ -289,7 +289,7 @@
             </Border>
 
             <Label
-                Text="ControlPCIA no permite a la IA manipular archivos, discos ni configuraciones sensibles."
+                Text="Puede crear, abrir, guardar, copiar e instalar. Nunca puede borrar o cortar archivos ni realizar operaciones destructivas sobre discos."
                 TextColor="#68819D"
                 FontSize="11"
                 HorizontalTextAlignment="Center"

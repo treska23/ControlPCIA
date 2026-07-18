@@ -8,7 +8,7 @@ No hay un traductor intermedio ni una función programada para cada acción. El 
 móvil → texto → Llama en Ollama → PowerShell → validador local → Windows
 ```
 
-Llama puede razonar sobre aplicaciones, ventanas, audio, multimedia, pantallas y la interfaz de Windows. Antes de ejecutar nada, un validador independiente analiza el AST oficial de PowerShell y bloquea acceso a archivos, configuración sensible y mecanismos de evasión.
+Llama puede razonar sobre aplicaciones, ventanas, audio, multimedia, pantallas y la interfaz de Windows. También puede crear y abrir documentos o proyectos, guardar, copiar y pegar a destinos nuevos e instalar programas. Antes de ejecutar nada, un validador independiente analiza el AST oficial de PowerShell y bloquea borrado o corte de archivos, sobrescrituras, operaciones destructivas de disco, credenciales y mecanismos de evasión.
 
 ## Requisitos
 
@@ -58,7 +58,7 @@ La experiencia principal está en `mobile/ControlPCIA.Mobile`. La aplicación:
 - El modo predeterminado se inicia con un toque y termina con otro; al terminar envía la transcripción automáticamente. Como alternativa se puede mantener pulsado y soltar para enviar.
 - Muestra de forma visible cuándo prepara el micrófono, escucha, transcribe y ejecuta, con contador, texto parcial y respuesta háptica.
 - Si no entiende la voz lo indica y permite repetirla. Si Llama necesita confirmar una acción permitida pero ambigua, pregunta y acepta una respuesta posterior de sí o no.
-- Muestra estado, historial sencillo y recetas aprendidas sin conservar salidas sensibles.
+- Muestra una conversación temporal con la IA, conserva un contexto acotado para respuestas posteriores y no persiste salidas sensibles.
 
 APK Android generado para instalación manual:
 
@@ -102,18 +102,15 @@ La IP puede cambiar si el router no la reserva. Además, los navegadores exigen 
 
 ## Control de aplicaciones por voz
 
-Las órdenes de la aplicación móvil también pueden actuar dentro de programas abiertos. No existe una función específica para Cubase, Spotify o cada aplicación: Llama recibe las ventanas controlables y utiliza primitivas genéricas de UI Automation para:
+Las órdenes no se resuelven con capturas, OCR ni reconocimiento gráfico. El flujo es:
 
-- Enumerar ventanas e inspeccionar botones, menús, pestañas, listas, árboles y cuadros de edición.
-- Enfocar una aplicación, invocar un control, seleccionar elementos, alternar opciones y expandir secciones.
-- Escribir texto breve en controles identificados y enviar atajos de teclado validados.
-- Volver a inspeccionar la interfaz después de abrir un menú o diálogo y encadenar hasta diez pasos.
+    móvil → Llama propone un comando literal → validador local → proceso PowerShell → salida/código real → Llama responde
 
-Abrir una aplicación no se considera completado al iniciar el proceso: Llama debe restaurar y enfocar su ventana real. Durante ese paso sólo puede enumerar ventanas o enfocar el objetivo; cualquier otra acción se cancela. Los títulos duplicados se resuelven de forma determinista, una estrategia fallida idéntica no puede repetirse y el enfoque nunca mueve, redimensiona ni minimiza otras ventanas.
+Llama no ejecuta acciones ni afirma resultados por su cuenta. ControlPCIA valida cada comando, lo ejecuta en un proceso externo de PowerShell y devuelve a Llama stdout, stderr y el código de salida. Si falla, el móvil recibe el error y puede continuar la conversación para aclarar la petición.
 
-Por ejemplo, para «crea una pista en Cubase» o «inserta Kontakt», Llama debe observar los nombres reales que expone Cubase, decidir la secuencia y ejecutarla. Cuando una secuencia termina bien, la memoria de recetas puede reutilizarla en peticiones parecidas. Si una aplicación dibuja una interfaz personalizada que no expone controles accesibles, sólo podrán utilizarse los atajos seguros que esa aplicación admita.
+La consulta de ventanas abiertas se hace con comandos de consola (Get-Process y títulos de ventana). El aprendizaje sólo guarda secuencias que hayan terminado con una observación válida y vuelve a pasar cada receta por el validador antes de reutilizarla.
 
-La capa de UI bloquea consolas, exploradores de archivos, credenciales, herramientas de desarrollo, campos de contraseña y controles relacionados con abrir, guardar, importar, exportar, descargar, instalar, imprimir, eliminar o descartar contenido. Los atajos de guardado, apertura, impresión, cierre, portapapeles y borrado también están bloqueados.
+La política permite controlar aplicaciones, audio, multimedia, pantallas y ajustes normales, pero bloquea borrar o cortar/mover archivos, sobrescribir destinos, credenciales, consolas, seguridad y operaciones destructivas de discos. «No guardar/Descartar» sólo se habilita ante una confirmación inequívoca y contextual.
 
 ## Agente residente de Windows
 
@@ -148,15 +145,18 @@ Ante una orden parecida, Llama recibe las recetas relacionadas como referencias.
 
 La barrera de seguridad se aplica después del modelo y no depende de que Llama obedezca el prompt. Entre otras restricciones:
 
-- No se permite crear, leer, borrar, copiar, mover, renombrar ni escribir archivos o carpetas.
-- Se bloquean registro, discos, particiones, permisos, usuarios, servicios, tareas, red, firewall, Defender y arranque.
-- Se bloquean intérpretes anidados, ejecución dinámica, reflexión peligrosa, descargas y clientes de red capaces de transferir contenido.
-- `Start-Process` requiere un destino literal sin rutas ni argumentos arbitrarios.
-- Los programas nativos sólo reciben argumentos literales limitados y sin rutas.
+- Nunca se permite borrar archivos o carpetas, cortar/moverlos ni sobrescribir un destino existente.
+- La creación y la copia directas sólo admiten rutas locales, absolutas y literales y destinos nuevos.
+- Se bloquean desinstalación, operaciones destructivas sobre discos o particiones, credenciales, permisos, cuentas, Defender y arranque.
+- `winget` sólo puede consultar el catálogo oficial o instalar para el usuario actual mediante un identificador literal; no acepta manifiestos, URLs, anulaciones ni desinstalación.
+- Se bloquean intérpretes anidados, ejecución dinámica, reflexión peligrosa, exfiltración y clientes de red arbitrarios.
+- `Start-Process` puede abrir aplicaciones registradas y rutas literales de documentos o proyectos, pero nunca ejecutables, scripts, instaladores o ubicaciones de red.
+- Los programas nativos reciben argumentos literales validados.
 - COM queda limitado al mecanismo de interfaz `WScript.Shell`, y `SendKeys` no admite texto libre.
-- La automatización de aplicaciones sólo admite las primitivas `ControlPCIA.exe ui` validadas; comprueba tanto el selector pedido como el nombre real del control antes de actuar.
-- Tras iniciar una aplicación sólo se permiten `ui windows` y `ui focus` hasta dejarla delante; cualquier otro comando se detiene sin ejecutarse.
-- Una petición ambigua puede devolver una pregunta de confirmación, pero confirmar nunca permite saltarse los bloqueos de archivos, disco, credenciales o configuración sensible.
+- Las aplicaciones se controlan únicamente con comandos de consola de Windows o con la CLI/PowerShell documentada por cada aplicación. No se usan capturas, OCR, UI Automation ni cuadros de texto.
+- Después de ejecutar un comando, Llama recibe stdout, stderr y el código de salida reales. Sólo puede afirmar que terminó cuando esa salida demuestra el resultado.
+- El control queda limitado a las aplicaciones mencionadas por el usuario; una orden para Calculadora no debe actuar sobre ChatGPT u otra aplicación ajena.
+- Una petición ambigua puede devolver una pregunta de confirmación. Confirmar no habilita borrado/corte de archivos ni daños de disco; únicamente una confirmación contextual explícita puede habilitar el control nativo «No guardar/Descartar».
 - Cada proceso PowerShell tiene 20 segundos de límite, salida acotada y terminación del árbol completo si vence el tiempo.
 
 El acceso móvil añade código de emparejado, token aleatorio de sesión, caducidad, límite de intentos, restricción a direcciones privadas, cabeceras de seguridad y una sola orden simultánea. El móvil conserva el token real en `SecureStorage`; el PC guarda únicamente su hash y caducidad durante 90 días, renovables con el uso, para que el emparejado sobreviva a los reinicios. Ollama sólo escucha para ControlPCIA en `127.0.0.1`.

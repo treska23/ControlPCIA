@@ -1,6 +1,6 @@
 # ControlPCIA — estado y tareas
 
-Última actualización: 16 de julio de 2026
+Última actualización: 18 de julio de 2026
 
 ## Objetivo vigente
 
@@ -17,20 +17,24 @@ móvil
 → FIN
 ```
 
-La aplicación no contiene un catálogo cerrado de monitores, audio, ventanas o programas. Las antiguas acciones específicas fueron retiradas. La automatización actual expone primitivas genéricas de UI Automation que Llama compone después de observar la interfaz real.
+La aplicación no contiene un catálogo cerrado de monitores, audio, ventanas o programas. Llama sólo propone comandos literales de PowerShell; ControlPCIA los valida, los ejecuta en un proceso externo y devuelve la salida real. No se usa reconocimiento gráfico ni UI Automation para decidir acciones.
 
 ## Decisiones de seguridad
 
 La IA propone comandos, pero nunca decide si son seguros. `ValidadorPowerShell` usa el parser oficial de PowerShell para analizar todo el AST, incluidos pipelines y bloques anidados.
 
-La política es de denegación de capacidades peligrosas, no una lista de acciones de escritorio permitidas. Bloquea:
+La política es de denegación de daños concretos, no una lista cerrada de acciones de escritorio. La IA puede crear documentos, archivos, carpetas y proyectos nuevos, abrir los ya existentes, guardar, copiar y pegar a destinos nuevos, importar, exportar, imprimir e instalar programas. La interfaz de las aplicaciones y los diálogos nativos de abrir/guardar están dentro del alcance.
 
-- Lectura, creación, modificación, movimiento y borrado de archivos o carpetas.
-- Registro, discos, particiones, volúmenes, permisos, usuarios y grupos.
-- Servicios, tareas, red, firewall, Defender, arranque y configuración crítica.
-- Descargas, exfiltración, intérpretes anidados, alias evasivos, reflexión y ejecución dinámica.
-- Rutas o argumentos dinámicos enviados a programas nativos.
-- COM arbitrario y texto libre mediante `SendKeys`.
+Bloquea:
+
+- Borrado de archivos o carpetas.
+- Cortar o mover archivos y carpetas y cualquier copia que sobrescriba un destino existente.
+- Desinstalación y operaciones destructivas sobre discos, particiones o volúmenes.
+- Acceso a credenciales y cambios de Defender, cuentas, permisos, arranque u otras superficies de seguridad.
+- Exfiltración, intérpretes anidados, alias evasivos, reflexión y ejecución dinámica.
+- COM arbitrario y escritura de texto libre mediante `SendKeys`.
+
+La creación y la copia directas por PowerShell se aceptan sólo con rutas locales, absolutas y literales, y únicamente si el destino todavía no existe. Las instalaciones se limitan a identificadores literales del catálogo `winget`; no se aceptan manifiestos, URLs o instaladores inventados. Las configuraciones normales de pantalla, audio, ventanas y aplicaciones están permitidas.
 
 Los comandos guardados por el aprendizaje siempre se vuelven a validar. La memoria interna de ControlPCIA es la única excepción de escritura persistente: la IA no puede acceder a ella ni escribir otros archivos.
 
@@ -76,9 +80,9 @@ Wake-on-LAN aprende MAC y broadcast durante el emparejado y conserva esos datos 
 
 ## Control genérico de aplicaciones
 
-`ControlPCIA.exe ui` ofrece a Llama primitivas genéricas y validadas: `windows`, `inspect`, `focus`, `invoke`, `select`, `toggle`, `expand`, `collapse`, `text` y `shortcut`. Llama observa títulos, procesos, nombres, `AutomationId`, tipos y patrones disponibles antes de decidir cada paso. No hay código específico para Cubase ni para plugins concretos.
+Las aplicaciones se controlan con comandos de consola de Windows o con la CLI/PowerShell documentada por la propia aplicación. Para consultar ventanas se usa, por ejemplo, `Get-Process | Where-Object MainWindowTitle | Select-Object ProcessName,MainWindowTitle`; no se inspeccionan píxeles, capturas, TextBox ni árboles gráficos. Si no existe un comando conocido, Llama responde pidiendo el dato necesario para investigarlo.
 
-La capa vuelve a comprobar la ventana y el control reales en el momento de ejecutar. Bloquea procesos y superficies sensibles, campos de contraseña, diálogos de archivos y acciones de abrir, guardar, importar, exportar, descargar, instalar, imprimir, eliminar o descartar. Los atajos de archivos, cierre, portapapeles y borrado tampoco están disponibles. Las secuencias exitosas de hasta diez pasos pasan a la memoria normal de recetas y se revalidan al reutilizarlas.
+Cada paso devuelve al modelo stdout, stderr y código de salida. Un error, una salida vacía o un resultado que no demuestre la petición se comunica al móvil como respuesta conversacional para que el usuario pueda aclararlo. Las acciones de cierre que detecten trabajo sin guardar deben preguntar antes de guardar o descartar.
 
 ## Ejecución residente
 
@@ -89,7 +93,7 @@ El servidor configura una vez el inicio por usuario en `HKCU\Software\Microsoft\
 - Compilación Debug sin errores ni advertencias.
 - 185 pruebas automatizadas correctas en Release.
 - Diagnóstico real de Ollama y `qwen3:8b` correcto.
-- Orden directa «abre la calculadora» → `Start-Process calc.exe` → `ControlPCIA.exe ui focus "Calculator"` → código 0 → `FIN`, sin mover ni minimizar otras ventanas.
+- Orden directa «abre la calculadora» → `Start-Process calc.exe` → stdout/código de PowerShell devueltos al modelo; no se usan acciones gráficas.
 - Web móvil comprobada a 390 × 844 píxeles.
 - Manifiesto, service worker y emparejado de la PWA comprobados en navegador.
 - App Android compilada en Debug y publicada en Release sin advertencias de compilación.
@@ -98,9 +102,7 @@ El servidor configura una vez el inicio por usuario en `HKCU\Software\Microsoft\
 - `/api/escena` probado con 2 monitores y 13 ventanas reales.
 - Wake-on-LAN detectó 1 adaptador válido, UDP 9 y su broadcast local sin exponer la MAC en la interfaz.
 - Navegación web corregida: Llama puede abrir URL públicas literales `http/https` y búsquedas web, mientras se bloquean redes privadas, `file:` y descargas ejecutables o comprimidas.
-- UI Automation real: una ventana WPF temporal fue inspeccionada, recibió `Kontakt 7`, procesó `CTRL+T` e invocó «Añadir plugin»; un botón «Guardar como» oculto tras un ID inocente fue bloqueado.
-- Escritorio real: se enumeraron ventanas, se inspeccionó una pestaña vacía de Bloc de notas y se cerró únicamente mediante `id:Close`, conservando otra pestaña existente.
-- Llama eligió y ejecutó por sí sola `ControlPCIA.exe ui inspect "ChatGPT" 4`, recibió el árbol real y terminó en `FIN`.
+- Se verificó que el ejecutor usa un proceso externo de PowerShell y devuelve stdout, stderr y código de salida al modelo.
 - Modo residente probado en puerto 5190: proceso sin ventana, servidor HTTP 200 y cierre limpio del PID temporal sin registrar el inicio durante la prueba.
 - Persistencia de emparejado comprobada creando una sesión, reiniciando `SeguridadMovil` y autorizando el mismo token; el archivo contiene sólo el hash y la caducidad, nunca el token real.
 
@@ -146,9 +148,22 @@ La entrada de voz nativa se ha simplificado de esta forma:
 - [x] Hacer predeterminado tocar–hablar–tocar, enviar automáticamente la voz y separar claramente el mensaje escrito.
 - [x] Añadir aclaración/confirmación conversacional sin permitir que una confirmación eluda la política local.
 - [x] Retirar de la interfaz móvil el editor de colocación de ventanas.
-- [x] Añadir control genérico de aplicaciones mediante observación UI, acciones seguras y aprendizaje de secuencias.
+- [x] Añadir control de aplicaciones mediante comandos de consola validados y aprendizaje de secuencias.
 - [x] Añadir agente residente con inicio por usuario, modo oculto, exclusión de duplicados y bandeja de sistema.
 - [x] Probar físicamente en un teléfono Android ambos modos de micrófono, descubrimiento, emparejado y envío automático.
+- [x] Redefinir la permisibilidad: permitir crear, abrir, guardar, copiar/pegar a destinos nuevos e instalar; mantener bloqueados borrar, cortar/mover archivos, sobrescribir destinos, desinstalar y operar destructivamente sobre discos.
+- [ ] Replantear la orden «suma dos más cinco en la calculadora» con el modelo comando–ejecutor: Llama sólo propone el comando PowerShell y ControlPCIA lo valida, lo ejecuta y devuelve el resultado. No añadir reconocimiento gráfico, búsqueda de TextBox ni lógica específica de Calculadora.
+- [ ] Añadir una prueba real y pruebas de regresión para controlar una aplicación ya abierta mediante varios pasos seguros; cuando una aplicación sea abierta únicamente durante una prueba, cerrarla al terminar como limpieza. Esto no debe convertirse en un comportamiento automático del programa para las aplicaciones que abra el usuario.
+- [x] Convertir el móvil en una conversación real con la IA, con respuestas informativas, contexto acotado y continuaciones.
+- [x] Permitir mensajes complejos y referencias a respuestas anteriores, mostrando la salida, los errores reales, lo pendiente y las aclaraciones necesarias.
+- [ ] Verificar en un dispositivo la conversación de error: si PowerShell no hace nada o devuelve error, el móvil debe mostrarlo y permitir que el usuario explique de nuevo la orden.
+- [ ] Corregir el falso positivo observado con «cierra Visual Studio»: Visual Studio siguió abierto pero la aplicación móvil mostró la tarea como completada. Ninguna orden sobre aplicaciones puede terminar en `FIN` sólo porque el comando devolvió código cero; debe volver a observar el estado real y comprobar que la ventana o el proceso objetivo alcanzó el resultado pedido. Si no lo consiguió, debe reintentar con una estrategia segura o informar del fallo, nunca afirmar que se completó.
+- [ ] Revisar específicamente el cierre de aplicaciones que pueden contener trabajo sin guardar, incluido Visual Studio. No debe quedar bloqueado sin explicación ni ejecutarse a ciegas: la IA debe detectar el posible riesgo, pedir confirmación cuando corresponda, cerrar sólo la aplicación solicitada y verificar después que realmente se cerró. Confirmar nunca autoriza descartar contenido sin guardar ni manipular archivos.
+- [ ] Implementar el flujo conversacional concreto para cerrar Visual Studio con cambios sin guardar: la IA debe comprobar que Visual Studio está abierto, intentar detectar mediante su interfaz real si existen documentos o proyectos modificados y responder en el chat móvil «No has guardado el trabajo. ¿Quieres que lo guarde por ti?». La orden queda pendiente mientras espera una respuesta posterior de «sí» o «no».
+- [ ] Si el usuario responde «sí», permitir como excepción estrecha y explícitamente confirmada únicamente la acción nativa **Guardar/Guardar todo** sobre documentos que ya están abiertos en la aplicación; después verificar que desaparece el estado modificado y cerrar Visual Studio, comprobando finalmente que ya no está abierto. Esta excepción no permite elegir rutas, usar «Guardar como», sobrescribir destinos mediante diálogos, crear proyectos, exportar, acceder a credenciales ni realizar otras manipulaciones de archivos.
+- [ ] Si el usuario responde «no», no guardar ni descartar trabajo de forma implícita. La IA debe mantenerlo intacto y preguntar si quiere cancelar el cierre o **cerrar sin guardar**. Sólo una confirmación inequívoca de «cerrar sin guardar» puede autorizar el descarte mediante el diálogo normal de Visual Studio; después también debe verificar el resultado real.
+- [ ] Mostrar toda esta conversación en la aplicación móvil —detección, pregunta, respuesta, guardado, cierre y verificación— y conservar temporalmente la orden pendiente para que «sí», «no» y «cierra sin guardar» se interpreten respecto a Visual Studio, sin perder el contexto ni aplicarse a otra aplicación por error.
+- [ ] Añadir pruebas de regresión para consultas conversacionales sobre ventanas abiertas, referencias de seguimiento, cierre selectivo de varias aplicaciones, objetivo que ya estaba cerrado, fallo de cierre, aplicación con trabajo potencialmente sin guardar y prohibición de devolver «completada» mientras el objetivo siga visible.
 - [ ] Probar Wake-on-LAN con el PC realmente apagado.
 - [ ] Compilar, firmar y probar la aplicación iOS desde un Mac.
 - [ ] Crear un instalador firmado; el inicio automático explícito y la bandeja ya están implementados.

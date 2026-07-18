@@ -18,16 +18,13 @@ internal static class AutomatizadorAplicaciones
         new(StringComparer.OrdinalIgnoreCase)
         {
             "powershell", "pwsh", "cmd", "conhost", "WindowsTerminal",
-            "wt", "regedit", "taskmgr", "mmc", "msiexec", "explorer",
+            "wt", "regedit", "taskmgr", "mmc",
             "CredentialUIBroker", "consent", "SecurityHealthSystray",
-            "devenv", "Code", "rider64"
         };
 
     private static readonly string[] TitulosProtegidos =
     [
-        "guardar como", "save as", "abrir archivo", "open file",
-        "seleccionar archivo", "choose file", "explorador de archivos",
-        "file explorer", "credenciales", "credentials", "contraseña",
+        "credenciales", "credentials", "contraseña",
         "password", "control de cuentas de usuario", "user account control",
         "seguridad de windows", "windows security", "developer tools",
         "devtools", "herramientas de desarrollo"
@@ -54,8 +51,14 @@ internal static class AutomatizadorAplicaciones
     public static ResultadoAutomatizacionAplicacion Ejecutar(
         IReadOnlyList<string> argumentos)
     {
+        bool permitirDescarte =
+            Environment.GetEnvironmentVariable(
+                "CONTROLPCIA_PERMITIR_DESCARTE")
+            == "1";
         ResultadoValidacionPowerShell validacion =
-            ValidadorAutomatizacionAplicaciones.Validar(argumentos);
+            ValidadorAutomatizacionAplicaciones.Validar(
+                argumentos,
+                permitirDescarte);
 
         if (!validacion.Permitido)
         {
@@ -71,7 +74,7 @@ internal static class AutomatizadorAplicaciones
                 return ListarVentanas();
             }
 
-            AutomationElement ventana = ObtenerVentana(argumentos[2]);
+            AutomationElement ventana = ObtenerVentanaConReintentos(argumentos[2]);
             ComprobarVentanaPermitida(ventana);
 
             return accion switch
@@ -80,18 +83,23 @@ internal static class AutomatizadorAplicaciones
                     ventana,
                     argumentos.Count == 4
                         ? int.Parse(argumentos[3])
-                        : 4),
+                        : 6,
+                    permitirDescarte),
+                "status" => ObtenerEstado(ventana),
                 "focus" => Enfocar(ventana),
+                "close" => Cerrar(ventana),
                 "shortcut" => EnviarAtajo(ventana, argumentos[3]),
                 "text" => EscribirTexto(
                     ventana,
                     argumentos[3],
-                    argumentos[4]),
+                    argumentos[4],
+                    permitirDescarte),
                 _ => EjecutarAccionElemento(
                     ventana,
                     accion,
                     argumentos[3],
-                    argumentos.Count == 5 ? argumentos[4] : null)
+                    argumentos.Count == 5 ? argumentos[4] : null,
+                    permitirDescarte)
             };
         }
         catch (ElementNotAvailableException)
@@ -164,7 +172,8 @@ internal static class AutomatizadorAplicaciones
 
     private static ResultadoAutomatizacionAplicacion Inspeccionar(
         AutomationElement ventana,
-        int profundidadMaxima)
+        int profundidadMaxima,
+        bool permitirDescarte)
     {
         var salida = new StringBuilder();
         salida.AppendLine(
@@ -177,7 +186,8 @@ internal static class AutomatizadorAplicaciones
             profundidad: 0,
             profundidadMaxima,
             ref elementos,
-            salida);
+            salida,
+            permitirDescarte);
 
         if (elementos >= MaximoElementosInspeccion)
         {
@@ -193,7 +203,8 @@ internal static class AutomatizadorAplicaciones
         int profundidad,
         int profundidadMaxima,
         ref int elementos,
-        StringBuilder salida)
+        StringBuilder salida,
+        bool permitirDescarte)
     {
         if (elementos >= MaximoElementosInspeccion)
         {
@@ -207,7 +218,9 @@ internal static class AutomatizadorAplicaciones
             elemento,
             AutomationElement.NameProperty);
         bool sensible =
-            ValidadorAutomatizacionAplicaciones.EsControlSensible(nombreReal);
+            ValidadorAutomatizacionAplicaciones.EsControlSiempreProtegido(
+                nombreReal,
+                permitirDescarte);
         string nombre = esContrasena
             ? "[contenido protegido]"
             : sensible
@@ -273,7 +286,8 @@ internal static class AutomatizadorAplicaciones
                 profundidad + 1,
                 profundidadMaxima,
                 ref elementos,
-                salida);
+                salida,
+                permitirDescarte);
 
             try
             {
@@ -294,10 +308,188 @@ internal static class AutomatizadorAplicaciones
             $"OK|focused={Escapar(ObtenerPropiedad(ventana, AutomationElement.NameProperty))}");
     }
 
+    private static ResultadoAutomatizacionAplicacion ObtenerEstado(
+        AutomationElement ventana)
+    {
+        string titulo = ObtenerPropiedad(
+            ventana,
+            AutomationElement.NameProperty);
+        string proceso = ObtenerNombreProceso(ventana);
+        int identificador = ObtenerIdentificadorVentana(ventana);
+        EstadoModificado modificado = DetectarEstadoModificado(ventana);
+        IntPtr manejador = new(identificador);
+
+        return Exito(
+            $"STATE|title=\"{EscaparCampo(titulo)}\"" +
+            $"|process=\"{EscaparCampo(proceso)}\"" +
+            $"|visible={IsWindowVisible(manejador).ToString().ToLowerInvariant()}" +
+            $"|active={(GetForegroundWindow() == manejador).ToString().ToLowerInvariant()}" +
+            $"|minimized={IsIconic(manejador).ToString().ToLowerInvariant()}" +
+            $"|modified={modificado.ToString().ToLowerInvariant()}");
+    }
+
+    private static ResultadoAutomatizacionAplicacion Cerrar(
+        AutomationElement ventana)
+    {
+        string titulo = ObtenerPropiedad(
+            ventana,
+            AutomationElement.NameProperty);
+        int identificador = ObtenerIdentificadorVentana(ventana);
+        int proceso = ObtenerIdentificadorProceso(ventana);
+        IntPtr manejador = new(identificador);
+
+        ActivarVentana(ventana);
+
+        if (ventana.TryGetCurrentPattern(
+                WindowPattern.Pattern,
+                out object? patronVentana))
+        {
+            ((WindowPattern)patronVentana).Close();
+        }
+        else
+        {
+            PostMessage(
+                manejador,
+                0x0010,
+                IntPtr.Zero,
+                IntPtr.Zero);
+        }
+
+        Thread.Sleep(900);
+
+        bool sigueVisible =
+            IsWindow(manejador)
+            && IsWindowVisible(manejador);
+        string dialogo = sigueVisible
+            ? ObtenerDialogoVisible(proceso, identificador)
+            : string.Empty;
+
+        return Exito(
+            $"OK|close-requested=\"{EscaparCampo(titulo)}\"" +
+            $"|still-visible={sigueVisible.ToString().ToLowerInvariant()}" +
+            $"|dialog=\"{EscaparCampo(dialogo)}\"");
+    }
+
+    private static EstadoModificado DetectarEstadoModificado(
+        AutomationElement ventana)
+    {
+        string titulo = ObtenerPropiedad(
+            ventana,
+            AutomationElement.NameProperty);
+
+        if (TieneMarcaModificado(titulo))
+        {
+            return EstadoModificado.True;
+        }
+
+        AutomationElementCollection elementos = ventana.FindAll(
+            TreeScope.Descendants,
+            new OrCondition(
+                new PropertyCondition(
+                    AutomationElement.ControlTypeProperty,
+                    ControlType.TabItem),
+                new PropertyCondition(
+                    AutomationElement.ControlTypeProperty,
+                    ControlType.Document)));
+        bool encontroDocumento = false;
+
+        foreach (AutomationElement elemento in elementos)
+        {
+            encontroDocumento = true;
+
+            if (TieneMarcaModificado(
+                    ObtenerPropiedad(
+                        elemento,
+                        AutomationElement.NameProperty)))
+            {
+                return EstadoModificado.True;
+            }
+        }
+
+        return encontroDocumento
+            ? EstadoModificado.False
+            : EstadoModificado.Unknown;
+    }
+
+    private static bool TieneMarcaModificado(string texto)
+    {
+        string limpio = texto.Trim();
+        return limpio.EndsWith('*')
+               || limpio.Contains(" * - ", StringComparison.Ordinal)
+               || limpio.Contains(
+                   "modificado",
+                   StringComparison.OrdinalIgnoreCase)
+               || limpio.Contains(
+                   "modified",
+                   StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool EsSuperficieDeArchivos(AutomationElement ventana)
+    {
+        string proceso = ObtenerNombreProceso(ventana);
+        string titulo = ValidadorAutomatizacionAplicaciones.Normalizar(
+            ObtenerPropiedad(ventana, AutomationElement.NameProperty));
+        string[] titulosDialogo =
+        [
+            "abrir", "open", "guardar como", "save as",
+            "seleccionar archivo", "choose file", "seleccionar carpeta",
+            "choose folder", "explorador de archivos", "file explorer"
+        ];
+
+        return proceso.Equals("explorer", StringComparison.OrdinalIgnoreCase)
+               || titulosDialogo.Any(fragmento =>
+                   titulo.Contains(
+                       ValidadorAutomatizacionAplicaciones.Normalizar(fragmento),
+                       StringComparison.Ordinal));
+    }
+
+    private static string ObtenerDialogoVisible(
+        int proceso,
+        int ventanaOriginal)
+    {
+        AutomationElementCollection ventanas =
+            AutomationElement.RootElement.FindAll(
+                TreeScope.Children,
+                Condition.TrueCondition);
+
+        foreach (AutomationElement candidata in ventanas)
+        {
+            int identificador = ObtenerIdentificadorVentana(
+                candidata,
+                lanzarSiFalta: false);
+
+            if (identificador == 0
+                || identificador == ventanaOriginal
+                || ObtenerIdentificadorProceso(candidata) != proceso)
+            {
+                continue;
+            }
+
+            string titulo = ObtenerPropiedad(
+                candidata,
+                AutomationElement.NameProperty);
+
+            if (!string.IsNullOrWhiteSpace(titulo))
+            {
+                return titulo;
+            }
+        }
+
+        return string.Empty;
+    }
+
     private static ResultadoAutomatizacionAplicacion EnviarAtajo(
         AutomationElement ventana,
         string atajo)
     {
+        if (!ValidadorAutomatizacionAplicaciones.EsAtajoPermitidoEnVentana(
+                atajo,
+                EsSuperficieDeArchivos(ventana)))
+        {
+            throw new InvalidOperationException(
+                "Ese atajo podría cortar o eliminar archivos en la ventana actual.");
+        }
+
         ActivarVentana(ventana);
         EntradaTecladoSegura.EnviarAtajo(atajo);
 
@@ -309,12 +501,16 @@ internal static class AutomatizadorAplicaciones
     private static ResultadoAutomatizacionAplicacion EscribirTexto(
         AutomationElement ventana,
         string selector,
-        string texto)
+        string texto,
+        bool permitirDescarte)
     {
         AutomationElement elemento =
             BuscarElemento(ventana, selector, tipo: null);
 
-        ComprobarElementoPermitido(elemento);
+        ComprobarElementoPermitido(
+            ventana,
+            elemento,
+            permitirDescarte);
 
         if (ObtenerBooleano(elemento, AutomationElement.IsPasswordProperty))
         {
@@ -363,12 +559,16 @@ internal static class AutomatizadorAplicaciones
         AutomationElement ventana,
         string accion,
         string selector,
-        string? tipo)
+        string? tipo,
+        bool permitirDescarte)
     {
         AutomationElement elemento =
             BuscarElemento(ventana, selector, tipo);
 
-        ComprobarElementoPermitido(elemento);
+        ComprobarElementoPermitido(
+            ventana,
+            elemento,
+            permitirDescarte);
 
         if (!ObtenerBooleano(elemento, AutomationElement.IsEnabledProperty))
         {
@@ -584,6 +784,39 @@ internal static class AutomatizadorAplicaciones
         };
     }
 
+    private static AutomationElement ObtenerVentanaConReintentos(string objetivo)
+    {
+        for (int intento = 0; intento < 12; intento++)
+        {
+            try
+            {
+                return ObtenerVentana(objetivo);
+            }
+            catch (InvalidOperationException ex)
+                when (ex.Message.StartsWith(
+                    "No se encontró una ventana visible",
+                    StringComparison.Ordinal))
+            {
+                IntPtr identificador = FindWindow(null, objetivo);
+
+                if (identificador != IntPtr.Zero)
+                {
+                    return AutomationElement.FromHandle(identificador);
+                }
+
+                if (intento == 11)
+                {
+                    throw;
+                }
+
+                Thread.Sleep(80);
+            }
+        }
+
+        throw new InvalidOperationException(
+            "No se pudo localizar la ventana solicitada.");
+    }
+
     private static void ComprobarVentanaPermitida(AutomationElement ventana)
     {
         string proceso = ObtenerNombreProceso(ventana);
@@ -597,12 +830,14 @@ internal static class AutomatizadorAplicaciones
                     StringComparison.Ordinal)))
         {
             throw new InvalidOperationException(
-                "La ventana encontrada es una consola, un explorador de archivos, un diálogo de credenciales o una superficie sensible.");
+                "La ventana encontrada es una consola, un diálogo de credenciales o una superficie sensible.");
         }
     }
 
     private static void ComprobarElementoPermitido(
-        AutomationElement elemento)
+        AutomationElement ventana,
+        AutomationElement elemento,
+        bool permitirDescarte)
     {
         string nombre = ObtenerPropiedad(
             elemento,
@@ -611,26 +846,29 @@ internal static class AutomatizadorAplicaciones
             elemento,
             AutomationElement.AutomationIdProperty);
 
+        bool superficieArchivos = EsSuperficieDeArchivos(ventana);
+
         if (ObtenerBooleano(elemento, AutomationElement.IsPasswordProperty)
-            || ValidadorAutomatizacionAplicaciones.EsControlSensible(nombre)
-            || ValidadorAutomatizacionAplicaciones.EsControlSensible(id))
+            || ValidadorAutomatizacionAplicaciones.EsControlSiempreProtegido(
+                nombre,
+                permitirDescarte)
+            || ValidadorAutomatizacionAplicaciones.EsControlSiempreProtegido(
+                id,
+                permitirDescarte)
+            || superficieArchivos
+               && (ValidadorAutomatizacionAplicaciones
+                       .EsAccionDestructivaDeArchivos(nombre)
+                   || ValidadorAutomatizacionAplicaciones
+                       .EsAccionDestructivaDeArchivos(id)))
         {
             throw new InvalidOperationException(
-                "El control encontrado está relacionado con archivos, instalación, descarga, exportación, impresión o credenciales.");
+                "El control encontrado podría eliminar o cortar archivos, actuar sobre discos o acceder a credenciales.");
         }
     }
 
     private static void ActivarVentana(AutomationElement ventana)
     {
-        int identificador = (int)ventana.GetCurrentPropertyValue(
-            AutomationElement.NativeWindowHandleProperty,
-            ignoreDefaultValue: true);
-
-        if (identificador == 0)
-        {
-            throw new InvalidOperationException(
-                "La ventana no expone un identificador que permita traerla al frente.");
-        }
+        int identificador = ObtenerIdentificadorVentana(ventana);
 
         IntPtr manejador = new(identificador);
         // Estas llamadas sólo restauran y cambian el orden Z de la ventana
@@ -668,6 +906,45 @@ internal static class AutomatizadorAplicaciones
 
         throw new InvalidOperationException(
             "Windows no permitió traer la ventana al primer plano.");
+    }
+
+    private static int ObtenerIdentificadorVentana(
+        AutomationElement ventana,
+        bool lanzarSiFalta = true)
+    {
+        int identificador;
+
+        try
+        {
+            identificador = (int)ventana.GetCurrentPropertyValue(
+                AutomationElement.NativeWindowHandleProperty,
+                ignoreDefaultValue: true);
+        }
+        catch (ElementNotAvailableException)
+        {
+            identificador = 0;
+        }
+
+        if (identificador == 0 && lanzarSiFalta)
+        {
+            throw new InvalidOperationException(
+                "La ventana no expone un identificador que permita controlarla.");
+        }
+
+        return identificador;
+    }
+
+    private static int ObtenerIdentificadorProceso(
+        AutomationElement elemento)
+    {
+        try
+        {
+            return elemento.Current.ProcessId;
+        }
+        catch (ElementNotAvailableException)
+        {
+            return 0;
+        }
     }
 
     private static string ObtenerPatrones(AutomationElement elemento)
@@ -802,8 +1079,36 @@ internal static class AutomatizadorAplicaciones
         return new(codigo, string.Empty, error);
     }
 
+    private enum EstadoModificado
+    {
+        Unknown,
+        False,
+        True
+    }
+
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr FindWindow(
+        string? clase,
+        string? titulo);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindow(IntPtr ventana);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr ventana);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr ventana);
+
+    [DllImport("user32.dll")]
+    private static extern bool PostMessage(
+        IntPtr ventana,
+        uint mensaje,
+        IntPtr wParam,
+        IntPtr lParam);
 
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr ventana);

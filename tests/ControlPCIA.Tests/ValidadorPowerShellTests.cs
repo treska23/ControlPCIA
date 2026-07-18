@@ -1,3 +1,4 @@
+using System.IO;
 using Xunit;
 
 namespace ControlPCIA.Tests;
@@ -12,19 +13,32 @@ public sealed class ValidadorPowerShellTests
         "Get-CimInstance -ClassName Win32_OperatingSystem | Select-Object Caption, Version",
         "Get-NetIPConfiguration | Format-List InterfaceAlias, IPv4Address",
         "Get-Process | ConvertTo-Json -Depth 2",
+        "Get-ChildItem 'C:\\Users' -Directory | Select-Object Name",
         "Start-Process notepad",
+        "Start-Process 'C:\\Proyectos\\Cancion.cpr'",
         "Start-Process 'ms-settings:display'",
         "Start-Process 'https://www.youtube.com/results?search_query=botella+de+candor'",
         "explorer.exe 'https://www.youtube.com/results?search_query=botella+de+candor'",
-        "Get-Process -Name Spotify | Stop-Process",
+        "Get-Process -Name ControlPCIANoWindowProcess | Stop-Process",
         "Get-Process -Name notepad | ForEach-Object { $_.CloseMainWindow() }",
         "$shell = New-Object -ComObject WScript.Shell; $shell.SendKeys([char]175)",
         "$shell = New-Object -ComObject WScript.Shell; $shell.SendKeys('{F11}')",
         "ControlPCIA.exe ui windows",
-        "ControlPCIA.exe ui inspect 'Cubase' 4",
+        "ControlPCIA.exe ui inspect 'Cubase' 6",
+        "ControlPCIA.exe ui status 'Cubase'",
+        "ControlPCIA.exe ui close 'Cubase'",
         "ControlPCIA.exe ui invoke 'Cubase' 'Add Track' 'MenuItem'",
+        "ControlPCIA.exe ui invoke 'Word' 'Save As' 'MenuItem'",
+        "ControlPCIA.exe ui invoke 'Cubase' 'Install plugin' 'Button'",
         "ControlPCIA.exe ui text 'Cubase' 'Search' 'Kontakt 7'",
+        "ControlPCIA.exe ui text 'Abrir' 'File name' 'C:\\Proyectos\\Cancion.cpr'",
+        "ControlPCIA.exe ui shortcut 'Word' 'CTRL+S'",
+        "ControlPCIA.exe ui shortcut 'Explorador de archivos' 'CTRL+C'",
+        "ControlPCIA.exe ui shortcut 'Explorador de archivos' 'CTRL+V'",
         "ControlPCIA.exe ui shortcut 'Cubase' 'CTRL+T'",
+        "winget search PowerToys --source winget",
+        "winget install --id Microsoft.PowerToys --exact --source winget --scope user --accept-package-agreements --accept-source-agreements",
+        "New-Item -Path 'C:\\ControlPCIA-Prueba-Nueva' -ItemType Directory",
         "$ventana = Get-Process -Name Spotify; $ventana | Select-Object MainWindowTitle",
         "DisplaySwitch.exe /extend"
     };
@@ -65,7 +79,6 @@ public sealed class ValidadorPowerShellTests
         ,"Get-Process | Stop-Process"
         ,"Get-Process -Name * | Stop-Process"
         ,"Get-Content C:\\secreto.txt"
-        ,"Get-ChildItem C:\\"
         ,"Invoke-RestMethod https://example.com"
         ,"wsl rm /mnt/c/prueba.txt"
         ,"dotnet script peligro.csx"
@@ -93,9 +106,11 @@ public sealed class ValidadorPowerShellTests
         ,"ControlPCIA.exe --servidor"
         ,"ControlPCIA.exe --activar-inicio"
         ,"ControlPCIA.exe ui inspect 'PowerShell'"
-        ,"ControlPCIA.exe ui invoke 'Cubase' 'Save As' 'MenuItem'"
-        ,"ControlPCIA.exe ui text 'Cubase' 'Search' 'C:\\secreto.txt'"
-        ,"ControlPCIA.exe ui shortcut 'Cubase' 'CTRL+S'"
+        ,"ControlPCIA.exe ui invoke 'Word' 'Don''t Save' 'Button'"
+        ,"Stop-Process -Name notepad -Force"
+        ,"winget uninstall --id Microsoft.PowerToys"
+        ,"winget install --manifest C:\\paquete.yaml"
+        ,"$env:CONTROLPCIA_PERMITIR_DESCARTE = '1'; ControlPCIA.exe ui invoke 'Word' 'Don''t Save' 'Button'"
         ,"$accion = 'inspect'; ControlPCIA.exe ui $accion 'Cubase'"
     };
 
@@ -140,4 +155,51 @@ public sealed class ValidadorPowerShellTests
         Assert.False(resultado.Permitido);
         Assert.Contains("sintaxis", resultado.Motivo, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void Permite_copiar_a_un_destino_nuevo_pero_no_sobrescribir()
+    {
+        string origen = Path.Combine(
+            Path.GetTempPath(),
+            "controlpcia-origen-" + Guid.NewGuid().ToString("N") + ".txt");
+        string destino = Path.Combine(
+            Path.GetTempPath(),
+            "controlpcia-destino-" + Guid.NewGuid().ToString("N") + ".txt");
+
+        try
+        {
+            File.WriteAllText(origen, "prueba");
+            string comando =
+                $"Copy-Item -LiteralPath '{Escapar(origen)}' -Destination '{Escapar(destino)}'";
+
+            Assert.True(
+                ValidadorPowerShell.Validar(comando).Permitido);
+
+            File.WriteAllText(destino, "existente");
+            Assert.False(
+                ValidadorPowerShell.Validar(comando).Permitido);
+        }
+        finally
+        {
+            File.Delete(origen);
+            File.Delete(destino);
+        }
+    }
+
+    [Fact]
+    public void Solo_permite_descartar_con_autorizacion_contextual()
+    {
+        const string comando =
+            "ControlPCIA.exe ui invoke 'Word' 'Don''t Save' 'Button'";
+
+        Assert.False(
+            ValidadorPowerShell.Validar(comando).Permitido);
+        Assert.True(
+            ValidadorPowerShell.Validar(
+                comando,
+                permitirDescarte: true).Permitido);
+    }
+
+    private static string Escapar(string ruta) =>
+        ruta.Replace("'", "''", StringComparison.Ordinal);
 }
