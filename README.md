@@ -56,7 +56,8 @@ La experiencia principal está en `mobile/ControlPCIA.Mobile`. La aplicación:
 - Guarda el token de emparejado en el almacén seguro del móvil.
 - Usa un único micrófono para encender el PC mediante Wake-on-LAN o enviar cualquier otra petición directamente a Llama.
 - El modo predeterminado se inicia con un toque y termina con otro; al terminar envía la transcripción automáticamente. Como alternativa se puede mantener pulsado y soltar para enviar.
-- Muestra de forma visible cuándo prepara el micrófono, escucha, transcribe y ejecuta, con contador, texto parcial y respuesta háptica.
+- Muestra de forma visible cuándo prepara el micrófono, escucha, transcribe y decide: verde durante la escucha, ámbar al transcribir y violeta mientras Llama prepara la respuesta. Los botones cambian de texto y color en cada fase.
+- **Cancelar** descarta la sesión de voz y garantiza que no se envíe la orden; una carrera con el reconocedor nativo de Android no puede cerrar la aplicación.
 - Si no entiende la voz lo indica y permite repetirla. Si Llama necesita confirmar una acción permitida pero ambigua, pregunta y acepta una respuesta posterior de sí o no.
 - Muestra una conversación temporal con la IA, conserva un contexto acotado para respuestas posteriores y no persiste salidas sensibles.
 
@@ -66,7 +67,7 @@ APK Android generado para instalación manual:
 mobile\ControlPCIA.Mobile\bin\Release\net10.0-android\publish\com.treska.controlpcia-Signed.apk
 ```
 
-La publicación actual es la versión 1.4.1 (código 7), firmada con los esquemas APK v1, v2 y v3. Su SHA-256 es `BA1C6C62A3F93FA5CE32AEE74A3B0BB07F11D1C28812BB2382ED5693C12A5D42`.
+La publicación actual es la versión 1.4.2 (código 8), firmada con los esquemas APK v1, v2 y v3. Su SHA-256 es `0968785F200FE07B2D201ADED0F3EF98683DCE9F397FF9B8E714DAC33110961A`.
 
 Con el agente del PC encendido, el móvil puede descargar siempre la compilación
 firmada más reciente desde:
@@ -123,7 +124,7 @@ Llama no ejecuta acciones ni afirma resultados por su cuenta. ControlPCIA valida
 
 La consulta de ventanas abiertas se hace con comandos de consola (`Get-Process` y títulos de ventana). Los archivos pueden localizarse, leerse, crearse, copiarse, sobrescribirse y abrirse mediante PowerShell, programas nativos o las APIs de cada aplicación. Cuando una consulta ya produjo evidencia válida, ControlPCIA compone la respuesta directamente con el `stdout` real para que el modelo no pueda reinterpretarlo o contradecirlo.
 
-La política permite controlar aplicaciones, audio, multimedia, pantallas, archivos, instalaciones y configuración de Windows cuando exista un comando, CLI, cmdlet, API o protocolo URI real. Las únicas prohibiciones sobre el equipo son eliminar, mover/cortar y formatear unidades. Renombrar está permitido. La automatización gráfica antigua sigue retirada: no se usan capturas, OCR, `SendKeys`, `AppActivate`, ratón ni teclado simulado.
+La política permite controlar aplicaciones, audio, multimedia, pantallas, ventanas, archivos, instalaciones y configuración de Windows cuando exista un comando, CLI, cmdlet, API o protocolo URI real. Las únicas prohibiciones sobre el equipo son eliminar, mover/cortar y formatear unidades. Renombrar está permitido. Activar, traer al frente, maximizar, restaurar, minimizar, mover o redimensionar ventanas superiores está permitido mediante `AppActivate` o APIs Win32 invocadas desde PowerShell. La automatización gráfica antigua sigue retirada: no se usan capturas, OCR, `SendKeys`, ratón ni teclado simulado.
 
 ## Agente residente de Windows
 
@@ -154,6 +155,8 @@ No guarda stdout, stderr, contenido de archivos ni datos obtenidos del PC. Las r
 
 Ante una orden parecida, Llama recibe primero las recetas relacionadas. La memoria extrae además recursos comprobados —por ejemplo AppID, ejecutables, plantillas y rutas— y evita repetir una investigación cuando el recurso sigue existiendo. La IA adapta los datos variables, como el nombre y destino de un proyecto nuevo, y cada comando vuelve a pasar por el validador actual. Una receta que deje de cumplir la política queda descartada automáticamente.
 
+El planificador también dispone de una biblioteca de conocimientos reutilizables. Llama relaciona la petición por significado, no por frase exacta, con identificadores como `ventanas.estado`, `aplicaciones.abrir`, `aplicaciones.inventario`, `archivos.buscar` y `archivos.abrir`. Cuando existe una receta, usa un camino corto: traducir la frase, adaptar la receta, ejecutar y comprobar. Sólo investiga mediante `Get-Command`, `Get-Help`, inventarios de Windows o la CLI instalada cuando no hay conocimiento suficiente. Las soluciones nuevas verificadas pasan a la memoria local.
+
 ## Seguridad
 
 La barrera se aplica después del modelo y no depende de que Llama obedezca el prompt. La política de acciones tiene exactamente tres categorías prohibidas:
@@ -164,7 +167,9 @@ La barrera se aplica después del modelo y no depende de que Llama obedezca el p
 
 Todo lo demás que pueda invocarse desde consola está permitido: leer, buscar, crear, copiar, sobrescribir, abrir, guardar, descargar, instalar, configurar Windows, usar registro, servicios, red, módulos, ejecutables, intérpretes, APIs .NET y COM de aplicaciones.
 
-El validador rechaza código codificado o nombres de comando dinámicos únicamente cuando impedirían comprobar esas tres prohibiciones. `SendKeys`, `AppActivate`, UI Automation y `ControlPCIA.exe ui` permanecen fuera porque la arquitectura gráfica fue retirada, no porque formen una cuarta categoría de seguridad. Las aplicaciones se controlan mediante comandos, CLI, cmdlets, APIs o protocolos reales.
+El validador rechaza código codificado o nombres de comando dinámicos únicamente cuando impedirían comprobar esas tres prohibiciones. `SendKeys`, UI Automation y `ControlPCIA.exe ui` permanecen fuera porque la arquitectura gráfica fue retirada, no porque formen una cuarta categoría de seguridad. `AppActivate`, `ShowWindowAsync`, `SetForegroundWindow`, `SetWindowPos` y otras APIs de estado de ventanas superiores están permitidas. Las aplicaciones se controlan mediante comandos, CLI, cmdlets, APIs o protocolos reales.
+
+La correspondencia semántica se comprueba además antes de ejecutar: una receta de activar o maximizar una ventana no acepta cerrar el proceso, abrir otra aplicación, modificar el registro ni simular teclas. Esto no añade una prohibición global; evita ejecutar un comando que no corresponde a la petición traducida.
 
 Los nombres `Move-*` no se bloquean de forma genérica: colocar una ventana u
 otro objeto está permitido. Se bloquean los movimientos persistentes
@@ -217,12 +222,12 @@ Configuración opcional mediante variables de entorno:
 dotnet test ControlPCIA.slnx
 ```
 
-La batería cubre una matriz amplia de operaciones permitidas, las tres prohibiciones y sus evasiones, ejecución con tiempo y salida limitados, red local, conversación, memoria persistente y reutilización de recursos aprendidos.
+La batería actual contiene 242 pruebas y cubre una matriz amplia de operaciones permitidas, las tres prohibiciones y sus evasiones, ejecución con tiempo y salida limitados, red local, conversación, memoria persistente, selección de conocimientos por significado, control de ventanas y reutilización de recursos aprendidos.
 
 ## Componentes principales
 
-- `ControlWindows.cs`: conversación genérica con Llama y bucle de pasos.
-- `PlanificadorTareasIA.cs`: descomposición y auditoría de peticiones con una o varias tareas.
+- `ControlWindows.cs`: traductor por recetas conocidas y agente de investigación para peticiones nuevas.
+- `PlanificadorTareasIA.cs`: descomposición, selección semántica de conocimientos y auditoría de peticiones con una o varias tareas.
 - `ClienteOllama.cs`: conexión exclusivamente local con Ollama.
 - `ValidadorPowerShell.cs`: análisis estructural y política de denegación.
 - `EjecutorPowerShell.cs`: ejecución acotada después de validar.

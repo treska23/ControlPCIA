@@ -99,7 +99,7 @@ public sealed class ValidadorPowerShellTests
         "powershell.exe -EncodedCommand ZABlAGwA",
         "ControlPCIA.exe ui windows",
         "$shell = New-Object -ComObject WScript.Shell; $shell.SendKeys('texto')",
-        "$shell = New-Object -ComObject WScript.Shell; $shell.AppActivate('Calculadora')"
+        "[System.Windows.Forms.SendKeys]::SendWait('%{F4}')"
     };
 
     [Theory]
@@ -153,6 +153,18 @@ public sealed class ValidadorPowerShellTests
             ValidadorPowerShell.Validar(
                 comando,
                 permitirDescarte: true).Permitido);
+    }
+
+    [Theory]
+    [InlineData("$shell = New-Object -ComObject WScript.Shell; $shell.AppActivate('Microsoft Edge')")]
+    [InlineData("[Ventanas]::ShowWindowAsync($p.MainWindowHandle, 3)")]
+    [InlineData("[Ventanas]::SetForegroundWindow($p.MainWindowHandle)")]
+    [InlineData("[Ventanas]::SetWindowPos($p.MainWindowHandle, [IntPtr]::Zero, 0, 0, 1200, 800, 0)")]
+    public void Permite_controlar_el_estado_de_ventanas_superiores(
+        string comando)
+    {
+        Assert.True(
+            ValidadorPowerShell.Validar(comando).Permitido);
     }
 
     [Fact]

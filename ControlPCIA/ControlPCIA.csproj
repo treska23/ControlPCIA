@@ -21,4 +21,11 @@
     <InternalsVisibleTo Include="ControlPCIA.Tests" />
   </ItemGroup>
 
+  <ItemGroup Condition="Exists('..\mobile\ControlPCIA.Mobile\artifacts\release\com.treska.controlpcia-Signed.apk')">
+    <None Include="..\mobile\ControlPCIA.Mobile\artifacts\release\com.treska.controlpcia-Signed.apk"
+          Link="ControlPCIA.Mobile.apk"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

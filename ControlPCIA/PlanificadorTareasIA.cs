@@ -6,8 +6,13 @@ using System.Text.RegularExpressions;
 namespace ControlPCIA;
 
 internal sealed record PlanTareasControl(
-    IReadOnlyList<string> Tareas)
+    IReadOnlyList<string> Tareas,
+    IReadOnlyList<string>? Conocimientos = null,
+    string? Pregunta = null)
 {
+    public IReadOnlyList<string> ConocimientosSeleccionados =>
+        Conocimientos ?? [];
+
     public string Formatear()
     {
         return string.Join(
@@ -37,6 +42,11 @@ internal static class PlanificadorTareasIA
         IReadOnlyList<MensajeConversacionControl> contexto,
         CancellationToken cancellationToken)
     {
+        if (EsPeticionInformativa(instruccion))
+        {
+            return new PreparacionSolicitudControl(true, null);
+        }
+
         try
         {
             var mensajes = new List<MensajeOllama>
@@ -156,8 +166,31 @@ internal static class PlanificadorTareasIA
                     "realizar Y dentro de X". No mantengas ambas dentro de una
                     sola cadena.
 
+                    Además, selecciona las recetas de conocimiento que puedan
+                    resolver la petición sin investigar. Las recetas disponibles
+                    son:
+                    - ventanas.estado: activar, traer al frente, maximizar,
+                      minimizar, restaurar, mover o redimensionar ventanas.
+                    - aplicaciones.abrir: encontrar e iniciar aplicaciones.
+                    - aplicaciones.inventario: consultar programas con ventana.
+                    - archivos.buscar: localizar archivos o carpetas.
+                    - archivos.abrir: abrir un archivo con su aplicación.
+
+                    Relaciona la intención por significado, no por coincidencia
+                    literal. Por ejemplo, «pon Edge delante», «tráeme el
+                    navegador» y «activa la ventana» seleccionan
+                    `ventanas.estado`.
+
+                    En la misma respuesta decide si falta una elección personal
+                    imprescindible que no figure en la petición ni en el
+                    contexto. Investigar Windows o adaptar una receta nunca
+                    justifica preguntar. Si se pide crear un proyecto sin
+                    nombre, pregunta el nombre; si ya lo dio, no preguntes.
+
                     Responde exclusivamente con JSON válido:
-                    {"tareas":["primera tarea","segunda tarea"]}
+                    {"tareas":["primera tarea","segunda tarea"],"conocimientos":["ventanas.estado"],"pregunta":null}
+                    o, si falta una decisión personal:
+                    {"tareas":["crear un proyecto"],"conocimientos":[],"pregunta":"¿Qué nombre quieres ponerle?"}
 
                     Usa entre 1 y 24 tareas. Si sólo se pide una cosa, devuelve
                     una sola. No des por supuesta ninguna tarea que el usuario
@@ -180,13 +213,19 @@ internal static class PlanificadorTareasIA
                     cancellationToken);
             IReadOnlyList<string> tareas =
                 ExtraerTareas(respuesta);
+            IReadOnlyList<string> conocimientos =
+                ExtraerConocimientos(respuesta);
+            string? pregunta =
+                ExtraerPreguntaPlan(respuesta);
 
             return tareas.Count == 0
                 ? CrearPlanMinimo(instruccion)
                 : new PlanTareasControl(
                     ConservarNombreLiteralExacto(
                         instruccion,
-                        tareas));
+                        tareas),
+                    conocimientos,
+                    pregunta);
         }
         catch (Exception ex) when (
             !cancellationToken.IsCancellationRequested
@@ -311,9 +350,13 @@ internal static class PlanificadorTareasIA
                     correcto va seguido por `Get-Process -Name` y stdout contiene
                     el `PROCESS_NAME` concreto; no exijas que la aplicación haya
                     terminado toda su pantalla de carga.
-                    Las acciones mediante SendKeys, AppActivate, atajos,
-                    automatización de interfaz, ratón u OCR están prohibidas y
-                    nunca cuentan como evidencia. Una tarea interna de una
+                    Las acciones mediante SendKeys, atajos, automatización de
+                    controles internos, ratón u OCR están prohibidas y nunca
+                    cuentan como evidencia. Activar, traer al frente, maximizar,
+                    restaurar, minimizar, mover o redimensionar una ventana
+                    superior mediante AppActivate o APIs Win32 invocables desde
+                    consola sí está permitido y cuenta como evidencia cuando la
+                    salida comprueba el estado o la ventana objetivo. Una tarea interna de una
                     aplicación sólo se completa mediante su CLI, cmdlets, API o
                     protocolo invocable íntegramente por consola y con una
                     salida verificable. Una repetición idéntica no aporta
@@ -393,6 +436,68 @@ internal static class PlanificadorTareasIA
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(24)
             .ToArray();
+    }
+
+    internal static IReadOnlyList<string> ExtraerConocimientos(
+        string respuesta)
+    {
+        using JsonDocument? documento = ExtraerJson(respuesta);
+
+        if (documento is null
+            || !documento.RootElement.TryGetProperty(
+                "conocimientos",
+                out JsonElement conocimientos)
+            || conocimientos.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        string[] disponibles =
+        [
+            "ventanas.estado",
+            "aplicaciones.abrir",
+            "aplicaciones.inventario",
+            "archivos.buscar",
+            "archivos.abrir"
+        ];
+
+        return conocimientos
+            .EnumerateArray()
+            .Where(elemento =>
+                elemento.ValueKind == JsonValueKind.String)
+            .Select(elemento =>
+                elemento.GetString()?.Trim().ToLowerInvariant()
+                ?? string.Empty)
+            .Where(conocimiento =>
+                disponibles.Contains(
+                    conocimiento,
+                    StringComparer.Ordinal))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    internal static string? ExtraerPreguntaPlan(string respuesta)
+    {
+        using JsonDocument? documento = ExtraerJson(respuesta);
+
+        if (documento is null
+            || !documento.RootElement.TryGetProperty(
+                "pregunta",
+                out JsonElement pregunta)
+            || pregunta.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        string texto = pregunta.GetString()?.Trim()
+            ?? string.Empty;
+
+        return texto.Length switch
+        {
+            0 => null,
+            <= 300 => texto,
+            _ => texto[..300].Trim()
+        };
     }
 
     internal static PreparacionSolicitudControl? ExtraerPreparacion(
@@ -507,7 +612,11 @@ internal static class PlanificadorTareasIA
                || comienzos.Any(comienzo =>
                    normalizada.StartsWith(
                        comienzo,
-                       StringComparison.Ordinal));
+                       StringComparison.Ordinal))
+               || Regex.IsMatch(
+                   normalizada,
+                   @"\b(?:dime|informame|explicame)\s+(?:que|cual|cuales|como|cuando|donde|por que|si)\b",
+                   RegexOptions.CultureInvariant);
     }
 
     internal static bool PareceAclaracionPendiente(string respuesta)

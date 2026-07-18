@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Sockets;
 using System.Text.Json;
 using ControlPCIA.Mobile.Modelos;
 using Microsoft.Maui.Storage;
@@ -48,7 +46,7 @@ public sealed class WakeOnLan
     {
         DestinoWakeOnLan[] validos = (destinos ?? [])
             .Where(destino =>
-                TryObtenerMac(destino.Mac, out _)
+                EmisorWakeOnLan.TryObtenerMac(destino.Mac, out _)
                 &&
                 destino.Puerto is > 0 and <= 65535
                 &&
@@ -81,121 +79,14 @@ public sealed class WakeOnLan
                 "Conecta la app con el PC una vez para que aprenda su tarjeta de red.");
         }
 
-        using var udp = new UdpClient(AddressFamily.InterNetwork)
-        {
-            EnableBroadcast = true
-        };
-
-        var enviados = new HashSet<string>(
-            StringComparer.OrdinalIgnoreCase);
-
-        foreach (DestinoWakeOnLan destino in _destinos)
-        {
-            if (!TryObtenerMac(destino.Mac, out byte[] mac))
-            {
-                continue;
-            }
-
-            byte[] paquete = CrearPaquete(mac);
-            int puerto = destino.Puerto is > 0 and <= 65535
-                ? destino.Puerto
-                : 9;
-            IEnumerable<string> direcciones =
-                (destino.DireccionesBroadcast ?? [])
-                .Append("255.255.255.255")
-                .Distinct(StringComparer.OrdinalIgnoreCase);
-
-            foreach (string texto in direcciones)
-            {
-                if (!IPAddress.TryParse(texto, out IPAddress? direccion)
-                    ||
-                    direccion.AddressFamily != AddressFamily.InterNetwork)
-                {
-                    continue;
-                }
-
-                string clave = $"{destino.Mac}:{direccion}:{puerto}";
-
-                if (!enviados.Add(clave))
-                {
-                    continue;
-                }
-
-                var extremo = new IPEndPoint(direccion, puerto);
-
-                for (int intento = 0; intento < 3; intento++)
-                {
-                    await udp.SendAsync(
-                        paquete,
-                        extremo,
-                        cancellationToken);
-                }
-            }
-        }
-
-        if (enviados.Count == 0)
-        {
-            throw new InvalidOperationException(
-                "La configuracion Wake-on-LAN guardada ya no es valida.");
-        }
-
-        return enviados.Count;
+        return await EmisorWakeOnLan.EnviarAsync(
+            _destinos,
+            cancellationToken);
     }
 
     public static bool EsOrdenEncender(string? texto)
     {
         return DetectorOrdenEncendido.EsOrdenEncender(texto);
-    }
-
-    internal static byte[] CrearPaquete(byte[] mac)
-    {
-        if (mac.Length != 6)
-        {
-            throw new ArgumentException(
-                "Una direccion MAC debe tener 6 bytes.",
-                nameof(mac));
-        }
-
-        var paquete = new byte[6 + 16 * mac.Length];
-        Array.Fill(paquete, (byte)0xFF, 0, 6);
-
-        for (int repeticion = 0; repeticion < 16; repeticion++)
-        {
-            Buffer.BlockCopy(
-                mac,
-                0,
-                paquete,
-                6 + repeticion * mac.Length,
-                mac.Length);
-        }
-
-        return paquete;
-    }
-
-    private static bool TryObtenerMac(
-        string? texto,
-        out byte[] mac)
-    {
-        mac = [];
-        string limpia = (texto ?? string.Empty)
-            .Replace(":", string.Empty, StringComparison.Ordinal)
-            .Replace("-", string.Empty, StringComparison.Ordinal);
-
-        if (limpia.Length != 12)
-        {
-            return false;
-        }
-
-        try
-        {
-            mac = Convert.FromHexString(limpia);
-            return mac.Length == 6;
-        }
-        catch (FormatException)
-        {
-            mac = [];
-            return false;
-        }
     }
 
 }

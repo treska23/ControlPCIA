@@ -328,8 +328,17 @@ public static class ReconocimientoVoz
             Interlocked.Exchange(ref cancelacionSolicitada, 1);
             Interlocked.Exchange(ref detencionSolicitada, 1);
             resultado.TrySetCanceled();
-            await MainThread.InvokeOnMainThreadAsync(
-                () => reconocedor?.Cancel());
+
+            try
+            {
+                await MainThread.InvokeOnMainThreadAsync(
+                    () => reconocedor?.Cancel());
+            }
+            catch
+            {
+                // Android puede haber destruido el reconocedor justo antes de
+                // recibir Cancel. El resultado ya está cancelado.
+            }
         }
 
         try
@@ -400,13 +409,24 @@ public static class ReconocimientoVoz
             {
                 Interlocked.Exchange(ref cancelacionSolicitada, 1);
                 registroCancelacion.Dispose();
-                await MainThread.InvokeOnMainThreadAsync(() =>
+
+                try
                 {
-                    reconocedor?.Cancel();
-                    reconocedor?.Destroy();
-                    reconocedor?.Dispose();
-                    oyente?.Dispose();
-                });
+                    await MainThread.InvokeOnMainThreadAsync(() =>
+                    {
+                        reconocedor?.Cancel();
+                        reconocedor?.Destroy();
+                        reconocedor?.Dispose();
+                        oyente?.Dispose();
+                        reconocedor = null;
+                        oyente = null;
+                    });
+                }
+                catch
+                {
+                    // Una carrera con el ciclo de vida de Android no debe
+                    // propagarse a la interfaz ni cerrar la aplicación.
+                }
             });
     }
 

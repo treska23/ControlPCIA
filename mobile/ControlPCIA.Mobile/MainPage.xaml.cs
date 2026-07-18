@@ -15,6 +15,26 @@ public partial class MainPage : ContentPage
         Color.FromArgb("#FCD34D");
     private static readonly Color ColorError =
         Color.FromArgb("#FCA5A5");
+    private static readonly Color ColorAzul =
+        Color.FromArgb("#2563EB");
+    private static readonly Color ColorVerde =
+        Color.FromArgb("#16A34A");
+    private static readonly Color ColorAmbar =
+        Color.FromArgb("#D97706");
+    private static readonly Color ColorVioleta =
+        Color.FromArgb("#7C3AED");
+    private static readonly Color ColorRojo =
+        Color.FromArgb("#B91C1C");
+    private static readonly Color ColorFondoReposo =
+        Color.FromArgb("#081421");
+    private static readonly Color ColorFondoEscucha =
+        Color.FromArgb("#0B241B");
+    private static readonly Color ColorFondoProceso =
+        Color.FromArgb("#211438");
+    private static readonly Color ColorBordeReposo =
+        Color.FromArgb("#2D4968");
+    private static readonly Color ColorSecundario =
+        Color.FromArgb("#172A42");
 
     private readonly ControlPciaApi _api = new();
     private readonly DescubrimientoPc _descubrimiento = new();
@@ -28,6 +48,7 @@ public partial class MainPage : ContentPage
     private bool _iniciandoVoz;
     private bool _soltarPendiente;
     private bool _ejecutandoOrden;
+    private bool _cancelandoVoz;
     private int _idSesionVoz;
     private string? _ordenPendienteConfirmacion;
     private string? _preguntaPendiente;
@@ -276,7 +297,32 @@ public partial class MainPage : ContentPage
 
     private async void OnCancelVoiceClicked(object? sender, EventArgs e)
     {
-        await CancelarEscuchaAsync(mostrarMensaje: true);
+        if (_cancelandoVoz)
+        {
+            return;
+        }
+
+        _cancelandoVoz = true;
+        CancelVoiceButton.IsEnabled = false;
+
+        try
+        {
+            await CancelarEscuchaAsync(mostrarMensaje: true);
+        }
+        catch
+        {
+            // Cancelar es un descarte y nunca debe cerrar la aplicación,
+            // aunque Android ya haya liberado su servicio de voz.
+            RestablecerInterfazVoz();
+            VoiceStateTitle.Text = "Escucha cancelada";
+            VoiceTranscriptLabel.Text = "No se ha enviado ninguna orden.";
+            VoiceTranscriptLabel.TextColor = ColorNormal;
+        }
+        finally
+        {
+            _cancelandoVoz = false;
+            CancelVoiceButton.IsEnabled = true;
+        }
     }
 
     private async Task IniciarEscuchaAsync()
@@ -303,8 +349,9 @@ public partial class MainPage : ContentPage
             _sesionVoz = sesion;
             _inicioEscucha = DateTimeOffset.UtcNow;
             VoiceButton.Text = _modoBloqueado
-                ? "Detener y enviar"
-                : "Suelta para enviar";
+                ? "Escuchando · toca para enviar"
+                : "Escuchando · suelta para enviar";
+            AplicarAspectoEscuchando();
             IniciarTemporizadorVoz(idSesion);
             _ = RecibirResultadoVozAsync(sesion, idSesion);
         }
@@ -338,6 +385,7 @@ public partial class MainPage : ContentPage
         VoiceStateTitle.Text = "Transcribiendo…";
         VoiceTranscriptLabel.Text = "Espera un momento mientras preparo la orden.";
         VoiceTranscriptLabel.TextColor = ColorNormal;
+        AplicarAspectoTranscribiendo();
 
         try
         {
@@ -418,8 +466,25 @@ public partial class MainPage : ContentPage
 
         if (sesion is not null)
         {
-            await sesion.CancelarAsync();
-            await sesion.DisposeAsync();
+            try
+            {
+                await sesion.CancelarAsync();
+            }
+            catch
+            {
+                // La orden ya quedó invalidada por idSesion. El reconocedor
+                // puede haber terminado entre el toque y esta cancelación.
+            }
+
+            try
+            {
+                await sesion.DisposeAsync();
+            }
+            catch
+            {
+                // La liberación nativa es de mejor esfuerzo: cancelar nunca
+                // debe propagar una excepción a la interfaz.
+            }
         }
 
         RestablecerInterfazVoz();
@@ -448,19 +513,23 @@ public partial class MainPage : ContentPage
                 break;
             case FaseReconocimientoVoz.Preparado:
                 VoiceStateTitle.Text = "Escuchando";
+                AplicarAspectoEscuchando();
                 VoiceTranscriptLabel.Text = _modoBloqueado
                     ? "El microfono queda abierto. Toca Detener cuando termines."
                     : "Habla ahora. Suelta el boton cuando termines.";
                 break;
             case FaseReconocimientoVoz.VozDetectada:
                 VoiceStateTitle.Text = "Te estoy escuchando";
+                AplicarAspectoEscuchando();
                 break;
             case FaseReconocimientoVoz.TextoParcial:
                 VoiceStateTitle.Text = "Te estoy escuchando";
+                AplicarAspectoEscuchando();
                 VoiceTranscriptLabel.Text = $"«{estado.Texto}»";
                 break;
             case FaseReconocimientoVoz.Transcribiendo:
                 VoiceStateTitle.Text = "Transcribiendo…";
+                AplicarAspectoTranscribiendo();
                 break;
         }
     }
@@ -474,12 +543,22 @@ public partial class MainPage : ContentPage
         VoiceDurationLabel.Text = "00:00";
         VoiceModeButton.IsEnabled = false;
         CancelVoiceButton.IsVisible = true;
+        CancelVoiceButton.IsEnabled = true;
         SendButton.IsEnabled = false;
+        OrderEditor.IsEnabled = false;
         VoiceStateTitle.Text = "Preparando el microfono…";
         VoiceTranscriptLabel.Text = _modoBloqueado
             ? "Escucha bloqueada: podras soltar el boton y tocarlo otra vez para detener."
             : "Manten el boton pulsado mientras hablas.";
         VoiceTranscriptLabel.TextColor = ColorNormal;
+        VoiceStateBorder.BackgroundColor = ColorFondoEscucha;
+        VoiceStateBorder.Stroke =
+            new SolidColorBrush(ColorVerde);
+        VoiceButton.BackgroundColor = ColorVerde;
+        VoiceButton.TextColor = Colors.White;
+        VoiceModeButton.BackgroundColor = ColorSecundario;
+        CancelVoiceButton.BackgroundColor = ColorRojo;
+        CancelVoiceButton.TextColor = Colors.White;
     }
 
     private void RestablecerInterfazVoz()
@@ -492,6 +571,19 @@ public partial class MainPage : ContentPage
         VoiceModeButton.IsEnabled = !_ejecutandoOrden;
         VoiceButton.IsEnabled = !_ejecutandoOrden;
         SendButton.IsEnabled = !_ejecutandoOrden;
+        OrderEditor.IsEnabled = !_ejecutandoOrden;
+        VoiceStateBorder.BackgroundColor = ColorFondoReposo;
+        VoiceStateBorder.Stroke =
+            new SolidColorBrush(ColorBordeReposo);
+        VoiceIdleIndicator.BackgroundColor = ColorAzul;
+        VoiceActivity.Color = ColorAzul;
+        VoiceButton.BackgroundColor = ColorAzul;
+        VoiceButton.TextColor = Colors.White;
+        VoiceModeButton.BackgroundColor = ColorSecundario;
+        SendButton.BackgroundColor = ColorSecundario;
+        SendButton.Text = "Enviar mensaje escrito";
+        CancelVoiceButton.BackgroundColor = ColorSecundario;
+        CancelVoiceButton.TextColor = ColorNormal;
         VoiceStateTitle.Text = string.IsNullOrWhiteSpace(
                 _ordenPendienteConfirmacion)
             ? string.IsNullOrWhiteSpace(_preguntaPendiente)
@@ -610,7 +702,9 @@ public partial class MainPage : ContentPage
             _conversacion.TakeLast(12).ToArray();
 
         _ejecutandoOrden = true;
-        BloquearControlesDuranteOrden();
+        BloquearControlesDuranteOrden(
+            "Llama está decidiendo qué hacer…",
+            $"«{orden}»");
         MostrarMensaje(
             ControlStatusLabel,
             "Llama esta interpretando la orden y decidiendo los comandos…");
@@ -681,7 +775,9 @@ public partial class MainPage : ContentPage
         }
 
         _ejecutandoOrden = true;
-        BloquearControlesDuranteOrden();
+        BloquearControlesDuranteOrden(
+            "Enviando la señal de encendido…",
+            "El móvil está enviando Wake-on-LAN al ordenador.");
 
         try
         {
@@ -710,12 +806,57 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private void BloquearControlesDuranteOrden()
+    private void BloquearControlesDuranteOrden(
+        string titulo,
+        string detalle)
     {
         VoiceButton.IsEnabled = false;
         VoiceModeButton.IsEnabled = false;
         SendButton.IsEnabled = false;
+        OrderEditor.IsEnabled = false;
         CancelVoiceButton.IsVisible = false;
+        VoiceActivity.IsVisible = true;
+        VoiceActivity.IsRunning = true;
+        VoiceActivity.Color = ColorVioleta;
+        VoiceIdleIndicator.IsVisible = false;
+        VoiceDurationLabel.IsVisible = false;
+        VoiceStateBorder.BackgroundColor = ColorFondoProceso;
+        VoiceStateBorder.Stroke =
+            new SolidColorBrush(ColorVioleta);
+        VoiceStateTitle.Text = titulo;
+        VoiceTranscriptLabel.Text = detalle;
+        VoiceTranscriptLabel.TextColor = ColorNormal;
+        VoiceButton.BackgroundColor = ColorVioleta;
+        VoiceButton.TextColor = Colors.White;
+        VoiceButton.Text = "Procesando · espera un momento";
+        VoiceModeButton.BackgroundColor = ColorVioleta;
+        SendButton.BackgroundColor = ColorVioleta;
+        SendButton.Text = "Esperando respuesta de la IA…";
+    }
+
+    private void AplicarAspectoEscuchando()
+    {
+        VoiceStateBorder.BackgroundColor = ColorFondoEscucha;
+        VoiceStateBorder.Stroke =
+            new SolidColorBrush(ColorVerde);
+        VoiceIdleIndicator.BackgroundColor = ColorVerde;
+        VoiceActivity.Color = ColorVerde;
+        VoiceButton.BackgroundColor = ColorVerde;
+        VoiceButton.TextColor = Colors.White;
+        CancelVoiceButton.BackgroundColor = ColorRojo;
+        CancelVoiceButton.TextColor = Colors.White;
+    }
+
+    private void AplicarAspectoTranscribiendo()
+    {
+        VoiceStateBorder.BackgroundColor =
+            Color.FromArgb("#302008");
+        VoiceStateBorder.Stroke =
+            new SolidColorBrush(ColorAmbar);
+        VoiceActivity.Color = ColorAmbar;
+        VoiceButton.BackgroundColor = ColorAmbar;
+        VoiceButton.TextColor = Colors.White;
+        VoiceButton.Text = "Transcribiendo · espera";
     }
 
     private void MostrarConexion()

@@ -43,34 +43,23 @@ internal static class ControlWindows
             informar,
             new EventoControl(
                 "pensando",
-                "La IA está comprobando si necesita preguntarte algún dato."));
-        PreparacionSolicitudControl preparacion =
-            await PlanificadorTareasIA.PrepararAsync(
-                instruccion,
-                contexto,
-                cancellationToken);
-
-        if (!preparacion.Lista)
-        {
-            return Finalizar(
-                false,
-                "requiere_aclaracion",
-                preparacion.Pregunta
-                ?? "¿Qué dato falta para continuar?",
-                [],
-                informar);
-        }
-
-        Informar(
-            informar,
-            new EventoControl(
-                "pensando",
-                "La IA está separando todas las tareas de la orden."));
+                "La IA está entendiendo y planificando la orden."));
         PlanTareasControl plan =
             await PlanificadorTareasIA.CrearAsync(
                 instruccion,
                 contexto,
                 cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(plan.Pregunta))
+        {
+            return Finalizar(
+                false,
+                "requiere_aclaracion",
+                plan.Pregunta,
+                [],
+                informar);
+        }
+
         int maximoPasos =
             CalcularMaximoPasos(plan.Tareas.Count);
         Informar(
@@ -82,6 +71,16 @@ internal static class ControlWindows
                     " | ",
                     plan.Tareas.Select((tarea, indice) =>
                         $"{indice + 1}. {tarea}"))));
+
+        if (PlanSolicitaSoloEstadoDeVentanas(plan))
+        {
+            return await ControlarEstadoVentanaConRecetaAsync(
+                instruccion,
+                plan,
+                informar,
+                cancellationToken);
+        }
+
         IReadOnlyList<RecetaReferencia> recetas =
             await BuscarRecetasAsync(
                 instruccion,
@@ -279,6 +278,27 @@ internal static class ControlWindows
                 - Puedes iniciar una aplicación por su ruta ejecutable local y
                   pasarle argumentos literales. También puedes usar módulos,
                   cmdlets o una API COM documentada de la propia aplicación.
+                - Activar, traer al frente, maximizar, restaurar, minimizar,
+                  mover o redimensionar una ventana superior ESTÁ PERMITIDO.
+                  Hazlo desde PowerShell con `WScript.Shell.AppActivate` o con
+                  APIs Win32 invocables desde consola como `ShowWindowAsync`,
+                  `SetForegroundWindow` y `SetWindowPos`, usando el
+                  `MainWindowHandle` obtenido mediante `Get-Process`. Estas
+                  operaciones no simulan teclado ni ratón y no requieren
+                  reconocimiento gráfico. Nunca respondas que las restricciones
+                  impiden controlar el estado de una ventana.
+                - Para cambiar el estado de una ventana, selecciona un único
+                  proceso con `MainWindowHandle -ne 0`. Nunca detengas, cierres
+                  ni reinicies el proceso para maximizarlo, minimizarlo,
+                  restaurarlo o activarlo. `WScript.Shell.AppActivate` recibe el
+                  Id del proceso, NO su `MainWindowHandle`.
+                - Puedes declarar por `Add-Type` las APIs `ShowWindowAsync`,
+                  `IsZoomed`, `IsIconic`, `SetForegroundWindow` y `SetWindowPos`.
+                  Los valores Win32 son 3 para maximizar, 6 para minimizar y 9
+                  para restaurar. Realiza en un solo comando todos los cambios
+                  de ventana solicitados y publica evidencia literal como
+                  `PROCESS_NAME=...`, `ACTIVATED=True`,
+                  `MAXIMIZED=True`, `MINIMIZED=True` o `RESTORED=True`.
                 - Si el usuario pide crear, guardar, importar o exportar un
                   documento o proyecto dentro de una aplicación, esa operación
                   normal está permitida cuando la aplicación ofrezca una CLI,
@@ -297,7 +317,7 @@ internal static class ControlWindows
                   Busca primero la plantilla real por consola; no inventes rutas.
                   Esta vía sirve de forma general para proyectos basados en
                   plantillas y no debe codificarse como una función por programa.
-                - Están prohibidos `SendKeys`, `AppActivate`, atajos de teclado,
+                - Están prohibidos `SendKeys`, atajos de teclado,
                   `ControlPCIA.exe ui`, UI Automation, OCR, capturas, búsqueda
                   de controles y cualquier simulación de ratón o teclado.
                 - No confundas "se ejecuta desde PowerShell" con "es una acción
@@ -445,6 +465,19 @@ internal static class ControlWindows
                         comando,
                         out string limitacion))
                 {
+                    if (PlanSolicitaSoloEstadoDeVentanas(plan))
+                    {
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "assistant",
+                                comando));
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "user",
+                                CrearInstruccionControlEstadoVentana()));
+                        continue;
+                    }
+
                     if (RequiereContinuarCreacionDesdePlantilla(
                             plan,
                             pasos))
@@ -518,6 +551,21 @@ internal static class ControlWindows
                         comando,
                         out string respuestaNatural))
                 {
+                    if (PlanSolicitaSoloEstadoDeVentanas(plan)
+                        && RespuestaNiegaControlEstadoVentana(
+                            respuestaNatural))
+                    {
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "assistant",
+                                comando));
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "user",
+                                CrearInstruccionControlEstadoVentana()));
+                        continue;
+                    }
+
                     if (RequiereContinuarCreacionDesdePlantilla(
                             plan,
                             pasos))
@@ -638,6 +686,21 @@ internal static class ControlWindows
                         out string explicacion,
                         out _))
                 {
+                    if (PlanSolicitaSoloEstadoDeVentanas(plan)
+                        && RespuestaNiegaControlEstadoVentana(
+                            explicacion))
+                    {
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "assistant",
+                                comando));
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "user",
+                                CrearInstruccionControlEstadoVentana()));
+                        continue;
+                    }
+
                     if (RequiereContinuarCreacionDesdePlantilla(
                             plan,
                             pasos))
@@ -841,6 +904,19 @@ internal static class ControlWindows
                         "SIN_COMANDO",
                         StringComparison.OrdinalIgnoreCase))
                 {
+                    if (PlanSolicitaSoloEstadoDeVentanas(plan))
+                    {
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "assistant",
+                                comando));
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "user",
+                                CrearInstruccionControlEstadoVentana()));
+                        continue;
+                    }
+
                     if (RequiereContinuarCreacionDesdePlantilla(
                             plan,
                             pasos))
@@ -941,6 +1017,20 @@ internal static class ControlWindows
                         "La IA devolvió una respuesta vacía.",
                         pasos,
                         informar);
+                }
+
+                if (PlanSolicitaSoloEstadoDeVentanas(plan)
+                    && EsEstrategiaInvalidaParaEstadoVentana(comando))
+                {
+                    mensajes.Add(
+                        new MensajeOllama(
+                            "assistant",
+                            comando));
+                    mensajes.Add(
+                        new MensajeOllama(
+                            "user",
+                            CrearInstruccionControlEstadoVentana()));
+                    continue;
                 }
 
                 if (RequiereContinuarCreacionDesdePlantilla(
@@ -1393,6 +1483,47 @@ internal static class ControlWindows
                         aprendido);
                 }
 
+                if (PlanSolicitaSoloEstadoDeVentanas(plan)
+                    && ejecucion.Ejecutado
+                    && ejecucion.CodigoSalida == 0
+                    && SalidaDemuestraEstadoVentana(
+                        ejecucion.Salida))
+                {
+                    Informar(
+                        informar,
+                        new EventoControl(
+                            "pensando",
+                            "ControlPCIA está verificando el resultado de la ventana."));
+                    RevisionTareasControl revisionRapida =
+                        await RevisarTareasAsync(
+                            plan,
+                            pasos,
+                            cancellationToken);
+
+                    if (revisionRapida.Completa)
+                    {
+                        bool aprendido =
+                            await AprenderRecetaAsync(
+                                instruccion,
+                                pasos,
+                                informar,
+                                cancellationToken);
+
+                        return Finalizar(
+                            true,
+                            "completado",
+                            "Ventana controlada y comprobada por consola.",
+                            pasos,
+                            informar,
+                            aprendido);
+                    }
+
+                    tareasPendientes =
+                        ObtenerTareasPendientes(
+                            plan,
+                            revisionRapida);
+                }
+
                 mensajes.Add(new MensajeOllama("assistant", comando));
                 mensajes.Add(new MensajeOllama("user", informacionResultado));
             }
@@ -1425,6 +1556,198 @@ internal static class ControlWindows
                 pasos,
                 informar);
         }
+    }
+
+    private static async Task<ResultadoControl>
+        ControlarEstadoVentanaConRecetaAsync(
+            string instruccion,
+            PlanTareasControl plan,
+            Action<EventoControl>? informar,
+            CancellationToken cancellationToken)
+    {
+        var pasos = new List<ResultadoPasoControl>();
+        var mensajes = new List<MensajeOllama>
+        {
+            new(
+                "system",
+                """
+                Eres un traductor rápido de lenguaje natural a comandos
+                PowerShell. El programa ya ha seleccionado una receta conocida:
+                no busques en Internet, no inventes otro método y no controles
+                ninguna aplicación distinta de la solicitada.
+
+                Devuelve un único comando PowerShell literal, sin Markdown ni
+                explicación. Puedes usar primero una consulta Get-Process si el
+                nombre del proceso no es deducible. Si falta una decisión que
+                sólo puede tomar el usuario, responde PREGUNTAR: y una pregunta.
+                """),
+            new(
+                "user",
+                $"""
+                PETICIÓN:
+                {instruccion.Trim()}
+
+                TAREAS TRADUCIDAS:
+                {plan.Formatear()}
+
+                RECETA CONOCIDA SELECCIONADA:
+                {CrearInstruccionControlEstadoVentana()}
+                """)
+        };
+
+        for (int intento = 0; intento < 4; intento++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Informar(
+                informar,
+                new EventoControl(
+                    "pensando",
+                    intento == 0
+                        ? "Llama está adaptando una receta conocida."
+                        : "Llama está corrigiendo el comando con la salida real."));
+
+            string comando = LimpiarComando(
+                await ClienteOllama.ConversarAsync(
+                    mensajes,
+                    cancellationToken));
+
+            if (TryObtenerPreguntaUsuario(
+                    comando,
+                    out string pregunta))
+            {
+                return Finalizar(
+                    false,
+                    "requiere_aclaracion",
+                    pregunta,
+                    pasos,
+                    informar);
+            }
+
+            if (string.IsNullOrWhiteSpace(comando)
+                || comando.Equals(
+                    "FIN",
+                    StringComparison.OrdinalIgnoreCase)
+                || comando.Equals(
+                    "SIN_COMANDO",
+                    StringComparison.OrdinalIgnoreCase)
+                || TryObtenerLimitacion(comando, out _)
+                || TryObtenerRespuestaNatural(comando, out _)
+                || TryObtenerExplicacionNatural(
+                    comando,
+                    out _,
+                    out _)
+                || EsEstrategiaInvalidaParaEstadoVentana(
+                    comando)
+                || !EsComandoCompatibleConModoConsola(comando))
+            {
+                mensajes.Add(
+                    new MensajeOllama("assistant", comando));
+                mensajes.Add(
+                    new MensajeOllama(
+                        "user",
+                        CrearInstruccionControlEstadoVentana()));
+                continue;
+            }
+
+            ResultadoValidacionPowerShell validacion =
+                ValidadorPowerShell.Validar(comando);
+
+            if (!validacion.Permitido)
+            {
+                mensajes.Add(
+                    new MensajeOllama("assistant", comando));
+                mensajes.Add(
+                    new MensajeOllama(
+                        "user",
+                        "El validador rechazó el comando: "
+                        + validacion.Motivo
+                        + Environment.NewLine
+                        + CrearInstruccionControlEstadoVentana()));
+                continue;
+            }
+
+            Informar(
+                informar,
+                new EventoControl(
+                    "comando",
+                    "Llama ha adaptado una receta conocida.",
+                    comando));
+            ResultadoEjecucionPowerShell ejecucion =
+                await EjecutorPowerShell.EjecutarAsync(
+                    comando,
+                    cancellationToken);
+            var paso = new ResultadoPasoControl(
+                pasos.Count + 1,
+                comando,
+                ejecucion.Ejecutado,
+                ejecucion.CodigoSalida,
+                ejecucion.Salida,
+                ejecucion.Error);
+            pasos.Add(paso);
+
+            Informar(
+                informar,
+                new EventoControl(
+                    ejecucion.Ejecutado
+                        ? "ejecutado"
+                        : "bloqueado",
+                    ejecucion.Ejecutado
+                        ? $"Comando ejecutado con código {ejecucion.CodigoSalida}."
+                        : ejecucion.Error,
+                    comando,
+                    paso));
+
+            if (ejecucion.Ejecutado
+                && ejecucion.CodigoSalida == 0
+                && SalidaCompletaPlanEstadoVentana(
+                    plan,
+                    ejecucion.Salida))
+            {
+                bool aprendido =
+                    await AprenderRecetaAsync(
+                        instruccion,
+                        pasos,
+                        informar,
+                        cancellationToken);
+
+                return Finalizar(
+                    true,
+                    "completado",
+                    "Ventana controlada y comprobada por consola.",
+                    pasos,
+                    informar,
+                    aprendido);
+            }
+
+            mensajes.Add(
+                new MensajeOllama("assistant", comando));
+            mensajes.Add(
+                new MensajeOllama(
+                    "user",
+                    CrearResultadoEjecutado(
+                        comando,
+                        ejecucion)
+                    + Environment.NewLine
+                    + Environment.NewLine
+                    + "La receta todavía no está demostrada. "
+                    + "Usa la salida real y vuelve a adaptar únicamente "
+                    + "la receta seleccionada."));
+        }
+
+        ResultadoPasoControl? ultimo = pasos.LastOrDefault();
+        string detalle = ultimo is null
+            ? "Llama no devolvió un comando válido de la receta conocida."
+            : !string.IsNullOrWhiteSpace(ultimo.Error)
+                ? ultimo.Error
+                : ultimo.Salida;
+
+        return Finalizar(
+            false,
+            "sin_comando",
+            "No se pudo adaptar la receta de ventana tras cuatro intentos. "
+            + LimitarTexto(detalle),
+            pasos,
+            informar);
     }
 
     private static string CrearResultadoBloqueado(
@@ -1642,8 +1965,194 @@ internal static class ControlWindows
     {
         return !Regex.IsMatch(
             comando,
-            @"\bControlPCIA(?:\.exe)?\s+(?:ui|window\s+keys)\b|\.SendKeys\s*\(|\.AppActivate\s*\(|\bUIAutomation(?:Client)?\b",
+            @"\bControlPCIA(?:\.exe)?\s+(?:ui|window\s+keys)\b|\.SendKeys\s*\(|\bSystem\.Windows\.Forms\.SendKeys\b|\.SendWait\s*\(|\bUIAutomation(?:Client)?\b",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    internal static bool PlanSolicitaSoloEstadoDeVentanas(
+        PlanTareasControl plan)
+    {
+        bool seleccionadaPorLlama =
+            plan.ConocimientosSeleccionados.Contains(
+                "ventanas.estado",
+                StringComparer.Ordinal);
+
+        return plan.Tareas.Count > 0
+               && plan.Tareas.All(tarea =>
+               {
+                   string normalizada =
+                       InventarioTexto.Normalizar(tarea);
+                   bool operacionAjena =
+                       Regex.IsMatch(
+                           normalizada,
+                           @"\b(?:abre|abrir|inicia|iniciar|lanza|lanzar|cierra|cerrar|busca|buscar|lista|listar|crea|crear)\b",
+                           RegexOptions.CultureInvariant);
+
+                   return ((seleccionadaPorLlama
+                            && !operacionAjena)
+                           || Regex.IsMatch(
+                              normalizada,
+                              @"\b(?:activ|primer plano|trae.*frente|maximiz|minimiz|restaur|recoloc|redimension|cambia.*taman|mueve.*ventana)\w*",
+                              RegexOptions.CultureInvariant))
+                          && !Regex.IsMatch(
+                              normalizada,
+                              @"\b(?:cerr|deten|termin|mata|reinici)\w*",
+                              RegexOptions.CultureInvariant);
+               });
+    }
+
+    internal static bool EsEstrategiaQueCierraLaAplicacion(
+        string comando)
+    {
+        return Regex.IsMatch(
+            comando,
+            @"(?:^|[;|]\s*)(?:Stop-Process|kill|spps|taskkill(?:\.exe)?)\b|\.Kill\s*\(|\.CloseMainWindow\s*\(",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    internal static bool EsEstrategiaInvalidaParaEstadoVentana(
+        string comando)
+    {
+        return EsEstrategiaQueCierraLaAplicacion(comando)
+               || Regex.IsMatch(
+                   comando,
+                   @"\b(?:SendKeys|SendWait)\b|(?:^|[;|]\s*)(?:Start-Process|Get-StartApps|explorer(?:\.exe)?|Set-ItemProperty)\b",
+                   RegexOptions.IgnoreCase
+                   | RegexOptions.CultureInvariant);
+    }
+
+    internal static bool RespuestaNiegaControlEstadoVentana(
+        string respuesta)
+    {
+        string normalizada =
+            InventarioTexto.Normalizar(respuesta);
+
+        return Regex.IsMatch(
+                   normalizada,
+                   @"\b(?:no se puede|no puedo|restric|falta de permis|prohib|no dispone|no admite)\w*",
+                   RegexOptions.CultureInvariant)
+               && Regex.IsMatch(
+                   normalizada,
+                   @"\b(?:ventana|appactivate|maximiz|minimiz|restaur|primer plano|interfaz)\w*",
+                   RegexOptions.CultureInvariant);
+    }
+
+    internal static bool SalidaDemuestraEstadoVentana(
+        string salida)
+    {
+        return Regex.IsMatch(
+                   salida,
+                   @"(?:^|\r?\n)PROCESS_NAME=.+(?:\r?\n|$)",
+                   RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+               && Regex.IsMatch(
+                   salida,
+                   @"(?:^|\r?\n)(?:ACTIVATED|MAXIMIZED|MINIMIZED|RESTORED|MOVED|RESIZED)=True(?:\r?\n|$)",
+                   RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    internal static bool SalidaCompletaPlanEstadoVentana(
+        PlanTareasControl plan,
+        string salida)
+    {
+        if (!SalidaDemuestraEstadoVentana(salida))
+        {
+            return false;
+        }
+
+        foreach (string tarea in plan.Tareas)
+        {
+            string normalizada =
+                InventarioTexto.Normalizar(tarea);
+            string? marcador =
+                Regex.IsMatch(
+                    normalizada,
+                    @"\b(?:activ|primer plano|trae.*frente)\w*",
+                    RegexOptions.CultureInvariant)
+                    ? "ACTIVATED"
+                    : Regex.IsMatch(
+                        normalizada,
+                        @"\bmaximiz\w*",
+                        RegexOptions.CultureInvariant)
+                        ? "MAXIMIZED"
+                        : Regex.IsMatch(
+                            normalizada,
+                            @"\bminimiz\w*",
+                            RegexOptions.CultureInvariant)
+                            ? "MINIMIZED"
+                            : Regex.IsMatch(
+                                normalizada,
+                                @"\brestaur\w*",
+                                RegexOptions.CultureInvariant)
+                                ? "RESTORED"
+                                : Regex.IsMatch(
+                                    normalizada,
+                                    @"\b(?:recoloc|mueve.*ventana)\w*",
+                                    RegexOptions.CultureInvariant)
+                                    ? "MOVED"
+                                    : Regex.IsMatch(
+                                        normalizada,
+                                        @"\b(?:redimension|cambia.*taman)\w*",
+                                        RegexOptions.CultureInvariant)
+                                        ? "RESIZED"
+                                        : null;
+
+            if (marcador is not null
+                && !Regex.IsMatch(
+                    salida,
+                    $@"(?:^|\r?\n){marcador}=True(?:\r?\n|$)",
+                    RegexOptions.IgnoreCase
+                    | RegexOptions.CultureInvariant))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static string CrearInstruccionControlEstadoVentana()
+    {
+        return """
+            ESTRATEGIA DE VENTANA INCORRECTA RECHAZADA.
+
+            Activar, traer al frente, maximizar, restaurar, minimizar, mover o
+            redimensionar una ventana superior está permitido. No cierres,
+            detengas ni reinicies la aplicación y no alegues restricciones.
+            Selecciona el proceso real con MainWindowHandle distinto de cero.
+            AppActivate recibe el Id del proceso, no el handle.
+
+            Para maximizar y activar puedes adaptar este patrón en UN comando:
+
+            $p = Get-Process -Name 'PROCESO_REAL' |
+                Where-Object { $_.MainWindowHandle -ne 0 } |
+                Select-Object -First 1
+            if ($null -eq $p) { throw 'No hay una ventana abierta.' }
+            Add-Type @'
+            using System;
+            using System.Runtime.InteropServices;
+            public static class VentanaControlPCIA {
+              [DllImport("user32.dll")]
+              public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+              [DllImport("user32.dll")]
+              public static extern bool IsZoomed(IntPtr hWnd);
+            }
+            '@
+            [VentanaControlPCIA]::ShowWindowAsync(
+                $p.MainWindowHandle, 3) | Out-Null
+            $activada = (New-Object -ComObject WScript.Shell).AppActivate($p.Id)
+            Start-Sleep -Milliseconds 300
+            $p.Refresh()
+            $maximizada =
+                [VentanaControlPCIA]::IsZoomed($p.MainWindowHandle)
+            Write-Output ('PROCESS_NAME=' + $p.ProcessName)
+            Write-Output ('ACTIVATED=' + $activada)
+            Write-Output ('MAXIMIZED=' + $maximizada)
+            if (!$activada -or !$maximizada) { exit 1 }
+
+            Usa 6 con ShowWindowAsync para minimizar y 9 para restaurar. Para
+            mover o redimensionar declara y usa SetWindowPos. Adapta el patrón
+            a todas las tareas pendientes y publica su evidencia real.
+            """;
     }
 
     internal static string CrearComandoVerificacionApertura(
@@ -2469,7 +2978,7 @@ internal static class ControlWindows
     {
         return Regex.IsMatch(
             comando,
-            @"\bControlPCIA(?:\.exe)?\s+(?:ui|window\s+keys)\b|\.SendKeys\s*\(|\.AppActivate\s*\(|\bUIAutomation(?:Client)?\b",
+            @"\bControlPCIA(?:\.exe)?\s+(?:ui|window\s+keys)\b|\.SendKeys\s*\(|\bSystem\.Windows\.Forms\.SendKeys\b|\.SendWait\s*\(|\bUIAutomation(?:Client)?\b",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 

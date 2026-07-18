@@ -120,7 +120,7 @@ internal static class ValidadorPowerShell
     {
         return Regex.IsMatch(
             comando,
-            @"\bControlPCIA(?:\.exe)?\s+(?:ui|window\s+keys)\b|\.SendKeys\s*\(|\.AppActivate\s*\(|\bUIAutomation(?:Client)?\b",
+            @"\bControlPCIA(?:\.exe)?\s+(?:ui|window\s+keys)\b|\.SendKeys\s*\(|\bSystem\.Windows\.Forms\.SendKeys\b|\.SendWait\s*\(|\bUIAutomation(?:Client)?\b",
             RegexOptions.IgnoreCase
             | RegexOptions.CultureInvariant)
                 ? Bloquear(

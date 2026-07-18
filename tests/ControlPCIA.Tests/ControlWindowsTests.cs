@@ -268,8 +268,12 @@ public sealed class ControlWindowsTests
     [InlineData("ControlPCIA.exe window keys 'Calculator' '2+5='", false)]
     [InlineData("Get-Process CalculatorApp", true)]
     [InlineData("$shell = New-Object -ComObject WScript.Shell", true)]
+    [InlineData("$shell.AppActivate('Microsoft Edge')", true)]
+    [InlineData("[Ventanas]::ShowWindowAsync($p.MainWindowHandle, 3)", true)]
+    [InlineData("[Ventanas]::SetForegroundWindow($p.MainWindowHandle)", true)]
     [InlineData("$excel = New-Object -ComObject Excel.Application", true)]
     [InlineData("$shell.SendKeys('texto')", false)]
+    [InlineData("[System.Windows.Forms.SendKeys]::SendWait('%{F4}')", false)]
     public void El_agente_solo_usa_el_modo_consola(
         string comando,
         bool esperado)
@@ -277,6 +281,86 @@ public sealed class ControlWindowsTests
         Assert.Equal(
             esperado,
             ControlWindows.EsComandoCompatibleConModoConsola(comando));
+    }
+
+    [Fact]
+    public void Reconoce_un_plan_dedicado_al_estado_de_ventanas()
+    {
+        var plan = new PlanTareasControl(
+            [
+                "maximiza la ventana de Microsoft Edge",
+                "activa la ventana de Microsoft Edge"
+            ]);
+
+        Assert.True(
+            ControlWindows.PlanSolicitaSoloEstadoDeVentanas(plan));
+        Assert.False(
+            ControlWindows.PlanSolicitaSoloEstadoDeVentanas(
+                new PlanTareasControl(
+                    ["cierra y vuelve a abrir Microsoft Edge"])));
+        Assert.False(
+            ControlWindows.PlanSolicitaSoloEstadoDeVentanas(
+                new PlanTareasControl(
+                    [
+                        "abre Microsoft Edge",
+                        "maximiza su ventana"
+                    ],
+                    [
+                        "aplicaciones.abrir",
+                        "ventanas.estado"
+                    ])));
+    }
+
+    [Theory]
+    [InlineData("Stop-Process -Name msedge")]
+    [InlineData("taskkill.exe /IM msedge.exe")]
+    [InlineData("$p.CloseMainWindow()")]
+    public void No_confunde_cerrar_el_proceso_con_cambiar_su_ventana(
+        string comando)
+    {
+        Assert.True(
+            ControlWindows.EsEstrategiaQueCierraLaAplicacion(
+                comando));
+    }
+
+    [Theory]
+    [InlineData("[System.Windows.Forms.SendKeys]::SendWait('%{F4}')")]
+    [InlineData("Start-Process msedge")]
+    [InlineData("Get-StartApps | Where-Object Name -Like '*Edge*'")]
+    [InlineData("Set-ItemProperty -Path 'HKCU:\\Control Panel\\Desktop' -Name WinPos -Value 1")]
+    public void Rechaza_estrategias_ajenas_a_una_receta_de_ventana(
+        string comando)
+    {
+        Assert.True(
+            ControlWindows.EsEstrategiaInvalidaParaEstadoVentana(
+                comando));
+    }
+
+    [Fact]
+    public void Detecta_una_negativa_inventada_sobre_control_de_ventanas()
+    {
+        Assert.True(
+            ControlWindows.RespuestaNiegaControlEstadoVentana(
+                "No se puede maximizar la ventana por restricciones de seguridad."));
+    }
+
+    [Fact]
+    public void Reconoce_evidencia_estructurada_del_estado_de_una_ventana()
+    {
+        const string salida =
+            "PROCESS_NAME=msedge\r\nACTIVATED=True\r\nMAXIMIZED=True";
+
+        Assert.True(
+            ControlWindows.SalidaDemuestraEstadoVentana(salida));
+        Assert.True(
+            ControlWindows.SalidaCompletaPlanEstadoVentana(
+                new PlanTareasControl(
+                    [
+                        "maximiza la ventana de Microsoft Edge",
+                        "activa la ventana de Microsoft Edge"
+                    ],
+                    ["ventanas.estado"]),
+                salida));
     }
 
     [Fact]

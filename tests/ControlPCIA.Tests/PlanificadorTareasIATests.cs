@@ -65,6 +65,34 @@ public sealed class PlanificadorTareasIATests
     }
 
     [Fact]
+    public void Llama_puede_seleccionar_recetas_por_significado()
+    {
+        IReadOnlyList<string> conocimientos =
+            PlanificadorTareasIA.ExtraerConocimientos(
+                """
+                {"tareas":["poner Edge delante"],"conocimientos":["ventanas.estado","desconocida"]}
+                """);
+
+        Assert.Equal(["ventanas.estado"], conocimientos);
+    }
+
+    [Fact]
+    public void El_mismo_plan_puede_pedir_una_decision_personal()
+    {
+        Assert.Equal(
+            "¿Qué nombre quieres ponerle?",
+            PlanificadorTareasIA.ExtraerPreguntaPlan(
+                """
+                {"tareas":["crear un proyecto"],"conocimientos":[],"pregunta":"¿Qué nombre quieres ponerle?"}
+                """));
+        Assert.Null(
+            PlanificadorTareasIA.ExtraerPreguntaPlan(
+                """
+                {"tareas":["abrir Edge"],"conocimientos":["aplicaciones.abrir"],"pregunta":null}
+                """));
+    }
+
+    [Fact]
     public void Tolera_json_envuelto_pero_no_texto_sin_plan()
     {
         IReadOnlyList<string> tareas =
@@ -115,6 +143,8 @@ public sealed class PlanificadorTareasIATests
     [InlineData("¿Qué aplicaciones tengo abiertas?")]
     [InlineData("Dime qué cosas tengo abiertas")]
     [InlineData("Explícame por qué ha fallado")]
+    [InlineData(
+        "Entonces olvida ese proceso inexistente y dime qué programas con ventana tengo abiertos ahora.")]
     public void Reconoce_peticiones_informativas(string instruccion)
     {
         Assert.True(

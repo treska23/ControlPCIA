@@ -20,9 +20,11 @@ internal static class BaseRestriccionesPowerShell
         # instalar, configurar Windows, usar registro, servicios, red, módulos,
         # ejecutables, APIs y automatización propia de las aplicaciones.
         #
-        # La automatización gráfica antigua (ControlPCIA ui, SendKeys,
-        # AppActivate y UIAutomation) no forma parte del producto: no es una
-        # cuarta restricción de seguridad, sino una interfaz retirada.
+        # La automatización gráfica antigua (ControlPCIA ui, SendKeys y
+        # UIAutomation) no forma parte del producto. AppActivate y las APIs
+        # Win32 para activar, maximizar, restaurar, minimizar, mover o cambiar
+        # el tamaño de una ventana superior sí están permitidas porque son
+        # invocables por consola y no simulan entrada del usuario.
 
         CMD|Remove-Item
         CMD|Clear-Content

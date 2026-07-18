@@ -12,6 +12,7 @@ la evidencia real.
 móvil
 → voz o texto
 → Ollama / qwen3:8b
+→ tareas + selección semántica de receta conocida
 → comando PowerShell
 → validador local
 → proceso PowerShell
@@ -19,8 +20,10 @@ móvil
 → siguiente paso o respuesta al móvil
 ```
 
-No existe una función programada para cada acción. Tampoco se usan capturas,
-OCR, reconocimiento gráfico, TextBox, ratón, teclado simulado ni UI Automation.
+No existe una función ni una comparación literal por cada frase. Llama traduce
+distintas formas de pedir lo mismo y selecciona recetas de comandos
+reutilizables. Tampoco se usan capturas, OCR, reconocimiento gráfico, TextBox,
+ratón, teclado simulado ni UI Automation.
 
 ## Política definitiva
 
@@ -38,8 +41,10 @@ aplicaciones.
 
 La política analiza el AST completo, incluidos bloques anidados. Los mecanismos
 codificados o dinámicos se rechazan sólo cuando impedirían comprobar las tres
-prohibiciones. También se rechazan `SendKeys`, `AppActivate`,
-`ControlPCIA.exe ui` y UI Automation porque esa arquitectura fue retirada.
+prohibiciones. También se rechazan `SendKeys`, `ControlPCIA.exe ui` y UI
+Automation porque esa arquitectura fue retirada. `AppActivate` y las APIs
+Win32 de estado de ventanas superiores están permitidas para activar, traer al
+frente, maximizar, restaurar, minimizar, mover y redimensionar.
 
 Se eliminaron los bloqueos heredados que exigían:
 
@@ -87,6 +92,14 @@ al modelo que repita `Copy-Item` con el destino exacto. Una creación por
 plantilla queda comprobada cuando el destino existe y se abre correctamente;
 Llama ya no puede contradecir después ese resultado.
 
+El planificador selecciona además conocimientos integrados por significado:
+`ventanas.estado`, `aplicaciones.abrir`, `aplicaciones.inventario`,
+`archivos.buscar` y `archivos.abrir`. Una petición conocida usa el camino corto
+traducir → adaptar receta → ejecutar → verificar. Una desconocida investiga por
+consola y, si funciona, se convierte en memoria reutilizable. Para una receta de
+ventana se rechazan estrategias que cierren el proceso, abran otra aplicación,
+toquen el registro o simulen teclas, porque no corresponden a la intención.
+
 ## Aplicación móvil
 
 La app .NET MAUI para Android es la experiencia principal. Incluye:
@@ -96,7 +109,10 @@ La app .NET MAUI para Android es la experiencia principal. Incluye:
 - un único control de voz para Wake-on-LAN y órdenes normales;
 - modo tocar–hablar–tocar y modo mantener pulsado;
 - envío automático al finalizar la voz;
-- estados visibles, contador, transcripción parcial y respuesta háptica;
+- estados de color y texto: verde al escuchar, ámbar al transcribir y violeta
+  mientras Llama decide, además de contador, texto parcial y respuesta háptica;
+- Cancelar descarta la escucha sin enviar y absorbe errores tardíos del
+  reconocedor nativo en vez de cerrar la aplicación;
 - entrada de texto y conversación temporal con contexto;
 - preguntas de aclaración cuando falta una decisión personal;
 - errores reales de PowerShell visibles en el móvil.
@@ -114,7 +130,7 @@ automático o salir.
 
 ## Verificaciones actuales
 
-- 212 pruebas automatizadas correctas en Release.
+- 242 pruebas automatizadas correctas en Release.
 - Matriz positiva explícita para lectura, escritura, creación, copia,
   sobrescritura, descargas, instalación, registro, servicios, red, Defender,
   apagado/reinicio, WMI/CIM, intérpretes, .NET y COM.
@@ -123,18 +139,18 @@ automático o salir.
 - Creación real de proyectos Cubase comprobada sólo por consola.
 - Reutilización real de la memoria comprobada sin repetir descubrimiento.
 - Instancias de Cubase abiertas durante las pruebas cerradas al terminar.
-- APK Android 1.4.1 (código 7) publicado, SHA-256
-  `BA1C6C62A3F93FA5CE32AEE74A3B0BB07F11D1C28812BB2382ED5693C12A5D42`
+- APK Android 1.4.2 (código 8) publicado, SHA-256
+  `0968785F200FE07B2D201ADED0F3EF98683DCE9F397FF9B8E714DAC33110961A`
   y firma v1, v2 y v3 verificada.
 - Descarga del APK publicada por el propio agente en
-  `http://192.168.1.15:5187/app-android.apk`: HTTP 200, 29.637.773 bytes,
+  `http://192.168.1.15:5187/app-android.apk`: HTTP 200, 29.964.392 bytes,
   tipo Android correcto y hash idéntico al APK firmado. El service worker no
   intercepta ni cachea esta ruta.
 - Aplicación Android 1.3.1 probada previamente en Samsung SM-S928B con
   descubrimiento, emparejado, ambos modos de micrófono y Wake-on-LAN por voz.
-- Aplicación Android 1.4.1 instalada encima en el mismo Samsung mediante ADB
+- Aplicación Android 1.4.2 instalada encima en el mismo Samsung mediante ADB
   `install -r`: conserva la fecha de primera instalación y los datos, declara
-  código 7, alcanza `192.168.1.15:5187` desde Android y arranca sin excepciones
+  código 8, alcanza `192.168.1.15:5187` desde Android y arranca sin excepciones
   fatales.
 - Agente Release actualizado en
   `%LOCALAPPDATA%\ControlPCIA\App`, hash idéntico al publicado, HTTP 200 en
@@ -144,7 +160,7 @@ automático o salir.
 
 - [x] Ejecutar pruebas y compilación Release completas tras estos cambios.
 - [x] Publicar e instalar el agente residente actualizado.
-- [x] Instalar APK 1.4.1 en el móvil conservando datos.
+- [x] Instalar APK 1.4.2 en el móvil conservando datos.
 - [ ] Verificar desde el móvil una conversación con error real y continuación.
 - [ ] Probar Wake-on-LAN con el PC realmente apagado.
 - [ ] Compilar y firmar iOS desde un Mac.
