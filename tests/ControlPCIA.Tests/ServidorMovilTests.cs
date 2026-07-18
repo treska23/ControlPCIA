@@ -42,15 +42,20 @@ public sealed class ServidorMovilTests
                 {
                     traducciones++;
                     return Task.FromResult(
-                        new ResultadoTraduccionControl(
-                            "comando_propuesto",
-                            new PlanTareasControl(
-                                ["abrir la calculadora"]),
-                            ["aplicaciones.abrir"],
-                            "Start-Process calc.exe",
-                            "Start-Process calc.exe",
-                            true,
-                            "Comando permitido."));
+                        new ResultadoControl(
+                            false,
+                            "prueba_sin_ejecucion",
+                            "No se ha ejecutado ningún comando.",
+                            [
+                                new ResultadoPasoControl(
+                                    1,
+                                    "Start-Process calc.exe",
+                                    false,
+                                    0,
+                                    string.Empty,
+                                    string.Empty)
+                            ],
+                            false));
                 });
 
         Assert.Equal(0, controles);
@@ -123,17 +128,12 @@ public sealed class ServidorMovilTests
                 {
                     Assert.Single(contexto!);
                     return Task.FromResult(
-                        new ResultadoTraduccionControl(
-                            "requiere_aclaracion",
-                            new PlanTareasControl(
-                                [],
-                                Pregunta:
-                                    "¿Qué proyecto quieres abrir?"),
-                            [],
-                            "¿Qué proyecto quieres abrir?",
-                            null,
+                        new ResultadoControl(
                             false,
-                            "¿Qué proyecto quieres abrir?"));
+                            "requiere_aclaracion",
+                            "¿Qué proyecto quieres abrir?",
+                            [],
+                            false));
                 });
 
         Assert.False(resultado.Completado);

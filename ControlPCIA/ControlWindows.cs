@@ -15,7 +15,8 @@ internal static class ControlWindows
         string instruccion,
         Action<EventoControl>? informar = null,
         IReadOnlyList<MensajeConversacionControl>? contextoConversacion = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool soloTraducir = false)
     {
         if (string.IsNullOrWhiteSpace(instruccion))
         {
@@ -44,21 +45,8 @@ internal static class ControlWindows
             new EventoControl(
                 "pensando",
                 "La IA está entendiendo y planificando la orden."));
-        PlanTareasControl plan =
-            await PlanificadorTareasIA.CrearAsync(
-                instruccion,
-                contexto,
-                cancellationToken);
-
-        if (!string.IsNullOrWhiteSpace(plan.Pregunta))
-        {
-            return Finalizar(
-                false,
-                "requiere_aclaracion",
-                plan.Pregunta,
-                [],
-                informar);
-        }
+        var plan = new PlanTareasControl(
+            [instruccion.Trim()]);
 
         int maximoPasos =
             CalcularMaximoPasos(plan.Tareas.Count);
@@ -78,294 +66,28 @@ internal static class ControlWindows
                 informar,
                 cancellationToken);
 
-        if (TraductorRecetasConocidas.PuedeResolverPlan(plan))
-        {
-            return await ControlarConRecetaConocidaAsync(
-                instruccion,
-                plan,
-                recetas,
-                informar,
-                cancellationToken);
-        }
-
         IReadOnlyList<string> recursosAprendidos =
             ObtenerOrigenesCopyItemAprendidos(recetas);
         IReadOnlyList<string> carpetasAprendidas =
             ObtenerCarpetasAplicacionesAprendidas(recetas);
-
         string memoriaLocal = CrearResumenRecetas(recetas);
-        string aplicacionesRegistradas =
-            await ObtenerNombresAplicacionesAsync(
-                cancellationToken);
-        string raicesBusqueda =
-            string.Join(
-                Environment.NewLine,
-                ValidadorPowerShell
-                    .ObtenerRaicesBusquedaPermitidas()
-                    .Select(ruta => "- " + ruta));
-        string carpetasDatos =
-            string.Join(
-                Environment.NewLine,
-                ObtenerCarpetasDatosSugeridas()
-                    .Select(ruta => "- " + ruta));
-        string carpetasAplicaciones =
-            string.Join(
-                Environment.NewLine,
-                ObtenerCarpetasAplicacionesSugeridas()
-                    .Select(ruta => "- " + ruta));
         var mensajes = new List<MensajeOllama>
         {
             new(
                 "system",
                 """
-                Eres un agente que controla un PC con Windows mediante comandos
-                PowerShell. Interpreta la petición natural del usuario y genera
-                el comando de consola necesario. No existe un catálogo de acciones:
-                debes razonar qué comandos de Windows resuelven cada petición.
+                Traduce lo que diga el usuario a un comando de consola
+                PowerShell para Windows. Devuelve únicamente el comando.
 
-                SEPARACIÓN DE RESPONSABILIDADES:
+                Si no sabes qué comando corresponde, búscalo en la lista de
+                comandos aprendidos que recibas, investígalo mediante la propia
+                consola PowerShell o búscalo en Internet mediante comandos de
+                consola.
 
-                - Tú sólo investigas y propones un comando literal de PowerShell
-                  por paso. No ejecutas acciones por tu cuenta ni simulas haberlas
-                  realizado.
-                - ControlPCIA valida el comando con una política independiente,
-                  lo ejecuta en un proceso PowerShell externo y te devuelve su
-                  salida, error y código de salida reales.
-                - Nunca afirmes que algo se hizo sólo porque propusiste el comando.
-
-                FUNCIONAMIENTO:
-
-                - Genera UN comando PowerShell por paso.
-                - Devuelve únicamente el comando, sin Markdown ni explicación.
-                - La petición incluye una lista de tareas preparada por la IA.
-                  Conserva esa lista durante toda la ejecución. No respondas FIN
-                  mientras quede una sola tarea sin un comando que la realice.
-                  Abrir una aplicación no completa otra acción pedida dentro de
-                  ella.
-                - Recibirás stdout, stderr y el código de salida reales para
-                  decidir el siguiente paso. Si stdout contiene el resultado
-                  pedido, responde FIN inmediatamente; no inventes otra
-                  consulta ni escribas una explicación como si fuera comando.
-                - Cuando la petición esté completamente realizada, responde FIN.
-                - Si la petición pide información o una explicación para el
-                  usuario, observa primero lo necesario y responde
-                  RESPONDER: seguido de una respuesta natural, breve y útil.
-                - Para saber qué aplicaciones o ventanas están abiertas, usa una
-                  consulta nativa de PowerShell como
-                  `Get-Process | Where-Object MainWindowTitle | Select-Object ProcessName,MainWindowTitle`.
-                  No uses reconocimiento gráfico ni inspección visual de pantalla.
-                - Si no existe una forma permitida de realizarla, responde
-                  SIN_COMANDO.
-                - Si la petición es ambigua o una acción permitida puede causar
-                  una interrupción importante, no ejecutes nada todavía: responde
-                  CONFIRMAR: seguido de una pregunta breve y concreta.
-                - Si falta un dato que sólo puede decidir el usuario, responde
-                  PREGUNTAR: seguido de una única pregunta concreta. Antes de
-                  preguntar, consulta la memoria, Windows y los valores
-                  predeterminados de la aplicación. No preguntes por una ruta,
-                  nombre o aplicación que ya figure en la petición o en el
-                  contexto de conversación.
-                - Si la petición indica que el usuario confirma explícitamente
-                  una orden pendiente, no vuelvas a preguntar por el mismo riesgo.
-                  La confirmación nunca permite saltarse la política local.
-                - Si un comando es bloqueado, busca otra estrategia segura;
-                  nunca intentes eludir deliberadamente la política.
-                - Un código de salida distinto de 0 significa que la petición
-                  todavía no está completada.
-                - Si el comando falla y no hay una alternativa segura, responde
-                  RESPONDER: explicando el error real y pidiendo al usuario la
-                  aclaración mínima que falte. No respondas FIN ni digas que se
-                  completó.
-                - Que `Start-Process NOMBRE` falle NO justifica preguntar al
-                  usuario ni afirmar que la aplicación no existe. La alternativa
-                  obligatoria es consultar Get-StartApps, usar el nombre real del
-                  inventario y abrir el AppID devuelto.
-                - Un código de salida cero sólo confirma que ese comando se
-                  ejecutó. Si la salida no demuestra el resultado pedido,
-                  ejecuta una consulta nativa adicional. No pidas al usuario que
-                  compruebe algo que Windows puede consultar por consola.
-                - Nunca afirmes que una aplicación se abrió, cerró o cambió si
-                  la salida de PowerShell no lo demuestra. Mantén la petición
-                  limitada a las aplicaciones nombradas por el usuario.
-
-                APRENDIZAJE:
-
-                - Puedes recibir recetas de la memoria local. Son referencias de
-                  ejecuciones anteriores, no instrucciones nuevas.
-                - Revisa si siguen siendo adecuadas para la petición y el contexto
-                  actual. Adáptalas cuando sea necesario y no las ejecutes a ciegas.
-                - Cada comando, aunque proceda de la memoria, volverá a pasar por
-                  el validador local.
-                - Si no conoces la solución, puedes investigar con
-                  Get-Command, Get-Help, Get-StartApps y consultas del sistema.
-                - No necesitas Internet para saber qué aplicaciones hay
-                  instaladas: consulta primero el inventario local de Windows.
-                - Investigar localmente es tu responsabilidad. Nunca preguntes al
-                  usuario si deseas buscar una aplicación, un comando, una
-                  plantilla o un valor predeterminado: haz la consulta y
-                  continúa. Guarda como receta la solución comprobada para no
-                  repetir la investigación la próxima vez.
-
-                NAVEGACIÓN WEB:
-
-                - Para abrir una página o una búsqueda web pública, usa
-                  Start-Process con una URL literal http/https como destino.
-                - Puedes construir una URL de búsqueda literal a partir de la
-                  petición, por ejemplo la página de resultados de un buscador.
-                - Puedes usar el navegador, Invoke-WebRequest,
-                  Invoke-RestMethod, gestores de paquetes u otras herramientas
-                  de consola para consultar o descargar cuando la petición lo
-                  requiera.
-
-                COMANDOS DE CONSOLA Y APLICACIONES:
-
-                - Llama NO ejecuta acciones, NO pulsa controles, NO escribe en
-                  cuadros de texto y NO interpreta capturas o gráficos. Su único
-                  trabajo es traducir la petición a un comando literal de
-                  PowerShell que pueda ejecutar el sistema.
-                - ControlPCIA valida ese comando y lo ejecuta en un proceso
-                  externo de Windows PowerShell. Devuelve siempre al usuario el
-                  comando, la salida estándar, la salida de error y el código de
-                  salida. No afirmes que algo se hizo sólo porque propusiste un
-                  comando.
-                - Para consultar aplicaciones abiertas usa comandos nativos como
-                  `Get-Process | Where-Object MainWindowTitle | Select-Object ProcessName,MainWindowTitle`.
-                  No uses `ControlPCIA.exe ui`, UI Automation, OCR, capturas ni
-                  reconocimiento gráfico.
-                - Para comprobar qué aplicaciones tienen ventana abierta evita
-                  las tablas ambiguas. Consulta procesos y publica literalmente:
-                  `Get-Process | Where-Object MainWindowTitle | ForEach-Object { Write-Output ('PROCESS_NAME=' + $_.ProcessName); Write-Output ('WINDOW_TITLE=' + $_.MainWindowTitle) }`.
-                - Para localizar archivos puedes usar `Get-ChildItem` en
-                  cualquier unidad local. Cuando haya muchos resultados, es
-                  conveniente limitar y publicar rutas completas, por ejemplo:
-                  `Select-Object -First 20 | ForEach-Object { Write-Output
-                  ('FULL_NAME=' + $_.FullName); Write-Output ('LENGTH=' +
-                  $_.Length); Write-Output ('LAST_WRITE_TIME=' +
-                  $_.LastWriteTime) }`.
-                  Puedes usar rutas literales, variables de entorno y las
-                  herramientas normales de PowerShell. Si el usuario pide leer,
-                  buscar dentro, resumir o transformar contenido, está
-                  permitido.
-                - El usuario no tiene que pronunciar el nombre registrado
-                  exactamente. Deduce la aplicación por el significado de sus
-                  palabras y después consulta Windows para resolver el nombre
-                  real. No confundas una variación del nombre con una aplicación
-                  inexistente.
-                - Si necesitas abrir una aplicación, consulta primero
-                  `Get-StartApps` filtrando por el nombre deducido y excluyendo
-                  resultados cuyo Name sea "Desinstalar" o "Uninstall". Para
-                  evitar tablas ambiguas, publica cada coincidencia como dos
-                  líneas `APP_NAME=...` y `APP_ID=...`. Usa el Name y AppID
-                  reales devueltos. En el siguiente paso puedes abrir ese AppID
-                  literal con
-                  `explorer.exe 'shell:AppsFolder\APPID_DEVUELTO'`.
-                  Nunca inventes un ejecutable ni solicites una ruta al usuario
-                  antes de haber consultado Get-StartApps y el registro de
-                  programas instalados.
-                - REGLA OBLIGATORIA: si una receta verificada ya contiene un
-                  AppID literal, úsalo directamente y no repitas Get-StartApps.
-                  Si no hay receta y Get-StartApps devuelve una fila cuyo AppID
-                  es X, el siguiente comando de apertura es exactamente
-                  `explorer.exe 'shell:AppsFolder\X'`, sustituyendo X por todo el
-                  AppID literal recibido. No uses el valor Name como FilePath,
-                  no añadas ArgumentList y no adivines un nombre `.exe`.
-                - Para iniciar, cerrar o controlar una aplicación usa sólo
-                  comandos propios de Windows o interfaces documentadas que
-                  puedan invocarse íntegramente desde consola: su CLI,
-                  cmdlets, API o protocolo URI con parámetros reales.
-                - La política es de denegación concreta, no un catálogo de
-                  funciones permitidas. Puedes usar comandos y parámetros
-                  normales de una aplicación aunque no aparezcan en los
-                  ejemplos de este mensaje.
-                - Puedes iniciar una aplicación por su ruta ejecutable local y
-                  pasarle argumentos literales. También puedes usar módulos,
-                  cmdlets o una API COM documentada de la propia aplicación.
-                - Activar, traer al frente, maximizar, restaurar, minimizar,
-                  mover o redimensionar una ventana superior ESTÁ PERMITIDO.
-                  Hazlo desde PowerShell con `WScript.Shell.AppActivate` o con
-                  APIs Win32 invocables desde consola como `ShowWindowAsync`,
-                  `SetForegroundWindow` y `SetWindowPos`, usando el
-                  `MainWindowHandle` obtenido mediante `Get-Process`. Estas
-                  operaciones no simulan teclado ni ratón y no requieren
-                  reconocimiento gráfico. Nunca respondas que las restricciones
-                  impiden controlar el estado de una ventana.
-                - Para cambiar el estado de una ventana, selecciona un único
-                  proceso con `MainWindowHandle -ne 0`. Nunca detengas, cierres
-                  ni reinicies el proceso para maximizarlo, minimizarlo,
-                  restaurarlo o activarlo. `WScript.Shell.AppActivate` recibe el
-                  Id del proceso, NO su `MainWindowHandle`.
-                - Puedes declarar por `Add-Type` las APIs `ShowWindowAsync`,
-                  `IsZoomed`, `IsIconic`, `SetForegroundWindow` y `SetWindowPos`.
-                  Los valores Win32 son 3 para maximizar, 6 para minimizar y 9
-                  para restaurar. Realiza en un solo comando todos los cambios
-                  de ventana solicitados y publica evidencia literal como
-                  `PROCESS_NAME=...`, `ACTIVATED=True`,
-                  `MAXIMIZED=True`, `MINIMIZED=True` o `RESTORED=True`.
-                - Si el usuario pide crear, guardar, importar o exportar un
-                  documento o proyecto dentro de una aplicación, esa operación
-                  normal está permitida cuando la aplicación ofrezca una CLI,
-                  cmdlet, API o protocolo real para hacerlo.
-                - Una receta que sólo abre una aplicación no completa una tarea
-                  de creación. Para crear contenido, produce primero el archivo
-                  o proyecto mediante plantilla, CLI o API y abre después el
-                  resultado. No abras la aplicación por sí sola esperando poder
-                  manipular luego su interfaz.
-                - También puedes crear contenido nuevo desde una plantilla
-                  existente: crea una carpeta de datos
-                  con `New-Item -Path 'RUTA_NUEVA' -ItemType Directory
-                  -ErrorAction Stop`, copia el archivo de plantilla mediante
-                  `Copy-Item -LiteralPath 'PLANTILLA' -Destination
-                  'ARCHIVO_NUEVO' -ErrorAction Stop` y abre el archivo nuevo.
-                  Busca primero la plantilla real por consola; no inventes rutas.
-                  Esta vía sirve de forma general para proyectos basados en
-                  plantillas y no debe codificarse como una función por programa.
-                - Están prohibidos `SendKeys`, atajos de teclado,
-                  `ControlPCIA.exe ui`, UI Automation, OCR, capturas, búsqueda
-                  de controles y cualquier simulación de ratón o teclado.
-                - No confundas "se ejecuta desde PowerShell" con "es una acción
-                  de consola": invocar desde PowerShell un mecanismo que simula
-                  teclado o manipula la interfaz sigue estando prohibido.
-                - Si la aplicación no expone un comando, API o protocolo capaz
-                  de realizar una acción interna, no la simules. Responde
-                  `LIMITACION:` explicando que esa parte concreta no puede
-                  ejecutarse sólo mediante comandos de consola. Puedes completar
-                  antes las demás tareas que sí tengan comandos verificables.
-                - No inventes una CLI, un argumento ni una API y no uses
-                  reconocimiento gráfico.
-                - Un código de salida cero sólo demuestra que PowerShell terminó
-                  sin error. Si la salida está vacía o no prueba el resultado,
-                  responde `RESPONDER:` indicando qué se ejecutó y pide al usuario
-                  que aclare el resultado esperado o el siguiente paso.
-                - Si PowerShell devuelve un error o código distinto de cero,
-                  responde `RESPONDER:` con el error real, sin ocultarlo, y pide
-                  una aclaración mínima. El usuario puede continuar la
-                  conversación y Llama recibirá el contexto anterior.
-                - No intentes detectar, guardar ni descartar trabajo mediante la
-                  interfaz. Solicita un cierre normal y comprueba después el
-                  proceso por consola. Si sigue abierto por un diálogo interno,
-                  explica ese límite al usuario.
-                SEGURIDAD:
-
-                - Sólo hay tres prohibiciones sobre el equipo: no elimines
-                  elementos o contenido; no muevas ni cortes elementos; y no
-                  formatees, limpies ni reinicialices discos o unidades.
-                  Renombrar sin cambiar la ubicación está permitido.
-                - Todo lo demás que pueda invocarse por consola está permitido:
-                  leer, buscar, crear, copiar, sobrescribir, abrir, guardar,
-                  descargar, instalar, configurar Windows, usar el registro,
-                  servicios, red, módulos, ejecutables, intérpretes, APIs y
-                  automatización propia de las aplicaciones.
-                - No ocultes ni construyas dinámicamente una de las tres
-                  operaciones prohibidas para sortear el validador.
-
-                Puedes utilizar otros comandos PowerShell para controlar
-                aplicaciones, ventanas, audio, multimedia, pantallas y la interfaz
-                de Windows. La política local analizará cada comando antes de
-                ejecutarlo.
-
-                Nunca inventes rutas de aplicaciones. Si necesitas descubrir cómo
-                está registrada una aplicación, consulta Windows con Get-StartApps
-                o con otros comandos de consulta seguros.
+                Sólo hay tres restricciones:
+                1. No eliminar elementos ni contenido.
+                2. No mover ni cortar elementos.
+                3. No formatear, limpiar ni reinicializar discos o unidades.
                 """)
         };
 
@@ -383,47 +105,9 @@ internal static class ControlWindows
 
                 {instruccion.Trim()}
 
-                TODAS LAS TAREAS QUE DEBEN COMPLETARSE:
-
-                {plan.Formatear()}
-
-                NOMBRES DE APLICACIONES REGISTRADAS POR WINDOWS:
-
-                {aplicacionesRegistradas}
-
-                UNIDADES LOCALES AUTORIZADAS PARA LOCALIZAR ARCHIVOS:
-
-                {raicesBusqueda}
-
-                CARPETAS DE DATOS EXISTENTES SUGERIDAS PARA CONTENIDO NUEVO:
-
-                {carpetasDatos}
-
-                CARPETAS EXISTENTES DONDE LAS APLICACIONES GUARDAN PLANTILLAS:
-
-                {carpetasAplicaciones}
-
-                CARPETAS RELACIONADAS DEDUCIDAS DE RECETAS APRENDIDAS:
-
-                {(carpetasAprendidas.Count == 0
-                    ? "- Ninguna para esta petición."
-                    : string.Join(
-                        Environment.NewLine,
-                        carpetasAprendidas.Select(ruta => "- " + ruta)))}
-
-                RECURSOS REUTILIZABLES COMPROBADOS EN RECETAS:
-
-                {(recursosAprendidos.Count == 0
-                    ? "- Ninguno para esta petición."
-                    : string.Join(
-                        Environment.NewLine,
-                        recursosAprendidos.Select(ruta => "- " + ruta)))}
-
-                RECETAS LOCALES RELACIONADAS:
+                COMANDOS APRENDIDOS RELACIONADOS:
 
                 {memoriaLocal}
-
-                Decide el primer paso necesario.
                 """));
 
         var pasos = new List<ResultadoPasoControl>();
@@ -1274,6 +958,48 @@ internal static class ControlWindows
                     continue;
                 }
 
+                ResultadoValidacionPowerShell procedencia =
+                    ValidarProcedenciaInicioGeneral(
+                        comando,
+                        pasos,
+                        recetas);
+
+                if (!procedencia.Permitido)
+                {
+                    var pasoSinProcedencia = new ResultadoPasoControl(
+                        pasos.Count + 1,
+                        comando,
+                        false,
+                        -1,
+                        string.Empty,
+                        "NO EJECUTADO: " + procedencia.Motivo);
+                    pasos.Add(pasoSinProcedencia);
+                    Informar(
+                        informar,
+                        new EventoControl(
+                            "bloqueado",
+                            pasoSinProcedencia.Error,
+                            comando,
+                            pasoSinProcedencia));
+                    mensajes.Add(
+                        new MensajeOllama(
+                            "assistant",
+                            comando));
+                    mensajes.Add(
+                        new MensajeOllama(
+                            "user",
+                            $"""
+                            PROPUESTA NO EJECUTADA POR FALTA DE PROCEDENCIA:
+                            {procedencia.Motivo}
+                            Investiga primero con Get-StartApps, Get-Command,
+                            Get-Help, el registro o una receta. Publica la ruta
+                            como EXECUTABLE_PATH= y cualquier opción de CLI en
+                            stdout antes de usarla. No inventes ejecutables ni
+                            argumentos.
+                            """));
+                    continue;
+                }
+
                 Informar(
                     informar,
                     new EventoControl(
@@ -1326,6 +1052,28 @@ internal static class ControlWindows
                         "comando",
                         "La IA ha propuesto un comando.",
                         comando));
+
+                if (soloTraducir)
+                {
+                    var propuesta = new ResultadoPasoControl(
+                        pasos.Count + 1,
+                        comando,
+                        false,
+                        0,
+                        string.Empty,
+                        string.Empty);
+                    pasos.Add(propuesta);
+
+                    return Finalizar(
+                        false,
+                        "prueba_sin_ejecucion",
+                        "Modo de prueba seguro: Llama ha preparado y "
+                        + "validado el primer comando para "
+                        + string.Join("; ", plan.Tareas)
+                        + ". No se ha ejecutado ningún comando en el PC.",
+                        pasos,
+                        informar);
+                }
 
                 ResultadoEjecucionPowerShell ejecucion =
                     await EjecutorPowerShell.EjecutarAsync(
@@ -1784,6 +1532,59 @@ internal static class ControlWindows
             respuestaModelo,
             validacion.Permitido,
             validacion.Motivo);
+    }
+
+    internal static ResultadoControl CrearResultadoPrueba(
+        ResultadoTraduccionControl traduccion,
+        Action<EventoControl>? informar = null)
+    {
+        const string sinEjecucion =
+            " No se ha ejecutado ningún comando en el PC.";
+
+        if (traduccion.Estado.Equals(
+                "requiere_aclaracion",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return Finalizar(
+                false,
+                "requiere_aclaracion",
+                traduccion.Motivo + sinEjecucion,
+                [],
+                informar);
+        }
+
+        if (!traduccion.Permitido
+            || string.IsNullOrWhiteSpace(traduccion.Comando))
+        {
+            return Finalizar(
+                false,
+                "prueba_sin_ejecucion",
+                "Modo de prueba seguro: "
+                + traduccion.Motivo
+                + sinEjecucion,
+                [],
+                informar);
+        }
+
+        string tareas = traduccion.Plan.Tareas.Count == 0
+            ? "la petición"
+            : string.Join("; ", traduccion.Plan.Tareas);
+        var pasoPropuesto = new ResultadoPasoControl(
+            1,
+            traduccion.Comando,
+            false,
+            0,
+            string.Empty,
+            string.Empty);
+
+        return Finalizar(
+            false,
+            "prueba_sin_ejecucion",
+            $"Modo de prueba seguro: he entendido {tareas} "
+            + "y he preparado un comando válido."
+            + sinEjecucion,
+            [pasoPropuesto],
+            informar);
     }
 
     private static async Task<ResultadoControl>
@@ -2266,7 +2067,206 @@ internal static class ControlWindows
             || Regex.IsMatch(
                 comando,
                 @"^\s*explorer(?:\.exe)?\s+['""]shell:AppsFolder\\",
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    internal static ResultadoValidacionPowerShell
+        ValidarProcedenciaInicioGeneral(
+            string comando,
+            IReadOnlyList<ResultadoPasoControl> pasos,
+            IReadOnlyList<RecetaReferencia> recetas)
+    {
+        if (!EsInicioAplicacion(comando))
+        {
+            return new ResultadoValidacionPowerShell(
+                true,
+                "El comando no inicia una aplicación o archivo.");
+        }
+
+        string normalizado = comando.Trim();
+
+        if (recetas.Any(receta =>
+                receta.Comandos.Any(aprendido =>
+                    aprendido.Trim().Equals(
+                        normalizado,
+                        StringComparison.Ordinal))))
+        {
+            return new ResultadoValidacionPowerShell(
+                true,
+                "El comando coincide con una receta verificada.");
+        }
+
+        Match url = Regex.Match(
+            comando,
+            """
+            (?:^|[;|]\s*)Start-Process\b[^\r\n;|]*?
+            (?:"(?<doble>https?://[^"]+)"|'(?<simple>https?://[^']+)')
+            """,
+            RegexOptions.IgnoreCase
+            | RegexOptions.CultureInvariant
+            | RegexOptions.IgnorePatternWhitespace);
+
+        if (url.Success)
+        {
+            return new ResultadoValidacionPowerShell(
+                true,
+                "La URL pública es literal.");
+        }
+
+        Match appId = Regex.Match(
+            comando,
+            """
+            ^\s*explorer(?:\.exe)?\s+
+            (?:"shell:AppsFolder\\(?<doble>[^"]+)"|'shell:AppsFolder\\(?<simple>[^']+)')
+            \s*$
+            """,
+            RegexOptions.IgnoreCase
+            | RegexOptions.CultureInvariant
+            | RegexOptions.IgnorePatternWhitespace);
+
+        if (appId.Success)
+        {
+            string literal = appId.Groups["doble"].Success
+                ? appId.Groups["doble"].Value
+                : appId.Groups["simple"].Value;
+
+            return ApareceEnSalidaEstructurada(
+                    pasos,
+                    "APP_ID=",
+                    literal)
+                ? new ResultadoValidacionPowerShell(
+                    true,
+                    "El AppID apareció en stdout real.")
+                : new ResultadoValidacionPowerShell(
+                    false,
+                    "El AppID no apareció en stdout ni en una receta verificada.");
+        }
+
+        Match inicio = Regex.Match(
+            comando,
+            """
+            (?:^|[;|]\s*)Start-Process\b
+            (?:
+                [^\r\n;|]*?-FilePath(?:\s+|:)
+                (?:"(?<doble>[^"]+)"|'(?<simple>[^']+)'|(?<libre>[^\s;|]+))
+                |
+                \s+(?:"(?<doblePos>[^"]+)"|'(?<simplePos>[^']+)'|(?<librePos>[^\s;|]+))
+            )
+            """,
+            RegexOptions.IgnoreCase
+            | RegexOptions.CultureInvariant
+            | RegexOptions.IgnorePatternWhitespace);
+
+        if (!inicio.Success)
+        {
+            return new ResultadoValidacionPowerShell(
+                false,
+                "No se pudo aislar un destino literal de Start-Process.");
+        }
+
+        string destino =
+            inicio.Groups["doble"].Success
+                ? inicio.Groups["doble"].Value
+                : inicio.Groups["simple"].Success
+                    ? inicio.Groups["simple"].Value
+                    : inicio.Groups["libre"].Success
+                        ? inicio.Groups["libre"].Value
+                        : inicio.Groups["doblePos"].Success
+                            ? inicio.Groups["doblePos"].Value
+                            : inicio.Groups["simplePos"].Success
+                                ? inicio.Groups["simplePos"].Value
+                                : inicio.Groups["librePos"].Value;
+
+        bool destinoComprobado =
+            Path.IsPathRooted(destino)
+            && File.Exists(destino)
+            || ApareceEnSalidaEstructurada(
+                pasos,
+                "EXECUTABLE_PATH=",
+                destino)
+            || ApareceEnSalidaEstructurada(
+                pasos,
+                "FULL_NAME=",
+                destino)
+            || pasos.Any(paso =>
+                paso.Ejecutado
+                && paso.CodigoSalida == 0
+                && TryObtenerDestinoCopyItem(
+                    paso.Comando,
+                    out string creado)
+                && creado.Equals(
+                    destino,
+                    StringComparison.OrdinalIgnoreCase));
+
+        if (!destinoComprobado)
+        {
+            return new ResultadoValidacionPowerShell(
+                false,
+                $"El destino '{destino}' no apareció en stdout, no existe como ruta literal y no procede de una receta.");
+        }
+
+        string[] parametrosPowerShell =
+        [
+            "-FilePath",
+            "-ArgumentList",
+            "-PassThru",
+            "-Wait",
+            "-WindowStyle",
+            "-WorkingDirectory",
+            "-ErrorAction",
+            "-Verb",
+            "-NoNewWindow"
+        ];
+        string[] opciones = Regex
+            .Matches(
+                comando,
+                @"(?<![\p{L}\p{N}_])(?<opcion>--?[A-Za-z][A-Za-z0-9_-]*)",
+                RegexOptions.CultureInvariant)
+            .Select(coincidencia =>
+                coincidencia.Groups["opcion"].Value)
+            .Where(opcion =>
+                !parametrosPowerShell.Contains(
+                    opcion,
+                    StringComparer.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        string evidencia = string.Join(
+            Environment.NewLine,
+            pasos
+                .Where(paso =>
+                    paso.Ejecutado
+                    && paso.CodigoSalida == 0)
+                .Select(paso => paso.Salida));
+        string? opcionSinProbar = opciones.FirstOrDefault(opcion =>
+            !evidencia.Contains(
+                opcion,
+                StringComparison.OrdinalIgnoreCase));
+
+        return opcionSinProbar is null
+            ? new ResultadoValidacionPowerShell(
+                true,
+                "El destino y las opciones de inicio tienen procedencia comprobada.")
+            : new ResultadoValidacionPowerShell(
+                false,
+                $"La opción de CLI '{opcionSinProbar}' no apareció en la ayuda o stdout real.");
+    }
+
+    private static bool ApareceEnSalidaEstructurada(
+        IReadOnlyList<ResultadoPasoControl> pasos,
+        string marcador,
+        string literal)
+    {
+        return pasos.Any(paso =>
+            paso.Ejecutado
+            && paso.CodigoSalida == 0
+            && paso.Salida
+                .Split(
+                    ["\r\n", "\n"],
+                    StringSplitOptions.RemoveEmptyEntries)
+                .Any(linea =>
+                    linea.Trim().Equals(
+                        marcador + literal,
+                        StringComparison.OrdinalIgnoreCase)));
     }
 
     internal static bool EsComandoCompatibleConModoConsola(string comando)
@@ -3461,11 +3461,28 @@ internal static class ControlWindows
                     .Select(appId => "APP_ID_LITERAL=" + appId));
     }
 
-    private static async Task<string> ObtenerNombresAplicacionesAsync(
-        CancellationToken cancellationToken)
+    internal static async Task<string> ObtenerNombresAplicacionesAsync(
+        bool soloTraducir,
+        CancellationToken cancellationToken,
+        Func<
+            string,
+            CancellationToken,
+            Task<ResultadoEjecucionPowerShell>>? ejecutarAsync = null)
     {
+        if (soloTraducir)
+        {
+            return
+                "Modo de prueba sin ejecución: propón Get-StartApps como "
+                + "primer comando si necesitas consultar el inventario.";
+        }
+
+        ejecutarAsync ??= static (comando, cancelacion) =>
+            EjecutorPowerShell.EjecutarAsync(
+                comando,
+                cancelacion);
+
         ResultadoEjecucionPowerShell resultado =
-            await EjecutorPowerShell.EjecutarAsync(
+            await ejecutarAsync(
                 "Get-StartApps | Where-Object { $_.Name -notmatch '^(Desinstalar|Uninstall|Remove)' } | Select-Object -ExpandProperty Name | Sort-Object -Unique",
                 cancellationToken);
 

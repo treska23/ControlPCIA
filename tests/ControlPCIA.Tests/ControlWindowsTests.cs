@@ -4,6 +4,127 @@ namespace ControlPCIA.Tests;
 
 public sealed class ControlWindowsTests
 {
+    [Fact]
+    public async Task Modo_seguro_no_ejecuta_el_inventario_previo()
+    {
+        int ejecuciones = 0;
+
+        string inventario =
+            await ControlWindows.ObtenerNombresAplicacionesAsync(
+                soloTraducir: true,
+                TestContext.Current.CancellationToken,
+                ejecutarAsync: (_, _) =>
+                {
+                    ejecuciones++;
+                    throw new InvalidOperationException(
+                        "El ejecutor no debe invocarse.");
+                });
+
+        Assert.Equal(0, ejecuciones);
+        Assert.Contains(
+            "sin ejecución",
+            inventario,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Resultado_de_prueba_nunca_marca_un_paso_ejecutado()
+    {
+        ResultadoControl resultado =
+            ControlWindows.CrearResultadoPrueba(
+                new ResultadoTraduccionControl(
+                    "comando_propuesto",
+                    new PlanTareasControl(
+                        ["abrir la calculadora"]),
+                    ["aplicaciones.abrir"],
+                    "Start-Process calc.exe",
+                    "Start-Process calc.exe",
+                    true,
+                    "Comando permitido."));
+
+        Assert.False(resultado.Completado);
+        Assert.Equal("prueba_sin_ejecucion", resultado.Estado);
+        Assert.All(
+            resultado.Pasos,
+            paso => Assert.False(paso.Ejecutado));
+    }
+
+    [Fact]
+    public void Rechaza_un_ejecutable_y_argumento_inventados()
+    {
+        ResultadoValidacionPowerShell resultado =
+            ControlWindows.ValidarProcedenciaInicioGeneral(
+                "Start-Process -FilePath 'Cubase.exe' -ArgumentList '-newproject','Demo'",
+                [],
+                []);
+
+        Assert.False(resultado.Permitido);
+        Assert.Contains(
+            "Cubase.exe",
+            resultado.Motivo,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Permite_ejecutable_y_opcion_observados_en_stdout()
+    {
+        ResultadoPasoControl descubrimiento = new(
+            1,
+            "Get-Command Cubase.exe",
+            true,
+            0,
+            "EXECUTABLE_PATH=C:\\Program Files\\Steinberg\\Cubase.exe\nOPTION=--new-project",
+            string.Empty);
+
+        ResultadoValidacionPowerShell resultado =
+            ControlWindows.ValidarProcedenciaInicioGeneral(
+                "Start-Process -FilePath 'C:\\Program Files\\Steinberg\\Cubase.exe' -ArgumentList '--new-project','Demo'",
+                [descubrimiento],
+                []);
+
+        Assert.True(resultado.Permitido, resultado.Motivo);
+    }
+
+    [Fact]
+    public void Permite_appid_y_archivo_observados_en_stdout()
+    {
+        ResultadoPasoControl aplicaciones = new(
+            1,
+            "Get-StartApps",
+            true,
+            0,
+            "APP_ID=Steinberg.Cubase_123!App",
+            string.Empty);
+        ResultadoPasoControl archivos = new(
+            2,
+            "Get-ChildItem",
+            true,
+            0,
+            "FULL_NAME=D:\\Proyectos\\Cancion.cpr",
+            string.Empty);
+
+        Assert.True(
+            ControlWindows.ValidarProcedenciaInicioGeneral(
+                "explorer.exe 'shell:AppsFolder\\Steinberg.Cubase_123!App'",
+                [aplicaciones],
+                []).Permitido);
+        Assert.True(
+            ControlWindows.ValidarProcedenciaInicioGeneral(
+                "Start-Process -FilePath 'D:\\Proyectos\\Cancion.cpr'",
+                [archivos],
+                []).Permitido);
+    }
+
+    [Fact]
+    public void Permite_una_url_literal_sin_inventario_local()
+    {
+        Assert.True(
+            ControlWindows.ValidarProcedenciaInicioGeneral(
+                "Start-Process 'https://www.youtube.com/results?search_query=prueba'",
+                [],
+                []).Permitido);
+    }
+
     [Theory]
     [InlineData(1, 24)]
     [InlineData(4, 24)]

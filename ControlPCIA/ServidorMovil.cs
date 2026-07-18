@@ -347,7 +347,7 @@ internal static class ServidorMovil
             string,
             IReadOnlyList<MensajeConversacionControl>?,
             CancellationToken,
-            Task<ResultadoTraduccionControl>>? traducirAsync = null)
+            Task<ResultadoControl>>? traducirAsync = null)
     {
         controlarAsync ??= static (instruccion, conversacion, cancelacion) =>
             ControlWindows.ControlarAsync(
@@ -364,70 +364,16 @@ internal static class ServidorMovil
         }
 
         traducirAsync ??= static (instruccion, conversacion, cancelacion) =>
-            ControlWindows.TraducirSinEjecutarAsync(
+            ControlWindows.ControlarAsync(
                 instruccion,
-                conversacion,
-                cancelacion);
+                contextoConversacion: conversacion,
+                cancellationToken: cancelacion,
+                soloTraducir: true);
 
-        ResultadoTraduccionControl traduccion =
-            await traducirAsync(
-                texto,
-                contexto,
-                cancellationToken);
-
-        return CrearResultadoPrueba(traduccion);
-    }
-
-    internal static ResultadoControl CrearResultadoPrueba(
-        ResultadoTraduccionControl traduccion)
-    {
-        const string sinEjecucion =
-            " No se ha ejecutado ningún comando en el PC.";
-
-        if (traduccion.Estado.Equals(
-                "requiere_aclaracion",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return new ResultadoControl(
-                false,
-                "requiere_aclaracion",
-                traduccion.Motivo + sinEjecucion,
-                [],
-                false);
-        }
-
-        if (!traduccion.Permitido
-            || string.IsNullOrWhiteSpace(traduccion.Comando))
-        {
-            return new ResultadoControl(
-                false,
-                "prueba_sin_ejecucion",
-                "Modo de prueba seguro: "
-                + traduccion.Motivo
-                + sinEjecucion,
-                [],
-                false);
-        }
-
-        string tareas = traduccion.Plan.Tareas.Count == 0
-            ? "la petición"
-            : string.Join("; ", traduccion.Plan.Tareas);
-        var pasoPropuesto = new ResultadoPasoControl(
-            1,
-            traduccion.Comando,
-            false,
-            0,
-            string.Empty,
-            string.Empty);
-
-        return new ResultadoControl(
-            false,
-            "prueba_sin_ejecucion",
-            $"Modo de prueba seguro: he entendido {tareas} "
-            + "y he preparado un comando válido."
-            + sinEjecucion,
-            [pasoPropuesto],
-            false);
+        return await traducirAsync(
+            texto,
+            contexto,
+            cancellationToken);
     }
 
     internal static bool EsDireccionPermitida(IPAddress? direccion)

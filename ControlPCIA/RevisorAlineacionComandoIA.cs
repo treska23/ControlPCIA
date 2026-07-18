@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Management.Automation.Language;
 
 namespace ControlPCIA;
 
@@ -31,6 +32,13 @@ internal static class RevisorAlineacionComandoIA
         if (!comprobacionLocal.Alineado)
         {
             return comprobacionLocal;
+        }
+
+        if (EsConsultaInvestigacionSegura(comando))
+        {
+            return new RevisionAlineacionComando(
+                true,
+                "Es una consulta de consola sin efectos necesaria para investigar o comprobar la tarea.");
         }
 
         string tareas = string.Join(
@@ -171,6 +179,95 @@ internal static class RevisorAlineacionComandoIA
         return new RevisionAlineacionComando(
             true,
             "No se detectó una contradicción evidente.");
+    }
+
+    internal static bool EsConsultaInvestigacionSegura(
+        string comando)
+    {
+        ScriptBlockAst ast = Parser.ParseInput(
+            comando,
+            out _,
+            out ParseError[] errores);
+
+        if (errores.Length > 0
+            || ast.FindAll(
+                    nodo => nodo is InvokeMemberExpressionAst,
+                    searchNestedScriptBlocks: true)
+                .Any())
+        {
+            return false;
+        }
+
+        var origenes = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            "Get-StartApps",
+            "Get-Command",
+            "Get-Help",
+            "Get-ChildItem",
+            "Get-Item",
+            "Get-ItemProperty",
+            "Get-Process",
+            "Get-CimInstance",
+            "Get-WmiObject",
+            "Get-AppxPackage",
+            "Test-Path",
+            "Resolve-Path",
+            "where.exe",
+            "where"
+        };
+        var transformaciones = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            "Where-Object",
+            "Select-Object",
+            "Sort-Object",
+            "ForEach-Object",
+            "Measure-Object",
+            "Group-Object",
+            "Format-List",
+            "Write-Output"
+        };
+        CommandAst[] comandos = ast
+            .FindAll(
+                nodo => nodo is CommandAst,
+                searchNestedScriptBlocks: true)
+            .Cast<CommandAst>()
+            .ToArray();
+
+        if (comandos.Length == 0)
+        {
+            return false;
+        }
+
+        bool contieneOrigen = false;
+
+        foreach (CommandAst comandoAst in comandos)
+        {
+            string? original = comandoAst.GetCommandName();
+
+            if (string.IsNullOrWhiteSpace(original))
+            {
+                return false;
+            }
+
+            string nombre = original.Contains('\\')
+                ? original[(original.LastIndexOf('\\') + 1)..]
+                : original;
+
+            if (origenes.Contains(nombre))
+            {
+                contieneOrigen = true;
+                continue;
+            }
+
+            if (!transformaciones.Contains(nombre))
+            {
+                return false;
+            }
+        }
+
+        return contieneOrigen;
     }
 
     internal static RevisionAlineacionComando? ExtraerRevision(

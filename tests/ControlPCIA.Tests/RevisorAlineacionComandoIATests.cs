@@ -5,6 +5,36 @@ namespace ControlPCIA.Tests;
 public sealed class RevisorAlineacionComandoIATests
 {
     [Theory]
+    [InlineData(
+        "Get-StartApps | Where-Object Name -Like '*Cubase*' | Select-Object Name,AppID")]
+    [InlineData(
+        "Get-Command -Name 'cubase*' -ErrorAction SilentlyContinue")]
+    [InlineData(
+        "Get-ChildItem -LiteralPath 'C:\\Datos' -Filter '*.cpr' -File -Recurse | Select-Object -First 20 FullName")]
+    public void Permite_consultas_de_investigacion_sin_efectos(
+        string comando)
+    {
+        Assert.True(
+            RevisorAlineacionComandoIA
+                .EsConsultaInvestigacionSegura(comando));
+    }
+
+    [Theory]
+    [InlineData(
+        "Get-StartApps; Set-ItemProperty -Path HKCU:\\Software\\X -Name Y -Value 1")]
+    [InlineData(
+        "Get-ChildItem C:\\; [System.IO.File]::WriteAllText('C:\\nota.txt','x')")]
+    [InlineData(
+        "Start-Process Cubase.exe")]
+    public void No_disfraza_una_accion_como_investigacion(
+        string comando)
+    {
+        Assert.False(
+            RevisorAlineacionComandoIA
+                .EsConsultaInvestigacionSegura(comando));
+    }
+
+    [Theory]
     [InlineData("Stop-Process -Name msedge")]
     [InlineData("taskkill.exe /IM msedge.exe")]
     [InlineData("(Get-Process msedge).Kill()")]
