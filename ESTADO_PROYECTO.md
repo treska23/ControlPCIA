@@ -90,15 +90,15 @@ El servidor configura una vez el inicio por usuario en `HKCU\Software\Microsoft\
 
 ## Verificaciones realizadas
 
-- Compilación Debug sin errores ni advertencias.
-- 185 pruebas automatizadas correctas en Release.
+- Compilación Android Debug y publicación Release sin errores ni advertencias.
+- 221 pruebas automatizadas correctas.
 - Diagnóstico real de Ollama y `qwen3:8b` correcto.
 - Orden directa «abre la calculadora» → `Start-Process calc.exe` → stdout/código de PowerShell devueltos al modelo; no se usan acciones gráficas.
 - Web móvil comprobada a 390 × 844 píxeles.
 - Manifiesto, service worker y emparejado de la PWA comprobados en navegador.
 - App Android compilada en Debug y publicada en Release sin advertencias de compilación.
-- APK 1.2 (código 3) firmado y verificado con esquemas v1, v2 y v3; SHA-256 `66830AF49906B9E04A726982C603C10B1FF5677785855B63A9FE6A50FD3ACFA2`.
-- Samsung SM-S928B real: instalación conservando datos, descubrimiento de `BARDO`, conexión por Wi-Fi, reconocimiento de voz en ambos modos y envío automático comprobados.
+- APK 1.3 (código 4) firmado y verificado con esquemas v1, v2 y v3; SHA-256 `86070A0D5CDD62C27E8458E733D9F2441690F508401DF3C5BC1F3F4F9953A819`.
+- Samsung SM-S928B real: la versión 1.2 se instaló conservando datos y se comprobaron descubrimiento de `BARDO`, conexión por Wi-Fi, reconocimiento de voz en ambos modos y envío automático. Falta instalar la APK 1.3 recién publicada para repetir la comprobación final.
 - `/api/escena` probado con 2 monitores y 13 ventanas reales.
 - Wake-on-LAN detectó 1 adaptador válido, UDP 9 y su broadcast local sin exponer la MAC en la interfaz.
 - Navegación web corregida: Llama puede abrir URL públicas literales `http/https` y búsquedas web, mientras se bloquean redes privadas, `file:` y descargas ejecutables o comprimidas.
@@ -151,6 +151,7 @@ La entrada de voz nativa se ha simplificado de esta forma:
 - [x] Añadir control de aplicaciones mediante comandos de consola validados y aprendizaje de secuencias.
 - [x] Añadir agente residente con inicio por usuario, modo oculto, exclusión de duplicados y bandeja de sistema.
 - [x] Probar físicamente en un teléfono Android ambos modos de micrófono, descubrimiento, emparejado y envío automático.
+- [ ] Instalar la APK 1.3 (código 4) en el Samsung y repetir ambos modos de voz, la frase literal «enciende el ordenador» y el envío Wake-on-LAN antes de cerrar el rediseño.
 - [x] Redefinir la permisibilidad: permitir crear, abrir, guardar, copiar/pegar a destinos nuevos e instalar; mantener bloqueados borrar, cortar/mover archivos, sobrescribir destinos, desinstalar y operar destructivamente sobre discos.
 - [ ] Replantear la orden «suma dos más cinco en la calculadora» con el modelo comando–ejecutor: Llama sólo propone el comando PowerShell y ControlPCIA lo valida, lo ejecuta y devuelve el resultado. No añadir reconocimiento gráfico, búsqueda de TextBox ni lógica específica de Calculadora.
 - [ ] Añadir una prueba real y pruebas de regresión para controlar una aplicación ya abierta mediante varios pasos seguros; cuando una aplicación sea abierta únicamente durante una prueba, cerrarla al terminar como limpieza. Esto no debe convertirse en un comportamiento automático del programa para las aplicaciones que abra el usuario.

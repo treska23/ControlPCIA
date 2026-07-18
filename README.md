@@ -66,6 +66,8 @@ APK Android generado para instalación manual:
 mobile\ControlPCIA.Mobile\bin\Release\net10.0-android\publish\com.treska.controlpcia-Signed.apk
 ```
 
+La publicación actual es la versión 1.3 (código 4), firmada con los esquemas APK v1, v2 y v3. Su SHA-256 es `86070A0D5CDD62C27E8458E733D9F2441690F508401DF3C5BC1F3F4F9953A819`.
+
 Para instalarlo, copia el APK al teléfono, ábrelo y permite la instalación desde esa fuente cuando Android lo solicite. Después abre ControlPCIA en el PC, pulsa **Buscar mi PC** en el móvil y escribe el código de seis cifras.
 
 El APK actual tiene una firma local de desarrollo. Es instalable manualmente, pero para Google Play será necesario crear y proteger una clave de publicación definitiva. El mismo código está preparado para iPhone, aunque compilar y firmar la versión iOS requiere un Mac y una cuenta de Apple Developer.
