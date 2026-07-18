@@ -23,18 +23,18 @@ La aplicación no contiene un catálogo cerrado de monitores, audio, ventanas o 
 
 La IA propone comandos, pero nunca decide si son seguros. `ValidadorPowerShell` usa el parser oficial de PowerShell para analizar todo el AST, incluidos pipelines y bloques anidados.
 
-La política es de denegación de daños concretos, no una lista cerrada de acciones de escritorio. La IA puede crear documentos, archivos, carpetas y proyectos nuevos, abrir los ya existentes, guardar, copiar y pegar a destinos nuevos, importar, exportar, imprimir e instalar programas. La interfaz de las aplicaciones y los diálogos nativos de abrir/guardar están dentro del alcance.
+La política no es un catálogo cerrado de acciones, pero sí impone una frontera estricta sobre el disco. La IA puede consultar nombres, rutas, tamaño y fecha de archivos dentro de carpetas personales autorizadas, pero no abrir ni leer su contenido y no puede crear, copiar, mover, renombrar, sobrescribir o borrar archivos, carpetas, documentos o proyectos. Tampoco puede instalar, actualizar o desinstalar programas.
 
 Bloquea:
 
-- Borrado de archivos o carpetas.
-- Cortar o mover archivos y carpetas y cualquier copia que sobrescriba un destino existente.
-- Desinstalación y operaciones destructivas sobre discos, particiones o volúmenes.
+- Apertura, lectura, creación, copia, movimiento, renombrado, sobrescritura o borrado de archivos y carpetas.
+- Instalación, actualización y desinstalación de programas.
+- Operaciones destructivas sobre discos, particiones o volúmenes.
 - Acceso a credenciales y cambios de Defender, cuentas, permisos, arranque u otras superficies de seguridad.
 - Exfiltración, intérpretes anidados, alias evasivos, reflexión y ejecución dinámica.
-- COM arbitrario y escritura de texto libre mediante `SendKeys`.
+- COM de interfaz, `SendKeys`, `AppActivate`, atajos y simulación de ratón o teclado.
 
-La creación y la copia directas por PowerShell se aceptan sólo con rutas locales, absolutas y literales, y únicamente si el destino todavía no existe. Las instalaciones se limitan a identificadores literales del catálogo `winget`; no se aceptan manifiestos, URLs o instaladores inventados. Las configuraciones normales de pantalla, audio, ventanas y aplicaciones están permitidas.
+Las consultas de archivos requieren raíces personales literales autorizadas, un filtro de nombre, un máximo de 20 resultados y salida con rutas completas. `winget` sólo puede consultar mediante `search`, `show` o `list`. Las configuraciones normales de pantalla, audio, ventanas y aplicaciones están permitidas cuando existe una interfaz de consola real.
 
 Los comandos guardados por el aprendizaje siempre se vuelven a validar. La memoria interna de ControlPCIA es la única excepción de escritura persistente: la IA no puede acceder a ella ni escribir otros archivos.
 
@@ -80,9 +80,9 @@ Wake-on-LAN aprende MAC y broadcast durante el emparejado y conserva esos datos 
 
 ## Control genérico de aplicaciones
 
-Las aplicaciones se controlan con comandos de consola de Windows o con la CLI/PowerShell documentada por la propia aplicación. Para consultar ventanas se usa, por ejemplo, `Get-Process | Where-Object MainWindowTitle | Select-Object ProcessName,MainWindowTitle`; no se inspeccionan píxeles, capturas, TextBox ni árboles gráficos. Si no existe un comando conocido, Llama responde pidiendo el dato necesario para investigarlo.
+Las aplicaciones se controlan con comandos de consola de Windows o con la CLI/PowerShell documentada por la propia aplicación. Para consultar ventanas se usa `Get-Process` y se emiten pares `PROCESS_NAME`/`WINDOW_TITLE`; no se inspeccionan píxeles, capturas, TextBox ni árboles gráficos. Para localizar archivos se usa `Get-ChildItem` con filtro literal y se emite `FULL_NAME`, sin abrir ni leer contenido. Si no existe una interfaz de consola, ControlPCIA explica el límite.
 
-Cada paso devuelve al modelo stdout, stderr y código de salida. Un error, una salida vacía o un resultado que no demuestre la petición se comunica al móvil como respuesta conversacional para que el usuario pueda aclararlo. Las acciones de cierre que detecten trabajo sin guardar deben preguntar antes de guardar o descartar.
+Cada paso devuelve al modelo stdout, stderr y código de salida. Un error, una salida vacía o un resultado que no demuestre la petición se comunica al móvil como respuesta conversacional para que el usuario pueda aclararlo. Las consultas estructuradas ya demostradas se entregan al móvil directamente desde la salida real. El programa no inspecciona interfaces para detectar trabajo sin guardar y nunca guarda ni descarta archivos.
 
 ## Ejecución residente
 
@@ -97,9 +97,9 @@ El servidor configura una vez el inicio por usuario en `HKCU\Software\Microsoft\
 - Web móvil comprobada a 390 × 844 píxeles.
 - Manifiesto, service worker y emparejado de la PWA comprobados en navegador.
 - App Android compilada en Debug y publicada en Release sin advertencias de compilación.
-- APK 1.3 (código 4) firmado y verificado con esquemas v1, v2 y v3; SHA-256 `86070A0D5CDD62C27E8458E733D9F2441690F508401DF3C5BC1F3F4F9953A819`.
-- Samsung SM-S928B real: la versión 1.2 se instaló conservando datos y se comprobaron descubrimiento de `BARDO`, conexión por Wi-Fi, reconocimiento de voz en ambos modos y envío automático. Falta instalar la APK 1.3 recién publicada para repetir la comprobación final.
-- `/api/escena` probado con 2 monitores y 13 ventanas reales.
+- APK 1.3.1 (código 5) firmado y verificado con esquemas v1, v2 y v3; SHA-256 `461052D286FBFEE8E1C995687F402CB3A50DF775CF41E58ECF575848496E464E`.
+- Samsung SM-S928B real: la versión 1.3.1 se instaló conservando datos, emparejado y conexión por Wi-Fi. En el modo tocar–hablar–tocar se comprobó manualmente que «Detener y enviar» transcribe y envía la orden. Una prueba instrumentada mantuvo la sesión abierta durante más de un minuto, atravesó varios silencios y un resultado ambiental sin enviar nada. También se comprobó que el modo mantener pulsado inicia al presionar, detiene al soltar y muestra «No te he entendido» cuando no obtiene texto. Finalmente, el reconocimiento físico transcribió literalmente «enciende el ordenador», envió Wake-on-LAN a 2 destinos y no produjo ninguna petición a `/api/orden`.
+- Consulta conjunta real verificada: programas con ventana abierta más búsqueda exacta de `README.md`; devolvió títulos y rutas completas sin abrir ni leer archivos.
 - Wake-on-LAN detectó 1 adaptador válido, UDP 9 y su broadcast local sin exponer la MAC en la interfaz.
 - Navegación web corregida: Llama puede abrir URL públicas literales `http/https` y búsquedas web, mientras se bloquean redes privadas, `file:` y descargas ejecutables o comprimidas.
 - Se verificó que el ejecutor usa un proceso externo de PowerShell y devuelve stdout, stderr y código de salida al modelo.
@@ -113,6 +113,7 @@ La entrada de voz nativa se ha simplificado de esta forma:
 - Se ha eliminado la tarjeta separada «¿El PC está apagado?» y existe un único control de voz para todas las peticiones.
 - Ese mismo control reconoce localmente una orden de encendido aunque el PC no esté disponible. Las demás frases se envían automáticamente a Llama.
 - El modo predeterminado **tocar para hablar** empieza con un toque y termina y envía con otro, sin un límite corto impuesto por la aplicación.
+- Si Android finaliza internamente un fragmento por silencio, la aplicación conserva la transcripción, abre otro fragmento y no envía nada hasta que el usuario pulsa **Detener y enviar**.
 - El modo alternativo **mantener pulsado** empieza al presionar y termina y envía al soltar. Ninguno mantiene escucha permanente en segundo plano.
 - La transcripción de voz se muestra en la tarjeta del micrófono y no se copia al cuadro escrito ni requiere pulsar «Enviar mensaje escrito».
 - Si no reconoce una frase muestra «No te he entendido»; Llama puede pedir confirmación de una acción permitida y la aplicación conserva la orden pendiente para recibir sí o no.
@@ -121,10 +122,10 @@ La entrada de voz nativa se ha simplificado de esta forma:
 - El fallo que rechazaba literalmente «enciende el ordenador» se corrigió añadiendo la forma verbal `enciend…` y pruebas de regresión.
 - Emparejado correcto y API sin token rechazada con HTTP 401.
 - Orden móvil «abre el bloc de notas» → `Start-Process notepad.exe` → completada.
-- Orden móvil «cierra el bloc de notas» → `Stop-Process -Name notepad -Force` → completada.
+- Los cierres normales solicitan `CloseMainWindow()` y exigen después una consulta de proceso distinta que demuestre el resultado; no se usa cierre forzado de aplicaciones con ventana.
 - Dos órdenes simultáneas → una HTTP 200 y otra HTTP 409.
 - Aprendizaje real: «abre la calculadora» guardó la receta; «inicia la calculadora» encontró una receta relacionada y la reutilizó.
-- Comandos de borrado, lectura de archivos, rutas nativas, alias evasivos, intérpretes, COM peligroso y texto libre por `SendKeys` bloqueados en pruebas.
+- Comandos de borrado, lectura de archivos, rutas nativas, alias evasivos, intérpretes, COM de interfaz, `SendKeys`, `AppActivate` y el subcomando antiguo `ui` bloqueados en pruebas.
 
 ## Tareas
 
@@ -151,20 +152,18 @@ La entrada de voz nativa se ha simplificado de esta forma:
 - [x] Añadir control de aplicaciones mediante comandos de consola validados y aprendizaje de secuencias.
 - [x] Añadir agente residente con inicio por usuario, modo oculto, exclusión de duplicados y bandeja de sistema.
 - [x] Probar físicamente en un teléfono Android ambos modos de micrófono, descubrimiento, emparejado y envío automático.
-- [ ] Instalar la APK 1.3 (código 4) en el Samsung y repetir ambos modos de voz, la frase literal «enciende el ordenador» y el envío Wake-on-LAN antes de cerrar el rediseño.
-- [x] Redefinir la permisibilidad: permitir crear, abrir, guardar, copiar/pegar a destinos nuevos e instalar; mantener bloqueados borrar, cortar/mover archivos, sobrescribir destinos, desinstalar y operar destructivamente sobre discos.
-- [ ] Replantear la orden «suma dos más cinco en la calculadora» con el modelo comando–ejecutor: Llama sólo propone el comando PowerShell y ControlPCIA lo valida, lo ejecuta y devuelve el resultado. No añadir reconocimiento gráfico, búsqueda de TextBox ni lógica específica de Calculadora.
-- [ ] Añadir una prueba real y pruebas de regresión para controlar una aplicación ya abierta mediante varios pasos seguros; cuando una aplicación sea abierta únicamente durante una prueba, cerrarla al terminar como limpieza. Esto no debe convertirse en un comportamiento automático del programa para las aplicaciones que abra el usuario.
+- [x] Terminar la prueba física de la APK 1.3.1 (código 5) en el Samsung: continuidad del modo fijo tras varias pausas, inicio/parada del modo mantener pulsado y frase literal «enciende el ordenador» resuelta localmente con envío Wake-on-LAN a 2 destinos sin pasar por `/api/orden`.
+- [x] Redefinir la permisibilidad: sólo consultar rutas y metadatos; bloquear abrir/leer/crear/copiar/mover/renombrar/sobrescribir/borrar archivos y bloquear instalar, actualizar o desinstalar programas.
+- [x] Resolver «suma dos más cinco»: PowerShell puede calcularlo y devolver `7` al móvil. La aplicación Calculadora de Windows no admite una expresión por CLI o protocolo URI, por lo que no se simulan teclas ni se añade lógica gráfica.
+- [x] Probar una aplicación ya abierta mediante varios pasos de consola. Cubase se resolvió desde el inventario real de Windows y se verificó por proceso/título; las acciones internas quedan limitadas a su CLI/API real y no se simulan entradas.
 - [x] Convertir el móvil en una conversación real con la IA, con respuestas informativas, contexto acotado y continuaciones.
 - [x] Permitir mensajes complejos y referencias a respuestas anteriores, mostrando la salida, los errores reales, lo pendiente y las aclaraciones necesarias.
 - [ ] Verificar en un dispositivo la conversación de error: si PowerShell no hace nada o devuelve error, el móvil debe mostrarlo y permitir que el usuario explique de nuevo la orden.
-- [ ] Corregir el falso positivo observado con «cierra Visual Studio»: Visual Studio siguió abierto pero la aplicación móvil mostró la tarea como completada. Ninguna orden sobre aplicaciones puede terminar en `FIN` sólo porque el comando devolvió código cero; debe volver a observar el estado real y comprobar que la ventana o el proceso objetivo alcanzó el resultado pedido. Si no lo consiguió, debe reintentar con una estrategia segura o informar del fallo, nunca afirmar que se completó.
-- [ ] Revisar específicamente el cierre de aplicaciones que pueden contener trabajo sin guardar, incluido Visual Studio. No debe quedar bloqueado sin explicación ni ejecutarse a ciegas: la IA debe detectar el posible riesgo, pedir confirmación cuando corresponda, cerrar sólo la aplicación solicitada y verificar después que realmente se cerró. Confirmar nunca autoriza descartar contenido sin guardar ni manipular archivos.
-- [ ] Implementar el flujo conversacional concreto para cerrar Visual Studio con cambios sin guardar: la IA debe comprobar que Visual Studio está abierto, intentar detectar mediante su interfaz real si existen documentos o proyectos modificados y responder en el chat móvil «No has guardado el trabajo. ¿Quieres que lo guarde por ti?». La orden queda pendiente mientras espera una respuesta posterior de «sí» o «no».
-- [ ] Si el usuario responde «sí», permitir como excepción estrecha y explícitamente confirmada únicamente la acción nativa **Guardar/Guardar todo** sobre documentos que ya están abiertos en la aplicación; después verificar que desaparece el estado modificado y cerrar Visual Studio, comprobando finalmente que ya no está abierto. Esta excepción no permite elegir rutas, usar «Guardar como», sobrescribir destinos mediante diálogos, crear proyectos, exportar, acceder a credenciales ni realizar otras manipulaciones de archivos.
-- [ ] Si el usuario responde «no», no guardar ni descartar trabajo de forma implícita. La IA debe mantenerlo intacto y preguntar si quiere cancelar el cierre o **cerrar sin guardar**. Sólo una confirmación inequívoca de «cerrar sin guardar» puede autorizar el descarte mediante el diálogo normal de Visual Studio; después también debe verificar el resultado real.
-- [ ] Mostrar toda esta conversación en la aplicación móvil —detección, pregunta, respuesta, guardado, cierre y verificación— y conservar temporalmente la orden pendiente para que «sí», «no» y «cierra sin guardar» se interpreten respecto a Visual Studio, sin perder el contexto ni aplicarse a otra aplicación por error.
-- [ ] Añadir pruebas de regresión para consultas conversacionales sobre ventanas abiertas, referencias de seguimiento, cierre selectivo de varias aplicaciones, objetivo que ya estaba cerrado, fallo de cierre, aplicación con trabajo potencialmente sin guardar y prohibición de devolver «completada» mientras el objetivo siga visible.
+- [x] Corregir el falso positivo observado con «cierra Visual Studio»: un comando de cierre ya no se considera su propia verificación; hace falta una consulta posterior distinta que demuestre que el proceso o la ventana alcanzó el estado pedido.
+- [x] Fijar la política para trabajo sin guardar: al no usar inspección gráfica ni manipular archivos, ControlPCIA no puede detectar de forma fiable el estado interno de documentos, guardarlos o descartarlos. Debe solicitar un cierre normal, verificar el proceso por consola y explicar la limitación si la aplicación presenta un diálogo.
+- [x] Añadir consultas conversacionales de información del PC: programas con ventana abierta y localización exacta de archivos por nombre, con respuestas compuestas desde evidencia real y pruebas contra resultados parciales, nombres alterados, tablas truncadas y búsquedas sin límite.
+- [ ] Ampliar las consultas informativas seguras sobre el PC (uso de CPU/memoria, audio, red, pantallas y aplicaciones instaladas) manteniendo la misma respuesta basada en evidencia.
+- [ ] Añadir más pruebas de regresión para referencias de seguimiento, cierre selectivo de varias aplicaciones, objetivo que ya estaba cerrado y fallo de cierre.
 - [ ] Probar Wake-on-LAN con el PC realmente apagado.
 - [ ] Compilar, firmar y probar la aplicación iOS desde un Mac.
 - [ ] Crear un instalador firmado; el inicio automático explícito y la bandeja ya están implementados.

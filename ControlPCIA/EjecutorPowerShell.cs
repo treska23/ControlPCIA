@@ -54,6 +54,14 @@ namespace ControlPCIA
                     RedirectStandardError =
                         true,
 
+                    StandardOutputEncoding =
+                        new UTF8Encoding(
+                            encoderShouldEmitUTF8Identifier: false),
+
+                    StandardErrorEncoding =
+                        new UTF8Encoding(
+                            encoderShouldEmitUTF8Identifier: false),
+
                     CreateNoWindow =
                         true,
 
@@ -93,7 +101,9 @@ namespace ControlPCIA
                 "-Command");
 
             inicio.ArgumentList.Add(
-                comando);
+                "[Console]::OutputEncoding = "
+                + "[System.Text.UTF8Encoding]::new($false); "
+                + comando);
 
             using var proceso =
                 new Process

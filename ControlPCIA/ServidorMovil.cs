@@ -238,18 +238,6 @@ internal static class ServidorMovil
                     });
             });
 
-        app.MapGet(
-            "/api/escena",
-            (HttpContext contexto) =>
-            {
-                if (!seguridad.Autorizar(contexto))
-                {
-                    return Results.Unauthorized();
-                }
-
-                return Results.Ok(ObservadorWindows.ObtenerEscena());
-            });
-
         app.MapPost(
             "/api/orden",
             async (HttpContext contexto, SolicitudOrden solicitud) =>

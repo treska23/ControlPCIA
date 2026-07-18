@@ -35,6 +35,7 @@ internal static class ValidadorPowerShell
             // Lectura de contenido de archivos. La enumeración de nombres y
             // rutas sí está permitida para que la IA pueda localizar proyectos.
             "Get-Content", "gc", "cat", "type",
+            "Select-String", "sls", "Get-FileHash",
             "Invoke-Item", "ii", "Import-Csv", "Import-Clixml",
             "Import-PowerShellDataFile", "Import-LocalizedData",
             "Import-Module",
@@ -164,6 +165,9 @@ internal static class ValidadorPowerShell
             ["kill"] = "Stop-Process",
             ["spps"] = "Stop-Process",
             ["gps"] = "Get-Process",
+            ["gci"] = "Get-ChildItem",
+            ["dir"] = "Get-ChildItem",
+            ["ls"] = "Get-ChildItem",
             ["ni"] = "New-Item",
             ["md"] = "New-Item",
             ["mkdir"] = "New-Item",
@@ -309,13 +313,11 @@ internal static class ValidadorPowerShell
             {
                 bloqueo = ValidarStopProcess(comandoAst, comandos);
             }
-            else if (nombre.Equals("New-Item", StringComparison.OrdinalIgnoreCase))
+            else if (nombre.Equals(
+                         "Get-ChildItem",
+                         StringComparison.OrdinalIgnoreCase))
             {
-                bloqueo = ValidarNewItem(comandoAst);
-            }
-            else if (nombre.Equals("Copy-Item", StringComparison.OrdinalIgnoreCase))
-            {
-                bloqueo = ValidarCopyItem(comandoAst);
+                bloqueo = ValidarGetChildItem(comandoAst);
             }
             else if (nombre.Equals("New-Object", StringComparison.OrdinalIgnoreCase))
             {
@@ -336,12 +338,8 @@ internal static class ValidadorPowerShell
                 IReadOnlyList<string>? argumentos =
                     ObtenerArgumentosLiterales(comandoAst);
 
-                bloqueo = argumentos is null
-                    ? Bloquear(
-                        "ControlPCIA.exe sólo admite argumentos literales verificables.")
-                    : ValidadorAutomatizacionAplicaciones.Validar(
-                        argumentos,
-                        permitirDescarte);
+                bloqueo = Bloquear(
+                    "ControlPCIA.exe no puede invocarse recursivamente desde una orden. Usa sólo comandos, API o protocolos externos invocables íntegramente desde consola.");
             }
 
             if (bloqueo is null
@@ -366,6 +364,17 @@ internal static class ValidadorPowerShell
             {
                 return Bloquear($"Se detectó un mecanismo restringido: '{texto}'.");
             }
+        }
+
+        if (comando.Contains(
+                ".SendKeys(",
+                StringComparison.OrdinalIgnoreCase)
+            || comando.Contains(
+                ".AppActivate(",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return Bloquear(
+                "La simulación de teclado y la activación automatizada de ventanas están restringidas. Usa sólo comandos, protocolos o API de consola propios de Windows o de la aplicación.");
         }
 
         return new(
@@ -445,6 +454,20 @@ internal static class ValidadorPowerShell
         string destino = destinos[0].Trim();
         string nombre = Path.GetFileName(destino);
 
+        if ((nombre.Equals(
+                 "explorer",
+                 StringComparison.OrdinalIgnoreCase)
+             || nombre.Equals(
+                 "explorer.exe",
+                 StringComparison.OrdinalIgnoreCase))
+            && comando.Extent.Text.Contains(
+                "shell:AppsFolder",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return Bloquear(
+                "Para abrir un AppID usa explorer.exe con un destino shell:AppsFolder literal, no Start-Process ni variables.");
+        }
+
         if (EsUrlWebNavegableSegura(destino))
         {
             return null;
@@ -457,12 +480,8 @@ internal static class ValidadorPowerShell
 
         if (PareceRutaLocal(destino))
         {
-            return EsRutaLocalAbsoluta(destino)
-                   && !ExtensionesEjecutablesBloqueadas.Contains(
-                       Path.GetExtension(destino))
-                ? null
-                : Bloquear(
-                    "Start-Process sólo puede abrir rutas locales literales de documentos o proyectos, nunca ejecutables ni scripts.");
+            return Bloquear(
+                "ControlPCIA no abre archivos, documentos ni proyectos locales; sólo puede consultar sus nombres, rutas y metadatos.");
         }
 
         if (destino.Contains('\\') || destino.Contains('/'))
@@ -532,7 +551,7 @@ internal static class ValidadorPowerShell
                     .Any(proceso => proceso.MainWindowHandle != IntPtr.Zero))
                 {
                     return Bloquear(
-                        $"'{nombre}' tiene una ventana abierta. Usa ControlPCIA.exe ui close para que la aplicación pueda avisar de trabajo sin guardar.");
+                        $"'{nombre}' tiene una ventana abierta. Usa CloseMainWindow desde PowerShell para solicitar un cierre normal que permita a la aplicación avisar de trabajo sin guardar.");
                 }
             }
             catch (InvalidOperationException)
@@ -545,66 +564,14 @@ internal static class ValidadorPowerShell
         return null;
     }
 
-    private static ResultadoValidacionPowerShell? ValidarNewItem(
-        CommandAst comando)
-    {
-        string nombreOriginal = comando.GetCommandName() ?? string.Empty;
-        bool aliasDirectorio =
-            nombreOriginal.Equals("md", StringComparison.OrdinalIgnoreCase)
-            || nombreOriginal.Equals(
-                "mkdir",
-                StringComparison.OrdinalIgnoreCase);
-        HashSet<string> parametros = ObtenerNombresParametros(comando);
-        string[] permitidos = ["Path", "LiteralPath", "ItemType"];
-
-        if (parametros.Any(parametro =>
-                !permitidos.Contains(
-                    parametro,
-                    StringComparer.OrdinalIgnoreCase)))
-        {
-            return Bloquear(
-                "New-Item sólo admite una ruta literal y el tipo File o Directory; no se permiten Force, Value, enlaces ni otros parámetros.");
-        }
-
-        IReadOnlyList<string>? rutas = ObtenerLiterales(
-            comando,
-            ["Path", "LiteralPath"],
-            posicion: 0);
-        IReadOnlyList<string>? tipos = ObtenerLiterales(
-            comando,
-            ["ItemType"],
-            posicion: 1);
-        string? tipo = aliasDirectorio
-            ? "Directory"
-            : tipos is { Count: 1 }
-                ? tipos[0]
-                : null;
-
-        if (rutas is not { Count: 1 }
-            || tipo is null
-            || tipo is not ("File" or "Directory")
-            || !EsRutaLocalAbsoluta(rutas[0]))
-        {
-            return Bloquear(
-                "La creación requiere una única ruta local absoluta y literal y -ItemType File o Directory.");
-        }
-
-        if (File.Exists(rutas[0]) || Directory.Exists(rutas[0]))
-        {
-            return Bloquear(
-                "La ruta de destino ya existe. ControlPCIA sólo puede crear elementos nuevos, nunca sobrescribirlos.");
-        }
-
-        return null;
-    }
-
-    private static ResultadoValidacionPowerShell? ValidarCopyItem(
+    private static ResultadoValidacionPowerShell? ValidarGetChildItem(
         CommandAst comando)
     {
         HashSet<string> parametros = ObtenerNombresParametros(comando);
         string[] permitidos =
         [
-            "Path", "LiteralPath", "Destination", "Recurse", "Container"
+            "Path", "LiteralPath", "Filter", "File", "Directory",
+            "Recurse", "Depth", "Name", "ErrorAction"
         ];
 
         if (parametros.Any(parametro =>
@@ -613,39 +580,73 @@ internal static class ValidadorPowerShell
                     StringComparer.OrdinalIgnoreCase)))
         {
             return Bloquear(
-                "Copy-Item sólo admite rutas literales, Recurse y Container; no puede forzar ni sobrescribir copias.");
+                "Get-ChildItem sólo puede buscar nombres y metadatos dentro de las carpetas personales autorizadas.");
         }
 
-        IReadOnlyList<string>? origenes = ObtenerLiterales(
+        IReadOnlyList<string>? rutas = ObtenerLiterales(
             comando,
             ["Path", "LiteralPath"],
             posicion: 0);
-        IReadOnlyList<string>? destinos = ObtenerLiterales(
-            comando,
-            ["Destination"],
-            posicion: 1);
 
-        if (origenes is not { Count: 1 }
-            || destinos is not { Count: 1 }
-            || !EsRutaLocalAbsoluta(origenes[0])
-            || !EsRutaLocalAbsoluta(destinos[0]))
+        if (rutas is null
+            || rutas.Count is < 1 or > 8
+            || rutas.Any(ruta => !EsRutaDeBusquedaPermitida(ruta)))
         {
             return Bloquear(
-                "La copia requiere un único origen y destino locales, absolutos y literales.");
+                "Get-ChildItem requiere entre una y ocho rutas literales dentro de las carpetas personales autorizadas.");
         }
 
-        if (!File.Exists(origenes[0])
-            && !Directory.Exists(origenes[0]))
+        if (TieneParametro(comando, "Filter"))
+        {
+            IReadOnlyList<string>? filtros = ObtenerLiterales(
+                comando,
+                ["Filter"],
+                posicion: 0);
+
+            if (filtros is not { Count: 1 }
+                || !EsFiltroDeNombreSeguro(filtros[0]))
+            {
+                return Bloquear(
+                    "El filtro de búsqueda debe ser un nombre literal breve, sin rutas.");
+            }
+        }
+        else if (TieneParametro(comando, "Recurse"))
         {
             return Bloquear(
-                "El origen de la copia no existe.");
+                "Una búsqueda recursiva requiere -Filter para no enumerar indiscriminadamente todos los archivos personales.");
         }
 
-        if (File.Exists(destinos[0])
-            || Directory.Exists(destinos[0]))
+        if (TieneParametro(comando, "Depth"))
         {
-            return Bloquear(
-                "El destino de la copia ya existe. ControlPCIA no sobrescribe archivos ni mezcla carpetas.");
+            IReadOnlyList<string>? profundidad = ObtenerLiterales(
+                comando,
+                ["Depth"],
+                posicion: 0);
+
+            if (profundidad is not { Count: 1 }
+                || !int.TryParse(profundidad[0], out int valor)
+                || valor is < 0 or > 20)
+            {
+                return Bloquear(
+                    "La profundidad de búsqueda debe ser un literal entre 0 y 20.");
+            }
+        }
+
+        if (TieneParametro(comando, "ErrorAction"))
+        {
+            IReadOnlyList<string>? accionError = ObtenerLiterales(
+                comando,
+                ["ErrorAction"],
+                posicion: 0);
+
+            if (accionError is not { Count: 1 }
+                || !accionError[0].Equals(
+                    "SilentlyContinue",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return Bloquear(
+                    "La búsqueda sólo admite -ErrorAction SilentlyContinue.");
+            }
         }
 
         return null;
@@ -668,88 +669,13 @@ internal static class ValidadorPowerShell
 
         return accion switch
         {
-            "install" => ValidarWingetInstall(resto),
+            "install" => Bloquear(
+                "ControlPCIA no instala programas porque esa operación modifica el disco."),
             "search" or "show" or "list" =>
                 ValidarWingetConsulta(resto),
             _ => Bloquear(
-                "winget sólo puede consultar paquetes o instalar un paquete por su identificador; actualizar y desinstalar no están permitidos.")
+                "winget sólo puede consultar paquetes; instalar, actualizar y desinstalar no está permitido.")
         };
-    }
-
-    private static ResultadoValidacionPowerShell? ValidarWingetInstall(
-        IReadOnlyList<string> argumentos)
-    {
-        string? id = null;
-
-        for (int indice = 0; indice < argumentos.Count; indice++)
-        {
-            string argumento = argumentos[indice];
-
-            if (argumento.Equals("--id", StringComparison.OrdinalIgnoreCase))
-            {
-                if (++indice >= argumentos.Count || id is not null)
-                {
-                    return Bloquear(
-                        "winget install requiere un único valor para --id.");
-                }
-
-                id = argumentos[indice];
-                continue;
-            }
-
-            if (argumento.Equals("--source", StringComparison.OrdinalIgnoreCase))
-            {
-                if (++indice >= argumentos.Count
-                    || !argumentos[indice].Equals(
-                        "winget",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    return Bloquear(
-                        "Las instalaciones sólo pueden proceder del catálogo oficial winget.");
-                }
-
-                continue;
-            }
-
-            if (argumento.Equals("--scope", StringComparison.OrdinalIgnoreCase))
-            {
-                if (++indice >= argumentos.Count
-                    || !argumentos[indice].Equals(
-                        "user",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    return Bloquear(
-                        "winget sólo puede instalar para el usuario actual.");
-                }
-
-                continue;
-            }
-
-            if (argumento is "--exact" or "-e"
-                or "--silent" or "-h"
-                or "--disable-interactivity"
-                or "--accept-package-agreements"
-                or "--accept-source-agreements")
-            {
-                continue;
-            }
-
-            return Bloquear(
-                $"El argumento '{argumento}' no está permitido en winget install.");
-        }
-
-        if (string.IsNullOrWhiteSpace(id)
-            || id.Length > 160
-            || !Regex.IsMatch(
-                id,
-                "^[A-Za-z0-9][A-Za-z0-9._+-]*$",
-                RegexOptions.CultureInvariant))
-        {
-            return Bloquear(
-                "winget install necesita un identificador de paquete literal y verificable.");
-        }
-
-        return null;
     }
 
     private static ResultadoValidacionPowerShell? ValidarWingetConsulta(
@@ -847,12 +773,10 @@ internal static class ValidadorPowerShell
 
         string nombre = tipo[0];
 
-        if (TieneParametro(comando, "ComObject")
-            &&
-            !nombre.Equals("WScript.Shell", StringComparison.OrdinalIgnoreCase))
+        if (TieneParametro(comando, "ComObject"))
         {
             return Bloquear(
-                $"Sólo se admite el objeto COM de interfaz WScript.Shell; '{nombre}' está restringido.");
+                $"La automatización COM mediante '{nombre}' está restringida.");
         }
 
         if (EsTipoRestringido(nombre)
@@ -872,7 +796,13 @@ internal static class ValidadorPowerShell
             Array.Empty<string>(),
             posicion: 0);
 
-        if (argumentos is null || argumentos.Count == 0)
+        if (argumentos is null)
+        {
+            return Bloquear(
+                "Explorer sólo admite un destino literal verificable.");
+        }
+
+        if (argumentos.Count == 0)
         {
             return null;
         }
@@ -884,13 +814,16 @@ internal static class ValidadorPowerShell
             return null;
         }
 
+        if (EsDestinoAppsFolderSeguro(destino))
+        {
+            return null;
+        }
+
         if (destino.StartsWith("file:", StringComparison.OrdinalIgnoreCase)
             || destino.Contains('\\') || destino.Contains('/'))
         {
-            return EsRutaLocalAbsoluta(destino)
-                ? null
-                : Bloquear(
-                    "Explorer sólo puede abrir rutas locales absolutas, nunca ubicaciones de red ni rutas relativas.");
+            return Bloquear(
+                "ControlPCIA no abre archivos ni carpetas locales con Explorer; sólo puede consultar sus nombres, rutas y metadatos.");
         }
 
         return null;
@@ -927,70 +860,46 @@ internal static class ValidadorPowerShell
         InvokeMemberExpressionAst invocacion,
         string miembro)
     {
-        if (miembro.Equals("AppActivate", StringComparison.OrdinalIgnoreCase))
+        if (miembro.Equals("AppActivate", StringComparison.OrdinalIgnoreCase)
+            || miembro.Equals("SendKeys", StringComparison.OrdinalIgnoreCase))
         {
-            if (invocacion.Arguments.Count != 1
-                ||
-                ExtraerLiterales(invocacion.Arguments[0]) is not { Count: 1 })
-            {
-                return Bloquear("AppActivate requiere un nombre de ventana literal.");
-            }
-        }
-
-        if (miembro.Equals("SendKeys", StringComparison.OrdinalIgnoreCase))
-        {
-            if (invocacion.Arguments.Count != 1
-                ||
-                !SonTeclasSeguras(invocacion.Arguments[0]))
-            {
-                return Bloquear(
-                    "SendKeys sólo admite teclas de navegación, ventana o multimedia; no texto libre.");
-            }
+            return Bloquear(
+                $"La automatización de interfaz mediante '{miembro}' está restringida.");
         }
 
         return null;
     }
 
-    private static bool SonTeclasSeguras(ExpressionAst argumento)
+    private static bool EsDestinoAppsFolderSeguro(string valor)
     {
-        string expresion =
-            argumento.Extent.Text
-                .Replace(" ", "", StringComparison.Ordinal)
-                .ToLowerInvariant();
+        const string prefijo = @"shell:AppsFolder\";
 
-        string[] teclasMultimedia =
-        [
-            "[char]173", "[char]174", "[char]175", "[char]176",
-            "[char]177", "[char]178", "[char]179"
-        ];
-
-        if (teclasMultimedia.Contains(expresion, StringComparer.Ordinal))
-        {
-            return true;
-        }
-
-        IReadOnlyList<string>? valores = ExtraerLiterales(argumento);
-
-        if (valores is not { Count: 1 })
+        if (!valor.StartsWith(
+                prefijo,
+                StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        string restante = Regex.Replace(
-            valores[0],
-            "\\{(?:BACKSPACE|BS|BKSP|BREAK|CAPSLOCK|DELETE|DEL|DOWN|END|ENTER|ESC|HELP|HOME|INSERT|INS|LEFT|NUMLOCK|PGDN|PGUP|RIGHT|SCROLLLOCK|SPACE|TAB|UP|ADD|SUBTRACT|MULTIPLY|DIVIDE|F(?:[1-9]|1[0-9]|2[0-4]))(?:\\s+[0-9]{1,2})?\\}",
-            string.Empty,
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        string identificador = valor[prefijo.Length..];
 
-        restante = restante
-            .Replace("+", "", StringComparison.Ordinal)
-            .Replace("^", "", StringComparison.Ordinal)
-            .Replace("%", "", StringComparison.Ordinal)
-            .Replace("~", "", StringComparison.Ordinal)
-            .Replace("(", "", StringComparison.Ordinal)
-            .Replace(")", "", StringComparison.Ordinal);
-
-        return restante.Length == 0;
+        return identificador.Length is >= 3 and <= 500
+               && !identificador.Contains("..", StringComparison.Ordinal)
+               && !identificador.StartsWith('\\')
+               && !identificador.EndsWith('\\')
+               && identificador.All(caracter =>
+                   char.IsLetterOrDigit(caracter)
+                   || caracter is '.'
+                       or '_'
+                       or '-'
+                       or '+'
+                       or '!'
+                       or '{'
+                       or '}'
+                       or '\\'
+                       or ' '
+                       or '('
+                       or ')');
     }
 
     private static bool EsArgumentoNativoSeguro(string valor)
@@ -1053,6 +962,74 @@ internal static class ValidadorPowerShell
                    valor,
                    "^[A-Za-z]:[\\\\/]",
                    RegexOptions.CultureInvariant);
+    }
+
+    internal static IReadOnlyList<string> ObtenerRaicesBusquedaPermitidas()
+    {
+        string perfil = Environment.GetFolderPath(
+            Environment.SpecialFolder.UserProfile);
+        string[] candidatas =
+        [
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.MyDocuments),
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.DesktopDirectory),
+            string.IsNullOrWhiteSpace(perfil)
+                ? string.Empty
+                : Path.Combine(perfil, "Downloads"),
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.MyMusic),
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.MyPictures),
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.MyVideos),
+            Environment.GetEnvironmentVariable("OneDrive") ?? string.Empty,
+            Environment.GetEnvironmentVariable("OneDriveConsumer")
+                ?? string.Empty,
+            perfil
+        ];
+
+        return candidatas
+            .Where(ruta =>
+                !string.IsNullOrWhiteSpace(ruta)
+                && Directory.Exists(ruta))
+            .Select(Path.GetFullPath)
+            .Select(ruta => ruta.TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static bool EsRutaDeBusquedaPermitida(string valor)
+    {
+        if (!EsRutaLocalAbsoluta(valor))
+        {
+            return false;
+        }
+
+        string completa = Path.GetFullPath(valor).TrimEnd(
+            Path.DirectorySeparatorChar,
+            Path.AltDirectorySeparatorChar);
+
+        return ObtenerRaicesBusquedaPermitidas().Any(raiz =>
+            completa.Equals(
+                raiz,
+                StringComparison.OrdinalIgnoreCase)
+            || completa.StartsWith(
+                raiz + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool EsFiltroDeNombreSeguro(string filtro)
+    {
+        return filtro.Length is >= 1 and <= 260
+               && filtro is not "." and not ".."
+               && !filtro.Contains("..", StringComparison.Ordinal)
+               && !filtro.Contains('\\')
+               && !filtro.Contains('/')
+               && !filtro.Contains(':')
+               && filtro.All(caracter => !char.IsControl(caracter));
     }
 
     private static bool EsRutaLocalAbsoluta(string valor)

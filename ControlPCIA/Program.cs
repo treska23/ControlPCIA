@@ -6,22 +6,12 @@ Console.OutputEncoding = new UTF8Encoding(
     encoderShouldEmitUTF8Identifier: false);
 
 if (args.Length > 0
-    && args[0].Equals("ui", StringComparison.OrdinalIgnoreCase))
+    && (args[0].Equals("ui", StringComparison.OrdinalIgnoreCase)
+        || args[0].Equals("window", StringComparison.OrdinalIgnoreCase)))
 {
-    ResultadoAutomatizacionAplicacion automatizacion =
-        AutomatizadorAplicaciones.Ejecutar(args);
-
-    if (!string.IsNullOrWhiteSpace(automatizacion.Salida))
-    {
-        Console.WriteLine(automatizacion.Salida);
-    }
-
-    if (!string.IsNullOrWhiteSpace(automatizacion.Error))
-    {
-        Console.Error.WriteLine(automatizacion.Error);
-    }
-
-    Environment.ExitCode = automatizacion.CodigoSalida;
+    Console.Error.WriteLine(
+        "La automatización de interfaz, ratón o teclado está deshabilitada. ControlPCIA sólo ejecuta comandos, API o protocolos invocables íntegramente desde consola.");
+    Environment.ExitCode = 2;
     return;
 }
 

@@ -33,12 +33,11 @@
 
 
         # =========================================================
-        # MODIFICAR, MOVER O RENOMBRAR ARCHIVOS Y CARPETAS
-        #
-        # New-Item y Copy-Item se validan aparte para permitir únicamente
-        # destinos nuevos, literales y locales. Nunca pueden sobrescribir.
+        # CREAR, COPIAR, MODIFICAR, MOVER O RENOMBRAR ARCHIVOS Y CARPETAS
         # =========================================================
 
+        CMD|New-Item
+        CMD|Copy-Item
         CMD|Set-Content
         CMD|Add-Content
         CMD|Out-File

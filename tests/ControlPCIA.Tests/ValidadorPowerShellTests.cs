@@ -13,32 +13,20 @@ public sealed class ValidadorPowerShellTests
         "Get-CimInstance -ClassName Win32_OperatingSystem | Select-Object Caption, Version",
         "Get-NetIPConfiguration | Format-List InterfaceAlias, IPv4Address",
         "Get-Process | ConvertTo-Json -Depth 2",
-        "Get-ChildItem 'C:\\Users' -Directory | Select-Object Name",
+        "Get-Process | Where-Object MainWindowTitle | ForEach-Object { Write-Output ('PROCESS_NAME=' + $_.ProcessName); Write-Output ('WINDOW_TITLE=' + $_.MainWindowTitle) }",
+        $"Get-ChildItem -LiteralPath '{Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)}' -Directory | Select-Object Name",
+        $"Get-ChildItem -LiteralPath '{Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)}' -Filter '*proyecto*' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 20 FullName, Length, LastWriteTime",
+        $"Get-ChildItem -LiteralPath '{Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)}','{Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)}' -Filter 'README.md' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 20 FullName, Length, LastWriteTime",
+        $"Get-ChildItem -LiteralPath '{Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)}' -Filter 'README.md' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 20 | ForEach-Object {{ Write-Output ('FULL_NAME=' + $_.FullName); Write-Output ('LENGTH=' + $_.Length); Write-Output ('LAST_WRITE_TIME=' + $_.LastWriteTime) }}",
         "Start-Process notepad",
-        "Start-Process 'C:\\Proyectos\\Cancion.cpr'",
         "Start-Process 'ms-settings:display'",
         "Start-Process 'https://www.youtube.com/results?search_query=botella+de+candor'",
         "explorer.exe 'https://www.youtube.com/results?search_query=botella+de+candor'",
+        "explorer.exe 'shell:AppsFolder\\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App'",
+        "explorer.exe 'shell:AppsFolder\\{6D809377-6AF0-444B-8957-A3773F02200E}\\Steinberg\\Cubase 15\\Cubase15.exe'",
         "Get-Process -Name ControlPCIANoWindowProcess | Stop-Process",
         "Get-Process -Name notepad | ForEach-Object { $_.CloseMainWindow() }",
-        "$shell = New-Object -ComObject WScript.Shell; $shell.SendKeys([char]175)",
-        "$shell = New-Object -ComObject WScript.Shell; $shell.SendKeys('{F11}')",
-        "ControlPCIA.exe ui windows",
-        "ControlPCIA.exe ui inspect 'Cubase' 6",
-        "ControlPCIA.exe ui status 'Cubase'",
-        "ControlPCIA.exe ui close 'Cubase'",
-        "ControlPCIA.exe ui invoke 'Cubase' 'Add Track' 'MenuItem'",
-        "ControlPCIA.exe ui invoke 'Word' 'Save As' 'MenuItem'",
-        "ControlPCIA.exe ui invoke 'Cubase' 'Install plugin' 'Button'",
-        "ControlPCIA.exe ui text 'Cubase' 'Search' 'Kontakt 7'",
-        "ControlPCIA.exe ui text 'Abrir' 'File name' 'C:\\Proyectos\\Cancion.cpr'",
-        "ControlPCIA.exe ui shortcut 'Word' 'CTRL+S'",
-        "ControlPCIA.exe ui shortcut 'Explorador de archivos' 'CTRL+C'",
-        "ControlPCIA.exe ui shortcut 'Explorador de archivos' 'CTRL+V'",
-        "ControlPCIA.exe ui shortcut 'Cubase' 'CTRL+T'",
         "winget search PowerToys --source winget",
-        "winget install --id Microsoft.PowerToys --exact --source winget --scope user --accept-package-agreements --accept-source-agreements",
-        "New-Item -Path 'C:\\ControlPCIA-Prueba-Nueva' -ItemType Directory",
         "$ventana = Get-Process -Name Spotify; $ventana | Select-Object MainWindowTitle",
         "DisplaySwitch.exe /extend"
     };
@@ -46,6 +34,10 @@ public sealed class ValidadorPowerShellTests
     public static TheoryData<string> OperacionesRestringidas => new()
     {
         "Remove-Item C:\\prueba.txt",
+        "New-Item -Path 'C:\\ControlPCIA-Prueba-Nueva' -ItemType Directory",
+        "Copy-Item -LiteralPath 'C:\\origen.txt' -Destination 'C:\\destino.txt'",
+        "Start-Process 'C:\\Proyectos\\Cancion.cpr'",
+        "explorer.exe 'C:\\Proyectos'",
         "rm C:\\prueba.txt",
         "Set-Content C:\\prueba.txt hola",
         "Get-Process > C:\\procesos.txt",
@@ -79,6 +71,11 @@ public sealed class ValidadorPowerShellTests
         ,"Get-Process | Stop-Process"
         ,"Get-Process -Name * | Stop-Process"
         ,"Get-Content C:\\secreto.txt"
+        ,"Select-String -Path C:\\secreto.txt -Pattern clave"
+        ,"Get-FileHash C:\\secreto.txt"
+        ,"Get-ChildItem -LiteralPath 'C:\\' -Filter '*.txt' -File -Recurse -ErrorAction SilentlyContinue"
+        ,$"Get-ChildItem -LiteralPath '{Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)}' -File -Recurse -ErrorAction SilentlyContinue"
+        ,"Get-ChildItem -LiteralPath 'Env:'"
         ,"Invoke-RestMethod https://example.com"
         ,"wsl rm /mnt/c/prueba.txt"
         ,"dotnet script peligro.csx"
@@ -88,6 +85,7 @@ public sealed class ValidadorPowerShellTests
         ,"notepad.exe C:\\secreto.txt"
         ,"$ruta = 'C:\\secreto.txt'; notepad.exe $ruta"
         ,"$ruta = 'C:' + '\\secreto.txt'; notepad.exe $ruta"
+        ,"$destino = 'shell:AppsFolder\\Aplicacion_123!App'; explorer.exe $destino"
         ,"New-Object -ComObject Shell.Application"
         ,"Start-Job -FilePath C:\\peligro.ps1"
         ,"Out-Printer 'contenido'"
@@ -103,12 +101,38 @@ public sealed class ValidadorPowerShellTests
         ,"Start-Process 'https://example.com/programa.exe'"
         ,"Start-Process 'https://example.com/archivo.zip'"
         ,"Start-Process 'file:///C:/secreto.txt'"
+        ,"explorer.exe 'shell:AppsFolder\\..\\WindowsPowerShell\\powershell.exe'"
+        ,"explorer.exe 'shell:AppsFolder\\\\servidor\\aplicacion.exe'"
+        ,"$shell = New-Object -ComObject WScript.Shell; $shell.SendKeys('Remove-Item{ENTER}')"
+        ,"$shell = New-Object -ComObject WScript.Shell; $shell.SendKeys('2+5')"
+        ,"$shell = New-Object -ComObject WScript.Shell; $shell.SendKeys('2+5=')"
+        ,"$shell = New-Object -ComObject WScript.Shell; $shell.SendKeys([char]175)"
+        ,"$shell = New-Object -ComObject WScript.Shell; $shell.SendKeys('{F11}')"
+        ,"$shell = New-Object -ComObject WScript.Shell; if ($shell.AppActivate('Calculator')) { $shell.SendKeys('2{+}5=') } else { Write-Host 'No se activó' }"
+        ,"$shell = New-Object -ComObject WScript.Shell; if ($shell.AppActivate('Calculator')) { $shell.SendKeys('2{+}5=') } else { Write-Error 'No se encontró la ventana'; exit 1 }"
+        ,"$shell = New-Object -ComObject WScript.Shell; $activada = $false; for ($i = 0; $i -lt 10 -and -not $activada; $i++) { $activada = $shell.AppActivate('Calculator'); if (-not $activada) { Start-Sleep -Milliseconds 300 } }; if ($activada) { $shell.SendKeys('2{+}5=') } else { Write-Error 'No se encontró la ventana'; exit 1 }"
+        ,"$shell = New-Object -ComObject WScript.Shell; $shell.AppActivate('Calculator'); $shell.SendKeys('2{+}5=')"
+        ,"$shell = New-Object -ComObject WScript.Shell; $shell.AppActivate('Calculator'); $shell.SendKeys('2{+}5={ENTER}')"
+        ,"ControlPCIA.exe ui windows"
+        ,"ControlPCIA.exe ui inspect 'Cubase' 6"
+        ,"ControlPCIA.exe ui status 'Cubase'"
+        ,"ControlPCIA.exe ui close 'Cubase'"
+        ,"ControlPCIA.exe ui invoke 'Cubase' 'Add Track' 'MenuItem'"
+        ,"ControlPCIA.exe ui invoke 'Word' 'Save As' 'MenuItem'"
+        ,"ControlPCIA.exe ui invoke 'Cubase' 'Install plugin' 'Button'"
+        ,"ControlPCIA.exe ui text 'Cubase' 'Search' 'Kontakt 7'"
+        ,"ControlPCIA.exe ui text 'Abrir' 'File name' 'C:\\Proyectos\\Cancion.cpr'"
+        ,"ControlPCIA.exe ui shortcut 'Word' 'CTRL+S'"
+        ,"ControlPCIA.exe ui shortcut 'Explorador de archivos' 'CTRL+C'"
+        ,"ControlPCIA.exe ui shortcut 'Explorador de archivos' 'CTRL+V'"
+        ,"ControlPCIA.exe ui shortcut 'Cubase' 'CTRL+T'"
         ,"ControlPCIA.exe --servidor"
         ,"ControlPCIA.exe --activar-inicio"
         ,"ControlPCIA.exe ui inspect 'PowerShell'"
         ,"ControlPCIA.exe ui invoke 'Word' 'Don''t Save' 'Button'"
         ,"Stop-Process -Name notepad -Force"
         ,"winget uninstall --id Microsoft.PowerToys"
+        ,"winget install --id Microsoft.PowerToys --exact --source winget --scope user --accept-package-agreements --accept-source-agreements"
         ,"winget install --manifest C:\\paquete.yaml"
         ,"$env:CONTROLPCIA_PERMITIR_DESCARTE = '1'; ControlPCIA.exe ui invoke 'Word' 'Don''t Save' 'Button'"
         ,"$accion = 'inspect'; ControlPCIA.exe ui $accion 'Cubase'"
@@ -157,49 +181,29 @@ public sealed class ValidadorPowerShellTests
     }
 
     [Fact]
-    public void Permite_copiar_a_un_destino_nuevo_pero_no_sobrescribir()
+    public void Bloquea_crear_y_copiar_aunque_el_destino_sea_nuevo()
     {
-        string origen = Path.Combine(
-            Path.GetTempPath(),
-            "controlpcia-origen-" + Guid.NewGuid().ToString("N") + ".txt");
-        string destino = Path.Combine(
-            Path.GetTempPath(),
-            "controlpcia-destino-" + Guid.NewGuid().ToString("N") + ".txt");
-
-        try
-        {
-            File.WriteAllText(origen, "prueba");
-            string comando =
-                $"Copy-Item -LiteralPath '{Escapar(origen)}' -Destination '{Escapar(destino)}'";
-
-            Assert.True(
-                ValidadorPowerShell.Validar(comando).Permitido);
-
-            File.WriteAllText(destino, "existente");
-            Assert.False(
-                ValidadorPowerShell.Validar(comando).Permitido);
-        }
-        finally
-        {
-            File.Delete(origen);
-            File.Delete(destino);
-        }
+        Assert.False(
+            ValidadorPowerShell.Validar(
+                "New-Item -LiteralPath 'C:\\nuevo.txt' -ItemType File")
+                .Permitido);
+        Assert.False(
+            ValidadorPowerShell.Validar(
+                "Copy-Item -LiteralPath 'C:\\origen.txt' -Destination 'C:\\nuevo.txt'")
+                .Permitido);
     }
 
     [Fact]
-    public void Solo_permite_descartar_con_autorizacion_contextual()
+    public void La_autorizacion_no_reactiva_la_interfaz_deshabilitada()
     {
         const string comando =
             "ControlPCIA.exe ui invoke 'Word' 'Don''t Save' 'Button'";
 
         Assert.False(
             ValidadorPowerShell.Validar(comando).Permitido);
-        Assert.True(
+        Assert.False(
             ValidadorPowerShell.Validar(
                 comando,
                 permitirDescarte: true).Permitido);
     }
-
-    private static string Escapar(string ruta) =>
-        ruta.Replace("'", "''", StringComparison.Ordinal);
 }

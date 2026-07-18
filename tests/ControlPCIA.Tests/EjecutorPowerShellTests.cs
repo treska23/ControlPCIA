@@ -30,19 +30,4 @@ public sealed class EjecutorPowerShellTests
         Assert.StartsWith("BLOQUEADO:", resultado.Error);
     }
 
-    [Fact]
-    public void La_automatizacion_local_devuelve_un_error_controlado()
-    {
-        string tituloInexistente =
-            "controlpcia-ventana-inexistente-" + Guid.NewGuid().ToString("N");
-        ResultadoAutomatizacionAplicacion resultado =
-            AutomatizadorAplicaciones.Ejecutar(
-                ["ui", "inspect", tituloInexistente]);
-
-        Assert.Equal(4, resultado.CodigoSalida);
-        Assert.Contains(
-            "No se encontró una ventana visible",
-            resultado.Error,
-            StringComparison.Ordinal);
-    }
 }

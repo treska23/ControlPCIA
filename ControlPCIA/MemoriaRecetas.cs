@@ -84,7 +84,9 @@ internal sealed class MemoriaRecetas
                     candidata.Receta.Comandos.Count > 0
                     &&
                     candidata.Receta.Comandos.All(comando =>
-                        ValidadorPowerShell.Validar(comando).Permitido)
+                        ValidadorPowerShell.Validar(comando).Permitido
+                        && ControlWindows
+                            .EsComandoCompatibleConModoConsola(comando))
                     && TieneVerificacionSuficiente(candidata.Receta))
                 .OrderByDescending(candidata => candidata.Similitud)
                 .ThenByDescending(candidata => candidata.Receta.Exitos)
@@ -113,11 +115,15 @@ internal sealed class MemoriaRecetas
         string[] comandosValidos = comandos
             .Select(comando => comando.Trim())
             .Where(comando => comando.Length is > 0 and <= MaximoCaracteresComando)
-            .Where(comando => ValidadorPowerShell.Validar(comando).Permitido)
+            .Where(comando =>
+                ValidadorPowerShell.Validar(comando).Permitido
+                && ControlWindows.EsComandoCompatibleConModoConsola(comando))
             .Take(MaximoComandosPorReceta)
             .ToArray();
 
-        if (normalizada.Length == 0 || comandosValidos.Length == 0)
+        if (normalizada.Length == 0
+            || comandosValidos.Length == 0
+            || !TieneVerificacionSuficiente(comandosValidos))
         {
             return false;
         }
@@ -351,14 +357,20 @@ internal sealed class MemoriaRecetas
     private static bool TieneVerificacionSuficiente(
         RecetaPersistida receta)
     {
-        ResultadoPasoControl[] pasos = receta.Comandos
+        return TieneVerificacionSuficiente(receta.Comandos);
+    }
+
+    private static bool TieneVerificacionSuficiente(
+        IReadOnlyList<string> comandos)
+    {
+        ResultadoPasoControl[] pasos = comandos
             .Select((comando, indice) =>
                 new ResultadoPasoControl(
                     indice + 1,
                     comando,
                     true,
                     0,
-                    string.Empty,
+                    "resultado_correcto_almacenado",
                     string.Empty))
             .ToArray();
 

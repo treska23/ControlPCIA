@@ -103,7 +103,11 @@ internal static class ClienteOllama
             model = Modelo,
             messages = mensajes,
             stream = false,
-            think = false
+            think = false,
+            options = new
+            {
+                temperature = 0
+            }
         };
 
         using HttpResponseMessage respuesta =

@@ -12,20 +12,22 @@ public sealed class MemoriaRecetasTests
             async memoria =>
             {
                 bool aprendida = await memoria.AprenderAsync(
-                    "Ábreme el Bloc de notas",
-                    ["Start-Process notepad"],
+                    "Dime los procesos abiertos",
+                    ["Get-Process | Select-Object ProcessName"],
                     TestContext.Current.CancellationToken);
 
                 IReadOnlyList<RecetaReferencia> recetas =
                     await memoria.BuscarAsync(
-                        "abreme el bloc de notas",
+                        "dime los procesos abiertos",
                         cancellationToken:
                             TestContext.Current.CancellationToken);
 
                 Assert.True(aprendida);
                 RecetaReferencia receta = Assert.Single(recetas);
-                Assert.Equal("abreme el bloc de notas", receta.Intencion);
-                Assert.Equal("Start-Process notepad", Assert.Single(receta.Comandos));
+                Assert.Equal("dime los procesos abiertos", receta.Intencion);
+                Assert.Equal(
+                    "Get-Process | Select-Object ProcessName",
+                    Assert.Single(receta.Comandos));
                 Assert.Equal(1, receta.Exitos);
             });
     }
@@ -62,7 +64,11 @@ public sealed class MemoriaRecetasTests
             Assert.True(
                 await primeraInstancia.AprenderAsync(
                     "abre spotify",
-                    ["Start-Process spotify"],
+                    [
+                        "Get-StartApps | Where-Object Name -Like '*Spotify*'",
+                        "explorer.exe 'shell:AppsFolder\\Spotify_123!App'",
+                        "Get-Process -Name Spotify"
+                    ],
                     TestContext.Current.CancellationToken));
 
             var segundaInstancia = new MemoriaRecetas(ruta);
@@ -83,36 +89,59 @@ public sealed class MemoriaRecetasTests
     }
 
     [Fact]
-    public async Task Una_receta_corregida_sustituye_la_secuencia_incompleta()
+    public async Task Solo_guarda_una_apertura_si_incluye_comprobacion_por_consola()
     {
         await ConMemoriaTemporalAsync(
             async memoria =>
             {
-                Assert.True(
+                Assert.False(
                     await memoria.AprenderAsync(
-                        "abre la calculadora",
-                        ["Start-Process calc.exe"],
+                        "abre la aplicacion",
+                        ["Start-Process aplicacion"],
                         TestContext.Current.CancellationToken));
 
                 Assert.True(
                     await memoria.AprenderAsync(
-                        "abre la calculadora",
+                        "abre la aplicacion",
                         [
-                            "Start-Process calc.exe",
-                            "ControlPCIA.exe ui focus \"Calculadora\""
+                            "Get-StartApps | Where-Object Name -Like '*Aplicacion*'",
+                            "explorer.exe 'shell:AppsFolder\\Aplicacion_123!App'",
+                            "Get-Process -Name Aplicacion"
                         ],
                         TestContext.Current.CancellationToken));
 
                 RecetaReferencia receta = Assert.Single(
                     await memoria.BuscarAsync(
-                        "abre la calculadora",
+                        "abre la aplicacion",
                         cancellationToken:
                             TestContext.Current.CancellationToken));
 
-                Assert.Equal(2, receta.Comandos.Count);
+                Assert.Equal(3, receta.Comandos.Count);
                 Assert.Equal(
-                    "ControlPCIA.exe ui focus \"Calculadora\"",
-                    receta.Comandos[1]);
+                    "Get-Process -Name Aplicacion",
+                    receta.Comandos[2]);
+            });
+    }
+
+    [Fact]
+    public async Task No_aprende_recetas_del_modo_ui_legado()
+    {
+        await ConMemoriaTemporalAsync(
+            async memoria =>
+            {
+                bool aprendida = await memoria.AprenderAsync(
+                    "opera una aplicacion",
+                    [
+                        "ControlPCIA.exe ui inspect 'Aplicacion' 4",
+                        "ControlPCIA.exe ui invoke 'Aplicacion' 'Aceptar' 'Button'"
+                    ],
+                    TestContext.Current.CancellationToken);
+
+                Assert.False(aprendida);
+                Assert.Equal(
+                    0,
+                    await memoria.ContarAsync(
+                        TestContext.Current.CancellationToken));
             });
     }
 

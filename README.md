@@ -5,10 +5,10 @@ ControlPCIA permite enviar una orden hablada o escrita desde una aplicación mó
 No hay un traductor intermedio ni una función programada para cada acción. El único flujo principal es:
 
 ```text
-móvil → texto → Llama en Ollama → PowerShell → validador local → Windows
+móvil → texto → Llama propone comando → validador local → PowerShell → Windows
 ```
 
-Llama puede razonar sobre aplicaciones, ventanas, audio, multimedia, pantallas y la interfaz de Windows. También puede crear y abrir documentos o proyectos, guardar, copiar y pegar a destinos nuevos e instalar programas. Antes de ejecutar nada, un validador independiente analiza el AST oficial de PowerShell y bloquea borrado o corte de archivos, sobrescrituras, operaciones destructivas de disco, credenciales y mecanismos de evasión.
+Llama puede razonar sobre aplicaciones, ventanas, audio, multimedia, pantallas e información del sistema. Antes de ejecutar nada, un validador independiente analiza el AST oficial de PowerShell. Se permite localizar archivos por nombre y devolver su ruta, tamaño y fecha, pero no abrirlos, leerlos, crearlos, copiarlos, moverlos, renombrarlos, sobrescribirlos ni borrarlos. También se bloquean instalaciones, operaciones destructivas de disco, credenciales y mecanismos de evasión.
 
 ## Requisitos
 
@@ -66,7 +66,7 @@ APK Android generado para instalación manual:
 mobile\ControlPCIA.Mobile\bin\Release\net10.0-android\publish\com.treska.controlpcia-Signed.apk
 ```
 
-La publicación actual es la versión 1.3 (código 4), firmada con los esquemas APK v1, v2 y v3. Su SHA-256 es `86070A0D5CDD62C27E8458E733D9F2441690F508401DF3C5BC1F3F4F9953A819`.
+La publicación actual es la versión 1.3.1 (código 5), firmada con los esquemas APK v1, v2 y v3. Su SHA-256 es `461052D286FBFEE8E1C995687F402CB3A50DF775CF41E58ECF575848496E464E`.
 
 Para instalarlo, copia el APK al teléfono, ábrelo y permite la instalación desde esa fuente cuando Android lo solicite. Después abre ControlPCIA en el PC, pulsa **Buscar mi PC** en el móvil y escribe el código de seis cifras.
 
@@ -110,9 +110,9 @@ Las órdenes no se resuelven con capturas, OCR ni reconocimiento gráfico. El fl
 
 Llama no ejecuta acciones ni afirma resultados por su cuenta. ControlPCIA valida cada comando, lo ejecuta en un proceso externo de PowerShell y devuelve a Llama stdout, stderr y el código de salida. Si falla, el móvil recibe el error y puede continuar la conversación para aclarar la petición.
 
-La consulta de ventanas abiertas se hace con comandos de consola (Get-Process y títulos de ventana). El aprendizaje sólo guarda secuencias que hayan terminado con una observación válida y vuelve a pasar cada receta por el validador antes de reutilizarla.
+La consulta de ventanas abiertas se hace con comandos de consola (`Get-Process` y títulos de ventana). La localización de archivos usa `Get-ChildItem` dentro de las carpetas personales autorizadas y devuelve rutas completas sin leer contenido. Cuando esas consultas ya produjeron evidencia válida, ControlPCIA compone la respuesta directamente con el `stdout` real para que el modelo no pueda reinterpretarlo o contradecirlo. El aprendizaje sólo guarda secuencias que hayan terminado con una observación válida y vuelve a pasar cada receta por el validador antes de reutilizarla.
 
-La política permite controlar aplicaciones, audio, multimedia, pantallas y ajustes normales, pero bloquea borrar o cortar/mover archivos, sobrescribir destinos, credenciales, consolas, seguridad y operaciones destructivas de discos. «No guardar/Descartar» sólo se habilita ante una confirmación inequívoca y contextual.
+La política permite controlar aplicaciones, audio, multimedia, pantallas y ajustes normales cuando exista un comando, CLI, cmdlet, API o protocolo URI real. Bloquea toda manipulación de archivos, instalaciones, credenciales, consolas, seguridad y operaciones destructivas de discos. Una confirmación conversacional nunca levanta estas prohibiciones.
 
 ## Agente residente de Windows
 
@@ -147,18 +147,19 @@ Ante una orden parecida, Llama recibe las recetas relacionadas como referencias.
 
 La barrera de seguridad se aplica después del modelo y no depende de que Llama obedezca el prompt. Entre otras restricciones:
 
-- Nunca se permite borrar archivos o carpetas, cortar/moverlos ni sobrescribir un destino existente.
-- La creación y la copia directas sólo admiten rutas locales, absolutas y literales y destinos nuevos.
-- Se bloquean desinstalación, operaciones destructivas sobre discos o particiones, credenciales, permisos, cuentas, Defender y arranque.
-- `winget` sólo puede consultar el catálogo oficial o instalar para el usuario actual mediante un identificador literal; no acepta manifiestos, URLs, anulaciones ni desinstalación.
+- Nunca se permite abrir, leer, crear, copiar, mover, renombrar, sobrescribir o borrar archivos, carpetas, documentos o proyectos.
+- Sólo se pueden consultar nombres, rutas, tamaño y fecha de archivos dentro de carpetas personales autorizadas; la búsqueda exige filtro literal, límite de resultados y rutas completas.
+- Se bloquean instalación, actualización y desinstalación de programas, operaciones destructivas sobre discos o particiones, credenciales, permisos, cuentas, Defender y arranque.
+- `winget` sólo puede consultar el catálogo mediante `search`, `show` o `list`.
 - Se bloquean intérpretes anidados, ejecución dinámica, reflexión peligrosa, exfiltración y clientes de red arbitrarios.
-- `Start-Process` puede abrir aplicaciones registradas y rutas literales de documentos o proyectos, pero nunca ejecutables, scripts, instaladores o ubicaciones de red.
+- `Start-Process` puede abrir aplicaciones registradas y direcciones web públicas seguras, pero no archivos, carpetas, documentos, proyectos, ejecutables, scripts, instaladores o ubicaciones de red.
 - Los programas nativos reciben argumentos literales validados.
-- COM queda limitado al mecanismo de interfaz `WScript.Shell`, y `SendKeys` no admite texto libre.
+- Se bloquean `SendKeys`, `AppActivate`, COM de interfaz, atajos, simulación de ratón o teclado y el antiguo subcomando `ControlPCIA.exe ui`.
 - Las aplicaciones se controlan únicamente con comandos de consola de Windows o con la CLI/PowerShell documentada por cada aplicación. No se usan capturas, OCR, UI Automation ni cuadros de texto.
+- Si una aplicación no ofrece una CLI, un cmdlet, una API o un protocolo invocable íntegramente por consola para una acción interna, ControlPCIA explica ese límite y no simula la acción.
 - Después de ejecutar un comando, Llama recibe stdout, stderr y el código de salida reales. Sólo puede afirmar que terminó cuando esa salida demuestra el resultado.
 - El control queda limitado a las aplicaciones mencionadas por el usuario; una orden para Calculadora no debe actuar sobre ChatGPT u otra aplicación ajena.
-- Una petición ambigua puede devolver una pregunta de confirmación. Confirmar no habilita borrado/corte de archivos ni daños de disco; únicamente una confirmación contextual explícita puede habilitar el control nativo «No guardar/Descartar».
+- Una petición ambigua puede devolver una pregunta de confirmación. Confirmar no habilita manipulación de archivos, descarte de trabajo, instalaciones ni daños de disco.
 - Cada proceso PowerShell tiene 20 segundos de límite, salida acotada y terminación del árbol completo si vence el tiempo.
 
 El acceso móvil añade código de emparejado, token aleatorio de sesión, caducidad, límite de intentos, restricción a direcciones privadas, cabeceras de seguridad y una sola orden simultánea. El móvil conserva el token real en `SecureStorage`; el PC guarda únicamente su hash y caducidad durante 90 días, renovables con el uso, para que el emparejado sobreviva a los reinicios. Ollama sólo escucha para ControlPCIA en `127.0.0.1`.
@@ -208,9 +209,9 @@ La batería cubre comandos permitidos, operaciones restringidas, evasiones conoc
 ## Componentes principales
 
 - `ControlWindows.cs`: conversación genérica con Llama y bucle de pasos.
+- `PlanificadorTareasIA.cs`: descomposición y auditoría de peticiones con una o varias tareas.
 - `ClienteOllama.cs`: conexión exclusivamente local con Ollama.
 - `ValidadorPowerShell.cs`: análisis estructural y política de denegación.
 - `EjecutorPowerShell.cs`: ejecución acotada después de validar.
 - `MemoriaRecetas.cs`: aprendizaje local persistente y recuperación por similitud.
 - `ServidorMovil.cs`: servidor privado, emparejado y web adaptable para móvil.
-- `ObservadorWindows.cs`: contexto de ventanas visibles que recibe la IA.

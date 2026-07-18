@@ -108,10 +108,15 @@ public static class ReconocimientoVoz
 
         SpeechRecognizer? reconocedor = null;
         OyenteReconocimiento? oyente = null;
+        Intent? intencion = null;
         CancellationTokenRegistration registroCancelacion = default;
         var resultado =
             new TaskCompletionSource<string>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
+        var acumulador = new AcumuladorDictado();
+        int detencionSolicitada = 0;
+        int cancelacionSolicitada = 0;
+        int reinicioEnCurso = 0;
 
         void Publicar(EstadoReconocimientoVoz estado)
         {
@@ -124,8 +129,204 @@ public static class ReconocimientoVoz
                 () => alCambiarEstado(estado));
         }
 
+        void CompletarConTexto(string? ultimoSegmento = null)
+        {
+            if (!string.IsNullOrWhiteSpace(ultimoSegmento))
+            {
+                acumulador.ConfirmarSegmento(ultimoSegmento);
+            }
+
+            string texto = acumulador.ObtenerTexto();
+
+            if (string.IsNullOrWhiteSpace(texto))
+            {
+                resultado.TrySetException(
+                    new InvalidOperationException(
+                        "No te he entendido. Repítelo, por favor."));
+                return;
+            }
+
+            resultado.TrySetResult(texto);
+        }
+
+        async Task ReiniciarEscuchaAsync()
+        {
+            if (!escuchaBloqueada
+                || resultado.Task.IsCompleted
+                || Volatile.Read(ref detencionSolicitada) != 0
+                || Volatile.Read(ref cancelacionSolicitada) != 0
+                || Interlocked.Exchange(ref reinicioEnCurso, 1) != 0)
+            {
+                return;
+            }
+
+            try
+            {
+                await Task.Delay(200);
+
+                if (resultado.Task.IsCompleted
+                    || Volatile.Read(ref detencionSolicitada) != 0
+                    || Volatile.Read(ref cancelacionSolicitada) != 0)
+                {
+                    return;
+                }
+
+                Publicar(
+                    new EstadoReconocimientoVoz(
+                        FaseReconocimientoVoz.Preparando,
+                        acumulador.ObtenerTexto()));
+
+                await MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    if (reconocedor is not null
+                        && intencion is not null
+                        && !resultado.Task.IsCompleted
+                        && Volatile.Read(ref detencionSolicitada) == 0
+                        && Volatile.Read(ref cancelacionSolicitada) == 0)
+                    {
+                        reconocedor.StartListening(intencion);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                if (Volatile.Read(ref detencionSolicitada) == 0
+                    && Volatile.Read(ref cancelacionSolicitada) == 0)
+                {
+                    resultado.TrySetException(
+                        new InvalidOperationException(
+                            "No se pudo mantener abierta la escucha del móvil.",
+                            ex));
+                }
+            }
+            finally
+            {
+                Interlocked.Exchange(ref reinicioEnCurso, 0);
+            }
+        }
+
+        void AlRecibirResultado(string? texto)
+        {
+            acumulador.ConfirmarSegmento(texto);
+
+            if (escuchaBloqueada
+                && Volatile.Read(ref detencionSolicitada) == 0
+                && Volatile.Read(ref cancelacionSolicitada) == 0)
+            {
+                string acumulado = acumulador.ObtenerTexto();
+
+                if (acumulado.Length > 0)
+                {
+                    Publicar(
+                        new EstadoReconocimientoVoz(
+                            FaseReconocimientoVoz.TextoParcial,
+                            acumulado));
+                }
+
+                _ = ReiniciarEscuchaAsync();
+                return;
+            }
+
+            CompletarConTexto();
+        }
+
+        void AlRecibirParcial(string? texto)
+        {
+            acumulador.ActualizarParcial(texto);
+            string acumulado = acumulador.ObtenerTexto();
+
+            if (acumulado.Length > 0)
+            {
+                Publicar(
+                    new EstadoReconocimientoVoz(
+                        FaseReconocimientoVoz.TextoParcial,
+                        acumulado));
+            }
+        }
+
+        void AlRecibirError(SpeechRecognizerError error)
+        {
+            if (resultado.Task.IsCompleted)
+            {
+                return;
+            }
+
+            bool deteniendo =
+                Volatile.Read(ref detencionSolicitada) != 0;
+
+            if (escuchaBloqueada && !deteniendo)
+            {
+                acumulador.ConfirmarParcial();
+
+                if (error is SpeechRecognizerError.NoMatch
+                    or SpeechRecognizerError.SpeechTimeout
+                    or SpeechRecognizerError.RecognizerBusy)
+                {
+                    _ = ReiniciarEscuchaAsync();
+                    return;
+                }
+            }
+
+            if (deteniendo)
+            {
+                acumulador.ConfirmarParcial();
+                CompletarConTexto();
+                return;
+            }
+
+            resultado.TrySetException(
+                new InvalidOperationException(
+                    ObtenerMensajeError(error)));
+        }
+
+        async Task CompletarDetencionTrasEsperaAsync()
+        {
+            await Task.Delay(2_000);
+
+            if (resultado.Task.IsCompleted
+                || Volatile.Read(ref cancelacionSolicitada) != 0)
+            {
+                return;
+            }
+
+            await MainThread.InvokeOnMainThreadAsync(
+                () => reconocedor?.Cancel());
+            acumulador.ConfirmarParcial();
+            CompletarConTexto();
+        }
+
+        async Task DetenerInternamenteAsync()
+        {
+            if (resultado.Task.IsCompleted
+                || Interlocked.Exchange(ref detencionSolicitada, 1) != 0)
+            {
+                return;
+            }
+
+            Publicar(
+                new EstadoReconocimientoVoz(
+                    FaseReconocimientoVoz.Transcribiendo,
+                    acumulador.ObtenerTexto()));
+
+            try
+            {
+                await MainThread.InvokeOnMainThreadAsync(
+                    () => reconocedor?.StopListening());
+            }
+            catch
+            {
+                acumulador.ConfirmarParcial();
+                CompletarConTexto();
+                return;
+            }
+
+            _ = CompletarDetencionTrasEsperaAsync();
+        }
+
         async Task CancelarInternamenteAsync()
         {
+            Interlocked.Exchange(ref cancelacionSolicitada, 1);
+            Interlocked.Exchange(ref detencionSolicitada, 1);
             resultado.TrySetCanceled();
             await MainThread.InvokeOnMainThreadAsync(
                 () => reconocedor?.Cancel());
@@ -137,10 +338,14 @@ public static class ReconocimientoVoz
             {
                 reconocedor =
                     SpeechRecognizer.CreateSpeechRecognizer(contexto);
-                oyente = new OyenteReconocimiento(resultado, Publicar);
+                oyente = new OyenteReconocimiento(
+                    AlRecibirResultado,
+                    AlRecibirError,
+                    AlRecibirParcial,
+                    Publicar);
                 reconocedor!.SetRecognitionListener(oyente);
 
-                var intencion =
+                intencion =
                     new Intent(RecognizerIntent.ActionRecognizeSpeech);
                 intencion.PutExtra(
                     RecognizerIntent.ExtraLanguageModel,
@@ -189,20 +394,11 @@ public static class ReconocimientoVoz
 
         return new SesionReconocimientoVoz(
             resultado.Task,
-            detener: async () =>
-            {
-                if (!resultado.Task.IsCompleted)
-                {
-                    Publicar(
-                        new EstadoReconocimientoVoz(
-                            FaseReconocimientoVoz.Transcribiendo));
-                    await MainThread.InvokeOnMainThreadAsync(
-                        () => reconocedor?.StopListening());
-                }
-            },
+            detener: DetenerInternamenteAsync,
             cancelar: CancelarInternamenteAsync,
             liberar: async () =>
             {
+                Interlocked.Exchange(ref cancelacionSolicitada, 1);
                 registroCancelacion.Dispose();
                 await MainThread.InvokeOnMainThreadAsync(() =>
                 {
@@ -215,47 +411,21 @@ public static class ReconocimientoVoz
     }
 
     private sealed class OyenteReconocimiento(
-        TaskCompletionSource<string> resultado,
+        Action<string?> alRecibirResultado,
+        Action<SpeechRecognizerError> alRecibirError,
+        Action<string?> alRecibirParcial,
         Action<EstadoReconocimientoVoz> publicar)
         : Java.Lang.Object,
           IRecognitionListener
     {
         public void OnResults(Bundle? resultados)
         {
-            string? texto = ObtenerPrimerTexto(resultados);
-
-            if (string.IsNullOrWhiteSpace(texto))
-            {
-                resultado.TrySetException(
-                    new InvalidOperationException(
-                        "No te he entendido. Repítelo, por favor."));
-                return;
-            }
-
-            resultado.TrySetResult(texto.Trim());
+            alRecibirResultado(ObtenerPrimerTexto(resultados));
         }
 
         public void OnError(SpeechRecognizerError error)
         {
-            string mensaje = error switch
-            {
-                SpeechRecognizerError.NoMatch =>
-                    "No te he entendido. Repítelo, por favor.",
-                SpeechRecognizerError.SpeechTimeout =>
-                    "No te he oído. Vuelve a tocar el botón y repítelo, por favor.",
-                SpeechRecognizerError.InsufficientPermissions =>
-                    "El movil no tiene permiso para usar el microfono.",
-                SpeechRecognizerError.Network or
-                SpeechRecognizerError.NetworkTimeout =>
-                    "El reconocimiento de voz del movil no tiene conexion.",
-                SpeechRecognizerError.RecognizerBusy =>
-                    "El microfono ya esta ocupado. Espera un momento y vuelve a intentarlo.",
-                _ =>
-                    "No se pudo usar el reconocimiento de voz del movil."
-            };
-
-            resultado.TrySetException(
-                new InvalidOperationException(mensaje));
+            alRecibirError(error);
         }
 
         public void OnBeginningOfSpeech()
@@ -274,15 +444,7 @@ public static class ReconocimientoVoz
 
         public void OnPartialResults(Bundle? partialResults)
         {
-            string? texto = ObtenerPrimerTexto(partialResults);
-
-            if (!string.IsNullOrWhiteSpace(texto))
-            {
-                publicar(
-                    new EstadoReconocimientoVoz(
-                        FaseReconocimientoVoz.TextoParcial,
-                        texto.Trim()));
-            }
+            alRecibirParcial(ObtenerPrimerTexto(partialResults));
         }
 
         public void OnReadyForSpeech(Bundle? parameters)
@@ -323,5 +485,27 @@ public static class ReconocimientoVoz
                 .FirstOrDefault();
         }
     }
+
+    private static string ObtenerMensajeError(
+        SpeechRecognizerError error)
+    {
+        return error switch
+        {
+            SpeechRecognizerError.NoMatch =>
+                "No te he entendido. Repítelo, por favor.",
+            SpeechRecognizerError.SpeechTimeout =>
+                "No te he oído. Vuelve a tocar el botón y repítelo, por favor.",
+            SpeechRecognizerError.InsufficientPermissions =>
+                "El móvil no tiene permiso para usar el micrófono.",
+            SpeechRecognizerError.Network or
+            SpeechRecognizerError.NetworkTimeout =>
+                "El reconocimiento de voz del móvil no tiene conexión.",
+            SpeechRecognizerError.RecognizerBusy =>
+                "El micrófono ya está ocupado. Espera un momento y vuelve a intentarlo.",
+            _ =>
+                "No se pudo usar el reconocimiento de voz del móvil."
+        };
+    }
+
 #endif
 }
