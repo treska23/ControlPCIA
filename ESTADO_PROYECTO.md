@@ -165,9 +165,12 @@ automático o salir.
   `install -r`: conserva la fecha de primera instalación y los datos, declara
   código 8, alcanza `192.168.1.15:5187` desde Android y arranca sin excepciones
   fatales.
-- El agente instalado conserva 16 recetas y el inicio oculto registrado. El
-  proceso residente está detenido intencionadamente mientras se publica y
-  revisa esta corrección; ninguna prueba nueva ejecuta órdenes sobre
+- El agente corregido está publicado e instalado en
+  `%LOCALAPPDATA%\ControlPCIA\App`; el ejecutable, la DLL y el APK coinciden
+  byte por byte con la publicación. SHA-256 de la DLL:
+  `98B53CE562E52E3A1EFB75627294D3439056C8AC711CB2F27B02CEE8FD2E5A5D`.
+  Conserva 16 recetas y el inicio oculto registrado. El proceso residente sigue
+  detenido intencionadamente; ninguna prueba nueva ejecuta órdenes sobre
   aplicaciones reales.
 
 ## Tareas pendientes
@@ -175,7 +178,7 @@ automático o salir.
 - [x] Ejecutar pruebas y compilación Release completas tras estos cambios.
 - [x] Añadir traducción diagnóstica sin ejecución y probar variaciones naturales.
 - [x] Impedir que una orden de ventana cierre Edge o abra propiedades del sistema.
-- [ ] Publicar e instalar los binarios de esta corrección.
+- [x] Publicar e instalar los binarios de esta corrección.
 - [ ] Reactivar el agente residente sólo después de la revisión final.
 - [x] Instalar APK 1.4.2 en el móvil conservando datos.
 - [ ] Verificar manualmente en Android los estados de escucha/proceso y que
