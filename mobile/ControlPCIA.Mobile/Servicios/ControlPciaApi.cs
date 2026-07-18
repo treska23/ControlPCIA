@@ -14,7 +14,7 @@ public sealed class ControlPciaApi
 
     private readonly HttpClient _http = new()
     {
-        Timeout = TimeSpan.FromMinutes(3)
+        Timeout = TimeSpan.FromMinutes(10)
     };
 
     private string? _direccion;

@@ -14,7 +14,7 @@ namespace ControlPCIA
     internal static class EjecutorPowerShell
     {
         private static readonly TimeSpan TiempoMaximo =
-            TimeSpan.FromSeconds(20);
+            TimeSpan.FromMinutes(10);
 
         private const int CaracteresMaximosSalida = 64_000;
 

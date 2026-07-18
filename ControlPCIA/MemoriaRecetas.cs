@@ -22,7 +22,10 @@ internal sealed class MemoriaRecetas
         new(StringComparer.Ordinal)
         {
             "a", "al", "con", "de", "del", "el", "en", "la", "las",
-            "lo", "los", "mi", "para", "por", "que", "un", "una", "y"
+            "lo", "los", "mi", "para", "por", "que", "un", "una", "y",
+            "abre", "abrir", "inicia", "iniciar", "lanza", "lanzar",
+            "crea", "crear", "nuevo", "nueva", "haz", "hacer", "pon",
+            "poner", "cierra", "cerrar", "dime", "muestra", "mostrar"
         };
 
     private static readonly JsonSerializerOptions OpcionesJson = new()
@@ -94,7 +97,8 @@ internal sealed class MemoriaRecetas
                 .Take(Math.Min(maximo, 10))
                 .Select(candidata => new RecetaReferencia(
                     candidata.Receta.Intencion,
-                    candidata.Receta.Comandos.ToArray(),
+                    OptimizarComandosParaReutilizacion(
+                        candidata.Receta.Comandos),
                     candidata.Receta.Exitos,
                     candidata.Similitud))
                 .ToArray();
@@ -112,14 +116,15 @@ internal sealed class MemoriaRecetas
     {
         string normalizada = Normalizar(instruccion);
 
-        string[] comandosValidos = comandos
+        string[] comandosValidos = OptimizarComandosParaReutilizacion(
+            comandos
             .Select(comando => comando.Trim())
             .Where(comando => comando.Length is > 0 and <= MaximoCaracteresComando)
             .Where(comando =>
                 ValidadorPowerShell.Validar(comando).Permitido
                 && ControlWindows.EsComandoCompatibleConModoConsola(comando))
             .Take(MaximoComandosPorReceta)
-            .ToArray();
+            .ToArray());
 
         if (normalizada.Length == 0
             || comandosValidos.Length == 0
@@ -377,6 +382,33 @@ internal sealed class MemoriaRecetas
         return !ControlWindows.RequiereVerificacionTrasCambio(pasos);
     }
 
+    private static string[] OptimizarComandosParaReutilizacion(
+        IEnumerable<string> comandos)
+    {
+        string[] lista = comandos.ToArray();
+        bool contieneAppIdVerificado = lista.Any(comando =>
+            comando.Contains(
+                "shell:AppsFolder\\",
+                StringComparison.OrdinalIgnoreCase));
+        bool contienePlantillaLiteral = lista.Any(comando =>
+            comando.Contains(
+                "Copy-Item",
+                StringComparison.OrdinalIgnoreCase));
+
+        return lista
+            .Where(comando =>
+                !(contieneAppIdVerificado
+                  && comando.Contains(
+                      "Get-StartApps",
+                      StringComparison.OrdinalIgnoreCase)))
+            .Where(comando =>
+                !(contienePlantillaLiteral
+                  && comando.Contains(
+                      "Get-ChildItem",
+                      StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+    }
+
     private static double CalcularSimilitud(
         string instruccion,
         HashSet<string> tokensInstruccion,
@@ -397,8 +429,17 @@ internal sealed class MemoriaRecetas
 
         int interseccion = tokensInstruccion.Intersect(tokensReceta).Count();
         int union = tokensInstruccion.Union(tokensReceta).Count();
+        int menor = Math.Min(
+            tokensInstruccion.Count,
+            tokensReceta.Count);
+        double jaccard =
+            union == 0 ? 0 : (double)interseccion / union;
+        double coberturaEntidad =
+            menor == 0 ? 0 : (double)interseccion / menor;
 
-        return union == 0 ? 0 : (double)interseccion / union;
+        return Math.Max(
+            jaccard,
+            coberturaEntidad * 0.6);
     }
 
     private static HashSet<string> ObtenerTokens(string texto)

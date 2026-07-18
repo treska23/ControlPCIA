@@ -27,6 +27,8 @@ internal static class ServidorMovil
     private const int PuertoPredeterminado = 5187;
     private const int LongitudMaximaOrden = 1000;
     private const int LongitudMaximaPeticion = 12_000;
+    internal const string RutaDescargaApkAndroid = "/app-android.apk";
+    internal const string NombreArchivoApkAndroid = "ControlPCIA.Mobile.apk";
 
     public static async Task IniciarAsync(
         CancellationToken cancellationToken = default,
@@ -173,6 +175,10 @@ internal static class ServidorMovil
                     IconoPwaMaskable,
                     "image/svg+xml; charset=utf-8");
             });
+
+        app.MapGet(
+            RutaDescargaApkAndroid,
+            DescargarApkAndroid);
 
         app.MapPost(
             "/api/emparejar",
@@ -374,6 +380,34 @@ internal static class ServidorMovil
                    char.IsControl(caracter)
                    &&
                    caracter is not '\r' and not '\n' and not '\t');
+    }
+
+    internal static string ObtenerRutaApkAndroid()
+    {
+        return Path.Combine(
+            AppContext.BaseDirectory,
+            NombreArchivoApkAndroid);
+    }
+
+    private static IResult DescargarApkAndroid()
+    {
+        string ruta = ObtenerRutaApkAndroid();
+
+        if (!File.Exists(ruta))
+        {
+            return Results.NotFound(
+                new
+                {
+                    error =
+                        "La aplicación Android todavía no está disponible."
+                });
+        }
+
+        return Results.File(
+            ruta,
+            contentType: "application/vnd.android.package-archive",
+            fileDownloadName: "ControlPCIA-Android.apk",
+            enableRangeProcessing: true);
     }
 
     internal static int ObtenerPuerto()
@@ -779,6 +813,7 @@ internal static class ServidorMovil
 
           if (request.method !== 'GET' || url.origin !== self.location.origin) return;
           if (url.pathname.startsWith('/api/')) return;
+          if (url.pathname === '/app-android.apk') return;
 
           if (request.mode === 'navigate') {
             event.respondWith(
@@ -880,6 +915,7 @@ internal static class ServidorMovil
             .state { min-height: 22px; }
             .state.error { color: #fca5a5; }
             .state.ok { color: #86efac; }
+            .state.warn { color: #fcd34d; }
             #result { display: grid; gap: 10px; }
             .step { border: 1px solid #2b3852; border-radius: 14px; padding: 12px; background: #0b1220; }
             .chat-user { background: #12315a; border-color: #315f9e; }
@@ -891,6 +927,7 @@ internal static class ServidorMovil
             .install-card { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid #2b3852; border-radius: 16px; background: #0c1424; }
             .install-card button { min-height: 42px; white-space: nowrap; }
             .install-card p { margin: 0; color: #9ca9c8; font-size: .8rem; line-height: 1.4; }
+            .download-link { min-height: 42px; border-radius: 14px; padding: 0 17px; display: inline-flex; align-items: center; justify-content: center; color: #fff; background: linear-gradient(135deg, #059669, #047857); font-weight: 750; text-decoration: none; white-space: nowrap; }
             [hidden] { display: none !important; }
           </style>
         </head>
@@ -904,6 +941,11 @@ internal static class ServidorMovil
             <section id="installCard" class="install-card">
               <button id="install" type="button">Instalar app</button>
               <p id="installHint">Instálala para abrir ControlPCIA desde la pantalla de inicio.</p>
+            </section>
+
+            <section class="install-card">
+              <a class="download-link" href="/app-android.apk" download>Descargar app Android</a>
+              <p>Instala la aplicación nativa o descarga aquí sus actualizaciones, directamente desde este PC.</p>
             </section>
 
             <section id="pairCard" class="card">
@@ -1014,7 +1056,13 @@ internal static class ServidorMovil
                 );
                 conversation = conversation.slice(-12);
                 const learned = data.aprendido ? ' Receta guardada en la memoria local.' : '';
-                setState(controlState, data.mensaje + learned, data.completado ? 'ok' : 'error');
+                const needsInput =
+                  data.estado === 'requiere_confirmacion' ||
+                  data.estado === 'requiere_aclaracion';
+                setState(
+                  controlState,
+                  data.mensaje + learned,
+                  needsInput ? 'warn' : (data.completado ? 'ok' : 'error'));
                 const userBox = document.createElement('div');
                 userBox.className = 'step chat-user';
                 const userTitle = document.createElement('strong');

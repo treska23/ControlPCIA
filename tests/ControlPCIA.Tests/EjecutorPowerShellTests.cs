@@ -22,7 +22,7 @@ public sealed class EjecutorPowerShellTests
     {
         ResultadoEjecucionPowerShell resultado =
             await EjecutorPowerShell.EjecutarAsync(
-                "Set-Content prueba.txt bloqueado",
+                "Remove-Item prueba.txt",
                 TestContext.Current.CancellationToken);
 
         Assert.False(resultado.Ejecutado);

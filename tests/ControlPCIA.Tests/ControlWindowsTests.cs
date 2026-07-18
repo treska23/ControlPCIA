@@ -5,6 +5,21 @@ namespace ControlPCIA.Tests;
 public sealed class ControlWindowsTests
 {
     [Theory]
+    [InlineData(1, 24)]
+    [InlineData(4, 24)]
+    [InlineData(8, 48)]
+    [InlineData(24, 96)]
+    [InlineData(40, 96)]
+    public void Amplia_los_pasos_para_ordenes_multitarea(
+        int tareas,
+        int esperado)
+    {
+        Assert.Equal(
+            esperado,
+            ControlWindows.CalcularMaximoPasos(tareas));
+    }
+
+    [Theory]
     [InlineData(
         "CONFIRMAR: ¿Quieres cambiar ahora la escala de todas las pantallas?",
         "¿Quieres cambiar ahora la escala de todas las pantallas?")]
@@ -17,6 +32,24 @@ public sealed class ControlWindowsTests
     {
         Assert.True(
             ControlWindows.TryObtenerPreguntaConfirmacion(
+                respuesta,
+                out string pregunta));
+        Assert.Equal(esperada, pregunta);
+    }
+
+    [Theory]
+    [InlineData(
+        "PREGUNTAR: ¿Qué nombre quieres poner al proyecto?",
+        "¿Qué nombre quieres poner al proyecto?")]
+    [InlineData(
+        "preguntar:",
+        "¿Qué dato falta para continuar?")]
+    public void Reconoce_una_pregunta_de_datos_para_el_usuario(
+        string respuesta,
+        string esperada)
+    {
+        Assert.True(
+            ControlWindows.TryObtenerPreguntaUsuario(
                 respuesta,
                 out string pregunta));
         Assert.Equal(esperada, pregunta);
@@ -45,99 +78,84 @@ public sealed class ControlWindowsTests
     }
 
     [Fact]
-    public void Un_appid_inventado_se_bloquea()
+    public void Un_appid_aprendido_se_reutiliza_sin_repetir_el_inventario()
     {
-        const string comando =
-            "explorer.exe 'shell:AppsFolder\\identificador.inventado!App'";
+        const string appId = "Aplicacion.Verificada_123!App";
+        var receta = new RecetaReferencia(
+            "abre aplicacion",
+            [
+                $"explorer.exe 'shell:AppsFolder\\{appId}'",
+                "Get-Process -Name Aplicacion"
+            ],
+            3,
+            1);
+        IReadOnlySet<string> aprendidos =
+            ControlWindows.ObtenerAppIdsAprendidos([receta]);
 
-        string? motivo =
-            ControlWindows.ValidarProcedenciaAppId(
-                comando,
-                []);
-
-        Assert.NotNull(motivo);
-        Assert.Contains(
-            "Get-StartApps",
-            motivo,
-            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(appId, aprendidos);
     }
 
     [Fact]
-    public void Un_appid_devuelto_por_windows_se_admite_literalmente()
+    public void Un_appid_clasico_deduce_carpetas_reales_del_fabricante()
     {
         const string appId =
-            "{6D809377-6AF0-444B-8957-A3773F02200E}\\Steinberg\\Aplicacion 15\\Aplicacion15.exe";
-        ResultadoPasoControl consulta = new(
-            1,
-            "Get-StartApps | Where-Object Name -Like '*Aplicacion*'",
-            true,
-            0,
-            $"Name          AppID{Environment.NewLine}Aplicacion 15 {appId}",
-            string.Empty);
-
-        string? motivo =
-            ControlWindows.ValidarProcedenciaAppId(
+            "{6D809377-6AF0-444B-8957-A3773F02200E}\\Microsoft\\Aplicacion\\Aplicacion.exe";
+        var receta = new RecetaReferencia(
+            "abre aplicacion",
+            [
                 $"explorer.exe 'shell:AppsFolder\\{appId}'",
-                [consulta]);
+                "Get-Process -Name Aplicacion"
+            ],
+            1,
+            1);
 
-        Assert.Null(motivo);
+        IReadOnlyList<string> carpetas =
+            ControlWindows.ObtenerCarpetasAplicacionesAprendidas(
+                [receta]);
+
+        Assert.Contains(
+            carpetas,
+            ruta => Path.GetFileName(ruta).Equals(
+                "Microsoft",
+                StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public void Una_lista_generica_de_procesos_no_responde_que_ventanas_hay()
+    public void Una_plantilla_aprendida_evitar_repetir_su_busqueda()
     {
-        var plan = new PlanTareasControl(
-            ["Mostrar los programas que tienen una ventana abierta"]);
+        string plantilla = Path.Combine(
+            Path.GetTempPath(),
+            "ControlPCIA-Plantilla-" + Guid.NewGuid().ToString("N")
+            + ".cpr");
+        File.WriteAllText(plantilla, "plantilla");
 
-        Assert.NotNull(
-            ControlWindows.ValidarAdecuacionConsultaInformativa(
-                "Get-Process | Select-Object Name,Id",
-                plan,
-                []));
+        try
+        {
+            var receta = new RecetaReferencia(
+                "crear proyecto",
+                [
+                    $"Copy-Item -LiteralPath '{plantilla}' -Destination 'C:\\Proyecto.cpr'"
+                ],
+                2,
+                1);
 
-        Assert.NotNull(
-            ControlWindows.ValidarAdecuacionConsultaInformativa(
-                "Get-Process | Where-Object MainWindowTitle | Select-Object ProcessName,MainWindowTitle",
-                plan,
-                []));
-
-        Assert.Null(
-            ControlWindows.ValidarAdecuacionConsultaInformativa(
-                "Get-Process | Where-Object MainWindowTitle | ForEach-Object { Write-Output ('PROCESS_NAME=' + $_.ProcessName); Write-Output ('WINDOW_TITLE=' + $_.MainWindowTitle) }",
-                plan,
-                []));
-    }
-
-    [Fact]
-    public void Una_busqueda_conserva_nombre_limite_y_ruta_completa()
-    {
-        var plan = new PlanTareasControl(
-            ["Localizar el archivo README.md"]);
-        const string valida =
-            "Get-ChildItem -LiteralPath 'D:\\Documentos' -Filter 'README.md' -File -Recurse | Select-Object -First 20 | ForEach-Object { Write-Output ('FULL_NAME=' + $_.FullName) }";
-
-        Assert.Null(
-            ControlWindows.ValidarAdecuacionConsultaInformativa(
-                valida,
-                plan,
-                []));
-        Assert.Contains(
-            "README.md",
-            ControlWindows.ValidarAdecuacionConsultaInformativa(
-                valida.Replace("README.md", "README", StringComparison.Ordinal),
-                plan,
-                [])!,
-            StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(
-            "Select-Object -First 20",
-            ControlWindows.ValidarAdecuacionConsultaInformativa(
-                valida.Replace(
-                    " | Select-Object -First 20",
-                    string.Empty,
-                    StringComparison.Ordinal),
-                plan,
-                [])!,
-            StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(
+                Path.GetFullPath(plantilla),
+                Assert.Single(
+                    ControlWindows
+                        .ObtenerOrigenesCopyItemAprendidos(
+                            [receta])));
+            Assert.True(
+                ControlWindows.EsBusquedaDeRecursosRepetida(
+                    "Get-ChildItem -Path C:\\ -Filter '*.cpr' -Recurse"));
+            Assert.False(
+                ControlWindows.EsBusquedaDeRecursosRepetida(
+                    $"Copy-Item -LiteralPath '{plantilla}' -Destination 'C:\\Proyecto.cpr'"));
+        }
+        finally
+        {
+            File.Delete(plantilla);
+        }
     }
 
     [Fact]
@@ -169,6 +187,58 @@ public sealed class ControlWindowsTests
     }
 
     [Fact]
+    public void Un_appid_clasico_se_comprueba_con_su_proceso_real()
+    {
+        const string apertura =
+            "explorer.exe 'shell:AppsFolder\\{6D809377-6AF0-444B-8957-A3773F02200E}\\Steinberg\\Cubase 15\\Cubase15.exe'";
+
+        string comprobacion =
+            ControlWindows.CrearComandoVerificacionApertura(
+                apertura);
+
+        Assert.Contains(
+            "Get-Process -Name 'Cubase15'",
+            comprobacion,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROCESS_NAME=",
+            comprobacion,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void El_proceso_concreto_demuestra_apertura_aunque_siga_cargando()
+    {
+        ResultadoPasoControl apertura = new(
+            1,
+            "explorer.exe 'shell:AppsFolder\\{GUID}\\Cubase15.exe'",
+            true,
+            0,
+            string.Empty,
+            string.Empty);
+        ResultadoPasoControl comprobacion = new(
+            2,
+            "Get-Process -Name 'Cubase15' -ErrorAction SilentlyContinue | ForEach-Object { Write-Output ('PROCESS_NAME=' + $_.ProcessName); Write-Output ('WINDOW_TITLE=' + $_.MainWindowTitle) }",
+            true,
+            0,
+            "PROCESS_NAME=Cubase15\nWINDOW_TITLE=Comprobando licencias...",
+            string.Empty);
+
+        Assert.True(
+            ControlWindows.HayAperturaVerificada(
+                [apertura, comprobacion]));
+        Assert.True(
+            ControlWindows.EsAperturaUnicaVerificada(
+                new PlanTareasControl(["abrir Cubase"]),
+                [apertura, comprobacion]));
+        Assert.False(
+            ControlWindows.EsAperturaUnicaVerificada(
+                new PlanTareasControl(
+                    ["abrir Cubase", "crear una pista"]),
+                [apertura, comprobacion]));
+    }
+
+    [Fact]
     public void Una_consulta_vacia_no_demuestra_que_la_aplicacion_se_abrio()
     {
         ResultadoPasoControl apertura =
@@ -197,7 +267,9 @@ public sealed class ControlWindowsTests
     [InlineData("ControlPCIA.exe ui inspect 'Calculator' 4", false)]
     [InlineData("ControlPCIA.exe window keys 'Calculator' '2+5='", false)]
     [InlineData("Get-Process CalculatorApp", true)]
-    [InlineData("$shell = New-Object -ComObject WScript.Shell", false)]
+    [InlineData("$shell = New-Object -ComObject WScript.Shell", true)]
+    [InlineData("$excel = New-Object -ComObject Excel.Application", true)]
+    [InlineData("$shell.SendKeys('texto')", false)]
     public void El_agente_solo_usa_el_modo_consola(
         string comando,
         bool esperado)
@@ -247,6 +319,12 @@ public sealed class ControlWindowsTests
     [InlineData(
         "**[ ] 1. abrir**\nExplicación previa.\n```powershell\nStart-Process Calculator\n```",
         "Start-Process Calculator")]
+    [InlineData(
+        "El primer paso es identificar Cubase. Vamos a usar el comando `Get-StartApps` para buscarlo.",
+        "Get-StartApps")]
+    [InlineData(
+        "> explorer.exe 'shell:AppsFolder\\Aplicacion_123!App'\n>",
+        "explorer.exe 'shell:AppsFolder\\Aplicacion_123!App'")]
     public void Limpia_el_formato_markdown_sin_alterar_el_comando(
         string respuesta,
         string esperado)
@@ -294,6 +372,206 @@ public sealed class ControlWindowsTests
         Assert.False(
             ControlWindows.RequiereInvestigarAplicacion(
                 [fallo, consulta]));
+    }
+
+    [Fact]
+    public void Una_apertura_de_aplicacion_no_admite_limitacion_sin_inventario()
+    {
+        var plan = new PlanTareasControl(["abrir Cubase"]);
+
+        Assert.True(
+            ControlWindows.RequiereConsultarAplicacionesAntesDeLimitar(
+                plan,
+                []));
+
+        ResultadoPasoControl consulta = new(
+            1,
+            "Get-StartApps | Where-Object Name -Like '*Cubase*' | ForEach-Object { Write-Output ('APP_NAME=' + $_.Name); Write-Output ('APP_ID=' + $_.AppID) }",
+            true,
+            0,
+            "APP_NAME=Cubase 15\nAPP_ID=identificador",
+            string.Empty);
+
+        Assert.False(
+            ControlWindows.RequiereConsultarAplicacionesAntesDeLimitar(
+                plan,
+                [consulta]));
+    }
+
+    [Fact]
+    public void Una_creacion_con_nombre_no_admite_preguntar_otra_vez()
+    {
+        var plan = new PlanTareasControl(
+            [
+                "crear un proyecto nuevo en Cubase",
+                "nombrar el proyecto como Cancion nueva"
+            ]);
+
+        Assert.True(
+            ControlWindows.RequiereContinuarCreacionDesdePlantilla(
+                plan,
+                []));
+        Assert.False(
+            ControlWindows.RequiereContinuarCreacionDesdePlantilla(
+                new PlanTareasControl(
+                    ["crear un proyecto nuevo en Cubase"]),
+                []));
+        Assert.True(
+            ControlWindows.RequiereContinuarCreacionDesdePlantilla(
+                plan,
+                [
+                    Exito(
+                        "New-Item -Path 'D:\\Cancion nueva' -ItemType Directory")
+                ]));
+        Assert.False(
+            ControlWindows.RequiereContinuarCreacionDesdePlantilla(
+                plan,
+                [
+                    Exito(
+                        "Copy-Item -LiteralPath 'C:\\Plantilla.cpr' -Destination 'D:\\Cancion nueva.cpr'")
+                ]));
+    }
+
+    [Fact]
+    public void Una_copia_de_proyecto_debe_conservar_el_nombre_exacto()
+    {
+        const string instruccion =
+            "crea un proyecto nuevo en Cubase llamado ControlPCIA IA 20260718 O";
+        var plan = new PlanTareasControl([instruccion]);
+        const string comando =
+            "Copy-Item -LiteralPath 'C:\\Plantilla.cpr' -Destination 'D:\\Documentos\\ControlPCIA IA 20260718 O.cpr'";
+
+        Assert.True(
+            ControlWindows.TryObtenerDestinoCopyItem(
+                comando,
+                out string destino));
+        Assert.True(
+            ControlWindows.DestinoConservaNombreSolicitado(
+                destino,
+                instruccion,
+                plan));
+        Assert.False(
+            ControlWindows.DestinoConservaNombreSolicitado(
+                "D:\\Documentos\\Plantilla Cubase Personalizada.cpr",
+                instruccion,
+                plan));
+    }
+
+    [Fact]
+    public void Reconoce_un_proyecto_creado_y_abierto_desde_una_plantilla()
+    {
+        string carpeta = Path.Combine(
+            Path.GetTempPath(),
+            "ControlPCIA-Proyecto-" + Guid.NewGuid().ToString("N"));
+        string archivo = Path.Combine(
+            carpeta,
+            "Proyecto exacto.cpr");
+        Directory.CreateDirectory(carpeta);
+        File.WriteAllText(archivo, "proyecto");
+
+        try
+        {
+            const string instruccion =
+                "crea un proyecto nuevo llamado Proyecto exacto";
+            var plan = new PlanTareasControl([instruccion]);
+            ResultadoPasoControl copia = new(
+                1,
+                $"Copy-Item -LiteralPath 'C:\\Plantilla.cpr' -Destination '{archivo}'",
+                true,
+                0,
+                string.Empty,
+                string.Empty);
+            ResultadoPasoControl apertura = new(
+                2,
+                $"Start-Process -FilePath '{archivo}'",
+                true,
+                0,
+                string.Empty,
+                string.Empty);
+
+            Assert.True(
+                ControlWindows
+                    .TryObtenerCreacionDesdePlantillaVerificada(
+                        plan,
+                        instruccion,
+                        [copia, apertura],
+                        out string destino));
+            Assert.Equal(
+                Path.GetFullPath(archivo),
+                destino);
+        }
+        finally
+        {
+            Directory.Delete(carpeta, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Tras_observar_carpetas_reales_rechaza_rutas_adivinadas_aunque_haya_comentarios()
+    {
+        ResultadoPasoControl carpetas = new(
+            1,
+            """
+            # Buscar versiones instaladas
+            Get-ChildItem -LiteralPath 'C:\Datos\Fabricante' -Directory
+            """,
+            true,
+            0,
+            "C:\\Datos\\Fabricante\\Aplicacion 15",
+            string.Empty);
+
+        Assert.True(
+            ControlWindows.EsConsultaEspeculativaTrasCarpetaObservada(
+                """
+                # Probar una subcarpeta inventada
+                Test-Path 'C:\Datos\Fabricante\Aplicacion 15\Templates'
+                """,
+                [carpetas]));
+
+        Assert.True(
+            ControlWindows.EsConsultaEspeculativaTrasCarpetaObservada(
+                """
+                # Consultar otra ubicación inventada
+                Get-ItemProperty 'HKLM:\Software\Fabricante'
+                """,
+                [carpetas]));
+    }
+
+    [Theory]
+    [InlineData(
+        "explorer.exe 'shell:AppsFolder\\Aplicacion_123!App'",
+        true)]
+    [InlineData(
+        "Start-Process Aplicacion",
+        true)]
+    [InlineData(
+        "Start-Process -FilePath \"C:\\Aplicaciones\\Aplicacion.exe\"",
+        true)]
+    [InlineData(
+        "Start-Process Aplicacion -ArgumentList '--new-project','D:\\Proyecto'",
+        false)]
+    [InlineData(
+        "Start-Process 'D:\\Proyecto\\Cancion.cpr'",
+        false)]
+    public void Distingue_abrir_sin_mas_de_crear_mediante_comandos(
+        string comando,
+        bool aperturaSimple)
+    {
+        Assert.Equal(
+            aperturaSimple,
+            ControlWindows.EsAperturaSimpleSinParametros(comando));
+    }
+
+    [Fact]
+    public void Abrir_un_documento_no_obliga_a_consultarlo_como_aplicacion()
+    {
+        var plan = new PlanTareasControl(
+            ["abrir el documento informe.pdf"]);
+
+        Assert.False(
+            ControlWindows.RequiereConsultarAplicacionesAntesDeLimitar(
+                plan,
+                []));
     }
 
     [Fact]

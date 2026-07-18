@@ -5,7 +5,9 @@ namespace ControlPCIA;
 
 internal static class ControlWindows
 {
-    private const int MaximoPasos = 24;
+    private const int MaximoPasosBase = 24;
+    private const int PasosPorTarea = 6;
+    private const int MaximoPasosAbsoluto = 96;
     private const string ComandoInventarioVentanas =
         "Get-Process | Where-Object MainWindowTitle | ForEach-Object { Write-Output ('PROCESS_NAME=' + $_.ProcessName); Write-Output ('WINDOW_TITLE=' + $_.MainWindowTitle) }";
 
@@ -41,12 +43,36 @@ internal static class ControlWindows
             informar,
             new EventoControl(
                 "pensando",
+                "La IA está comprobando si necesita preguntarte algún dato."));
+        PreparacionSolicitudControl preparacion =
+            await PlanificadorTareasIA.PrepararAsync(
+                instruccion,
+                contexto,
+                cancellationToken);
+
+        if (!preparacion.Lista)
+        {
+            return Finalizar(
+                false,
+                "requiere_aclaracion",
+                preparacion.Pregunta
+                ?? "¿Qué dato falta para continuar?",
+                [],
+                informar);
+        }
+
+        Informar(
+            informar,
+            new EventoControl(
+                "pensando",
                 "La IA está separando todas las tareas de la orden."));
         PlanTareasControl plan =
             await PlanificadorTareasIA.CrearAsync(
                 instruccion,
                 contexto,
                 cancellationToken);
+        int maximoPasos =
+            CalcularMaximoPasos(plan.Tareas.Count);
         Informar(
             informar,
             new EventoControl(
@@ -61,6 +87,10 @@ internal static class ControlWindows
                 instruccion,
                 informar,
                 cancellationToken);
+        IReadOnlyList<string> recursosAprendidos =
+            ObtenerOrigenesCopyItemAprendidos(recetas);
+        IReadOnlyList<string> carpetasAprendidas =
+            ObtenerCarpetasAplicacionesAprendidas(recetas);
 
         string memoriaLocal = CrearResumenRecetas(recetas);
         string aplicacionesRegistradas =
@@ -71,6 +101,16 @@ internal static class ControlWindows
                 Environment.NewLine,
                 ValidadorPowerShell
                     .ObtenerRaicesBusquedaPermitidas()
+                    .Select(ruta => "- " + ruta));
+        string carpetasDatos =
+            string.Join(
+                Environment.NewLine,
+                ObtenerCarpetasDatosSugeridas()
+                    .Select(ruta => "- " + ruta));
+        string carpetasAplicaciones =
+            string.Join(
+                Environment.NewLine,
+                ObtenerCarpetasAplicacionesSugeridas()
                     .Select(ruta => "- " + ruta));
         var mensajes = new List<MensajeOllama>
         {
@@ -118,6 +158,12 @@ internal static class ControlWindows
                 - Si la petición es ambigua o una acción permitida puede causar
                   una interrupción importante, no ejecutes nada todavía: responde
                   CONFIRMAR: seguido de una pregunta breve y concreta.
+                - Si falta un dato que sólo puede decidir el usuario, responde
+                  PREGUNTAR: seguido de una única pregunta concreta. Antes de
+                  preguntar, consulta la memoria, Windows y los valores
+                  predeterminados de la aplicación. No preguntes por una ruta,
+                  nombre o aplicación que ya figure en la petición o en el
+                  contexto de conversación.
                 - Si la petición indica que el usuario confirma explícitamente
                   una orden pendiente, no vuelvas a preguntar por el mismo riesgo.
                   La confirmación nunca permite saltarse la política local.
@@ -149,10 +195,15 @@ internal static class ControlWindows
                   actual. Adáptalas cuando sea necesario y no las ejecutes a ciegas.
                 - Cada comando, aunque proceda de la memoria, volverá a pasar por
                   el validador local.
-                - Si no conoces la solución, puedes investigar de forma segura con
+                - Si no conoces la solución, puedes investigar con
                   Get-Command, Get-Help, Get-StartApps y consultas del sistema.
                 - No necesitas Internet para saber qué aplicaciones hay
                   instaladas: consulta primero el inventario local de Windows.
+                - Investigar localmente es tu responsabilidad. Nunca preguntes al
+                  usuario si deseas buscar una aplicación, un comando, una
+                  plantilla o un valor predeterminado: haz la consulta y
+                  continúa. Guarda como receta la solución comprobada para no
+                  repetir la investigación la próxima vez.
 
                 NAVEGACIÓN WEB:
 
@@ -160,8 +211,10 @@ internal static class ControlWindows
                   Start-Process con una URL literal http/https como destino.
                 - Puedes construir una URL de búsqueda literal a partir de la
                   petición, por ejemplo la página de resultados de un buscador.
-                - No uses Invoke-WebRequest, Invoke-RestMethod ni descargues
-                  archivos. El navegador predeterminado debe gestionar la página.
+                - Puedes usar el navegador, Invoke-WebRequest,
+                  Invoke-RestMethod, gestores de paquetes u otras herramientas
+                  de consola para consultar o descargar cuando la petición lo
+                  requiera.
 
                 COMANDOS DE CONSOLA Y APLICACIONES:
 
@@ -181,19 +234,17 @@ internal static class ControlWindows
                 - Para comprobar qué aplicaciones tienen ventana abierta evita
                   las tablas ambiguas. Consulta procesos y publica literalmente:
                   `Get-Process | Where-Object MainWindowTitle | ForEach-Object { Write-Output ('PROCESS_NAME=' + $_.ProcessName); Write-Output ('WINDOW_TITLE=' + $_.MainWindowTitle) }`.
-                - Para localizar un archivo sin leerlo usa `Get-ChildItem` dentro
-                  de una de las raíces personales autorizadas, con un filtro
-                  literal, `-File -Recurse -ErrorAction SilentlyContinue`, y
-                  devuelve como máximo 20 resultados sin tablas truncadas:
+                - Para localizar archivos puedes usar `Get-ChildItem` en
+                  cualquier unidad local. Cuando haya muchos resultados, es
+                  conveniente limitar y publicar rutas completas, por ejemplo:
                   `Select-Object -First 20 | ForEach-Object { Write-Output
                   ('FULL_NAME=' + $_.FullName); Write-Output ('LENGTH=' +
                   $_.Length); Write-Output ('LAST_WRITE_TIME=' +
                   $_.LastWriteTime) }`.
-                  Puedes pasar varias raíces como una lista literal a
-                  `-LiteralPath`; no uses `$env:USERPROFILE` ni construyas rutas.
-                - La localización de archivos sólo admite metadatos. No uses
-                  `Get-Content`, `Select-String`, importaciones, hash, vista
-                  previa ni ningún mecanismo que lea el contenido.
+                  Puedes usar rutas literales, variables de entorno y las
+                  herramientas normales de PowerShell. Si el usuario pide leer,
+                  buscar dentro, resumir o transformar contenido, está
+                  permitido.
                 - El usuario no tiene que pronunciar el nombre registrado
                   exactamente. Deduce la aplicación por el significado de sus
                   palabras y después consulta Windows para resolver el nombre
@@ -210,8 +261,10 @@ internal static class ControlWindows
                   Nunca inventes un ejecutable ni solicites una ruta al usuario
                   antes de haber consultado Get-StartApps y el registro de
                   programas instalados.
-                - REGLA OBLIGATORIA: si Get-StartApps devuelve una fila cuyo
-                  AppID es X, el siguiente comando de apertura es exactamente
+                - REGLA OBLIGATORIA: si una receta verificada ya contiene un
+                  AppID literal, úsalo directamente y no repitas Get-StartApps.
+                  Si no hay receta y Get-StartApps devuelve una fila cuyo AppID
+                  es X, el siguiente comando de apertura es exactamente
                   `explorer.exe 'shell:AppsFolder\X'`, sustituyendo X por todo el
                   AppID literal recibido. No uses el valor Name como FilePath,
                   no añadas ArgumentList y no adivines un nombre `.exe`.
@@ -219,6 +272,31 @@ internal static class ControlWindows
                   comandos propios de Windows o interfaces documentadas que
                   puedan invocarse íntegramente desde consola: su CLI,
                   cmdlets, API o protocolo URI con parámetros reales.
+                - La política es de denegación concreta, no un catálogo de
+                  funciones permitidas. Puedes usar comandos y parámetros
+                  normales de una aplicación aunque no aparezcan en los
+                  ejemplos de este mensaje.
+                - Puedes iniciar una aplicación por su ruta ejecutable local y
+                  pasarle argumentos literales. También puedes usar módulos,
+                  cmdlets o una API COM documentada de la propia aplicación.
+                - Si el usuario pide crear, guardar, importar o exportar un
+                  documento o proyecto dentro de una aplicación, esa operación
+                  normal está permitida cuando la aplicación ofrezca una CLI,
+                  cmdlet, API o protocolo real para hacerlo.
+                - Una receta que sólo abre una aplicación no completa una tarea
+                  de creación. Para crear contenido, produce primero el archivo
+                  o proyecto mediante plantilla, CLI o API y abre después el
+                  resultado. No abras la aplicación por sí sola esperando poder
+                  manipular luego su interfaz.
+                - También puedes crear contenido nuevo desde una plantilla
+                  existente: crea una carpeta de datos
+                  con `New-Item -Path 'RUTA_NUEVA' -ItemType Directory
+                  -ErrorAction Stop`, copia el archivo de plantilla mediante
+                  `Copy-Item -LiteralPath 'PLANTILLA' -Destination
+                  'ARCHIVO_NUEVO' -ErrorAction Stop` y abre el archivo nuevo.
+                  Busca primero la plantilla real por consola; no inventes rutas.
+                  Esta vía sirve de forma general para proyectos basados en
+                  plantillas y no debe codificarse como una función por programa.
                 - Están prohibidos `SendKeys`, `AppActivate`, atajos de teclado,
                   `ControlPCIA.exe ui`, UI Automation, OCR, capturas, búsqueda
                   de controles y cualquier simulación de ratón o teclado.
@@ -244,24 +322,19 @@ internal static class ControlWindows
                   interfaz. Solicita un cierre normal y comprueba después el
                   proceso por consola. Si sigue abierto por un diálogo interno,
                   explica ese límite al usuario.
-                - No controles credenciales, consolas ni superficies de
-                  seguridad.
-
                 SEGURIDAD:
 
-                - No crees, abras, leas, copies, muevas, renombres, sobrescribas
-                  ni borres archivos, carpetas, documentos o proyectos. Sólo
-                  puedes consultar nombres, rutas y metadatos autorizados.
-                - No instales, actualices ni desinstales programas y nunca borres,
-                  formatees, reparticiones o dañes discos, particiones o volúmenes.
-                - No accedas a credenciales ni cambies seguridad, Defender,
-                  cuentas, permisos o arranque. Los ajustes normales de pantalla,
-                  sonido, ventanas y aplicaciones sí están permitidos.
-                - `winget search`, `winget show` y `winget list` sólo pueden
-                  usarse para consultar información; no instales nada.
-                - No abras PowerShell, CMD, Terminal ni otra consola anidada.
-                - No uses ejecución dinámica, reflexión ni código destinado a
-                  sortear el validador.
+                - Sólo hay tres prohibiciones sobre el equipo: no elimines
+                  elementos o contenido; no muevas ni cortes elementos; y no
+                  formatees, limpies ni reinicialices discos o unidades.
+                  Renombrar sin cambiar la ubicación está permitido.
+                - Todo lo demás que pueda invocarse por consola está permitido:
+                  leer, buscar, crear, copiar, sobrescribir, abrir, guardar,
+                  descargar, instalar, configurar Windows, usar el registro,
+                  servicios, red, módulos, ejecutables, intérpretes, APIs y
+                  automatización propia de las aplicaciones.
+                - No ocultes ni construyas dinámicamente una de las tres
+                  operaciones prohibidas para sortear el validador.
 
                 Puedes utilizar otros comandos PowerShell para controlar
                 aplicaciones, ventanas, audio, multimedia, pantallas y la interfaz
@@ -296,9 +369,33 @@ internal static class ControlWindows
 
                 {aplicacionesRegistradas}
 
-                RAÍCES PERSONALES AUTORIZADAS PARA LOCALIZAR ARCHIVOS:
+                UNIDADES LOCALES AUTORIZADAS PARA LOCALIZAR ARCHIVOS:
 
                 {raicesBusqueda}
+
+                CARPETAS DE DATOS EXISTENTES SUGERIDAS PARA CONTENIDO NUEVO:
+
+                {carpetasDatos}
+
+                CARPETAS EXISTENTES DONDE LAS APLICACIONES GUARDAN PLANTILLAS:
+
+                {carpetasAplicaciones}
+
+                CARPETAS RELACIONADAS DEDUCIDAS DE RECETAS APRENDIDAS:
+
+                {(carpetasAprendidas.Count == 0
+                    ? "- Ninguna para esta petición."
+                    : string.Join(
+                        Environment.NewLine,
+                        carpetasAprendidas.Select(ruta => "- " + ruta)))}
+
+                RECURSOS REUTILIZABLES COMPROBADOS EN RECETAS:
+
+                {(recursosAprendidos.Count == 0
+                    ? "- Ninguno para esta petición."
+                    : string.Join(
+                        Environment.NewLine,
+                        recursosAprendidos.Select(ruta => "- " + ruta)))}
 
                 RECETAS LOCALES RELACIONADAS:
 
@@ -313,7 +410,7 @@ internal static class ControlWindows
 
         try
         {
-            for (int indice = 0; indice < MaximoPasos; indice++)
+            for (int indice = 0; indice < maximoPasos; indice++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -348,6 +445,38 @@ internal static class ControlWindows
                         comando,
                         out string limitacion))
                 {
+                    if (RequiereContinuarCreacionDesdePlantilla(
+                            plan,
+                            pasos))
+                    {
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "assistant",
+                                comando));
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "user",
+                                CrearInstruccionCreacionDesdePlantilla(
+                                    plan,
+                                    carpetasAprendidas)));
+                        continue;
+                    }
+
+                    if (RequiereConsultarAplicacionesAntesDeLimitar(
+                            plan,
+                            pasos))
+                    {
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "assistant",
+                                comando));
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "user",
+                                CrearInstruccionInvestigacionApertura()));
+                        continue;
+                    }
+
                     return Finalizar(
                         false,
                         "sin_comando",
@@ -356,11 +485,60 @@ internal static class ControlWindows
                         informar);
                 }
 
+                if (TryObtenerPreguntaUsuario(
+                        comando,
+                        out string preguntaUsuario))
+                {
+                    if (RequiereContinuarCreacionDesdePlantilla(
+                            plan,
+                            pasos))
+                    {
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "assistant",
+                                comando));
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "user",
+                                CrearInstruccionCreacionDesdePlantilla(
+                                    plan,
+                                    carpetasAprendidas)));
+                        continue;
+                    }
+
+                    return Finalizar(
+                        false,
+                        "requiere_aclaracion",
+                        preguntaUsuario,
+                        pasos,
+                        informar);
+                }
+
                 if (TryObtenerRespuestaNatural(
                         comando,
                         out string respuestaNatural))
                 {
-                    if (RequiereInvestigarAplicacion(pasos))
+                    if (RequiereContinuarCreacionDesdePlantilla(
+                            plan,
+                            pasos))
+                    {
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "assistant",
+                                comando));
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "user",
+                                CrearInstruccionCreacionDesdePlantilla(
+                                    plan,
+                                    carpetasAprendidas)));
+                        continue;
+                    }
+
+                    if (RequiereConsultarAplicacionesAntesDeLimitar(
+                            plan,
+                            pasos)
+                        || RequiereInvestigarAplicacion(pasos))
                     {
                         mensajes.Add(
                             new MensajeOllama(
@@ -370,11 +548,10 @@ internal static class ControlWindows
                             new MensajeOllama(
                                 "user",
                                 """
-                                No preguntes todavía al usuario. La apertura
-                                directa por nombre falló y aún no has consultado
-                                Get-StartApps después del fallo. Deduce el nombre
-                                real usando el inventario incluido, ejecuta una
-                                consulta Get-StartApps y continúa.
+                                No preguntes todavía al usuario ni declares una
+                                limitación. Resuelve la aplicación mediante
+                                Get-StartApps, publica APP_NAME y APP_ID completos,
+                                usa el AppID literal y continúa.
                                 """));
                         continue;
                     }
@@ -461,7 +638,27 @@ internal static class ControlWindows
                         out string explicacion,
                         out _))
                 {
-                    if (RequiereInvestigarAplicacion(pasos))
+                    if (RequiereContinuarCreacionDesdePlantilla(
+                            plan,
+                            pasos))
+                    {
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "assistant",
+                                explicacion));
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "user",
+                                CrearInstruccionCreacionDesdePlantilla(
+                                    plan,
+                                    carpetasAprendidas)));
+                        continue;
+                    }
+
+                    if (RequiereConsultarAplicacionesAntesDeLimitar(
+                            plan,
+                            pasos)
+                        || RequiereInvestigarAplicacion(pasos))
                     {
                         mensajes.Add(
                             new MensajeOllama(
@@ -570,6 +767,24 @@ internal static class ControlWindows
                     {
                         tareasPendientes =
                             ObtenerTareasPendientes(plan, revision);
+
+                        if (RequiereContinuarCreacionDesdePlantilla(
+                                plan,
+                                pasos))
+                        {
+                            mensajes.Add(
+                                new MensajeOllama(
+                                    "assistant",
+                                    "FIN"));
+                            mensajes.Add(
+                                new MensajeOllama(
+                                    "user",
+                                    CrearInstruccionCreacionDesdePlantilla(
+                                        plan,
+                                        carpetasAprendidas)));
+                            continue;
+                        }
+
                         string pendientes = revision.Pendientes.Count == 0
                             ? plan.Formatear()
                             : string.Join(
@@ -626,6 +841,38 @@ internal static class ControlWindows
                         "SIN_COMANDO",
                         StringComparison.OrdinalIgnoreCase))
                 {
+                    if (RequiereContinuarCreacionDesdePlantilla(
+                            plan,
+                            pasos))
+                    {
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "assistant",
+                                comando));
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "user",
+                                CrearInstruccionCreacionDesdePlantilla(
+                                    plan,
+                                    carpetasAprendidas)));
+                        continue;
+                    }
+
+                    if (RequiereConsultarAplicacionesAntesDeLimitar(
+                            plan,
+                            pasos))
+                    {
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "assistant",
+                                comando));
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "user",
+                                CrearInstruccionInvestigacionApertura()));
+                        continue;
+                    }
+
                     return Finalizar(
                         false,
                         "sin_comando",
@@ -638,6 +885,23 @@ internal static class ControlWindows
                         comando,
                         out string preguntaConfirmacion))
                 {
+                    if (RequiereContinuarCreacionDesdePlantilla(
+                            plan,
+                            pasos))
+                    {
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "assistant",
+                                comando));
+                        mensajes.Add(
+                            new MensajeOllama(
+                                "user",
+                                CrearInstruccionCreacionDesdePlantilla(
+                                    plan,
+                                    carpetasAprendidas)));
+                        continue;
+                    }
+
                     if (HayAperturaVerificada(pasos)
                         && tareasPendientes.Count > 0
                         && !tareasPendientes.Any(numero =>
@@ -679,13 +943,99 @@ internal static class ControlWindows
                         informar);
                 }
 
-                string? bloqueoProcedencia =
-                    ValidarProcedenciaAppId(comando, pasos);
-                bloqueoProcedencia ??=
-                    ValidarAdecuacionConsultaInformativa(
-                        comando,
+                if (RequiereContinuarCreacionDesdePlantilla(
                         plan,
-                        pasos);
+                        pasos)
+                    && recursosAprendidos.Count > 0
+                    && EsBusquedaDeRecursosRepetida(comando))
+                {
+                    mensajes.Add(new MensajeOllama("assistant", comando));
+                    mensajes.Add(
+                        new MensajeOllama(
+                            "user",
+                            $"""
+                            INVESTIGACIÓN REPETIDA RECHAZADA.
+                            La memoria ya contiene recursos relacionados que
+                            existen en disco:
+                            {string.Join(
+                                Environment.NewLine,
+                                recursosAprendidos.Select(ruta => "- " + ruta))}
+                            Usa directamente uno de esos orígenes literales en
+                            Copy-Item y adapta únicamente el destino al nombre
+                            exacto de esta petición. No repitas Get-ChildItem.
+                            """));
+                    continue;
+                }
+
+                if (RequiereContinuarCreacionDesdePlantilla(
+                        plan,
+                        pasos)
+                    && TryObtenerDestinoCopyItem(
+                        comando,
+                        out string destinoPropuesto)
+                    && !DestinoConservaNombreSolicitado(
+                        destinoPropuesto,
+                        instruccion,
+                        plan))
+                {
+                    string nombreExacto =
+                        PlanificadorTareasIA
+                            .ExtraerNombreLiteralSolicitado(
+                                instruccion)
+                        ?? PlanificadorTareasIA
+                            .ExtraerNombreLiteralSolicitado(
+                                plan.Formatear())
+                        ?? "(nombre indicado por el usuario)";
+
+                    mensajes.Add(new MensajeOllama("assistant", comando));
+                    mensajes.Add(
+                        new MensajeOllama(
+                            "user",
+                            $"""
+                            DESTINO RECHAZADO POR NO CUMPLIR LA PETICIÓN.
+                            El usuario pidió el nombre literal exacto:
+                            {nombreExacto}
+                            El destino propuesto fue:
+                            {destinoPropuesto}
+                            Repite Copy-Item usando ese nombre exacto para el
+                            archivo de destino y una carpeta real de Documentos
+                            incluida en la petición. No inventes otro nombre.
+                            """));
+                    continue;
+                }
+
+                if (EsAperturaSimpleSinParametros(comando)
+                    && RequiereContinuarCreacionDesdePlantilla(
+                        plan,
+                        pasos))
+                {
+                    mensajes.Add(new MensajeOllama("assistant", comando));
+                    mensajes.Add(
+                        new MensajeOllama(
+                            "user",
+                            CrearInstruccionCreacionDesdePlantilla(
+                                plan,
+                                carpetasAprendidas)));
+                    continue;
+                }
+
+                if (RequiereContinuarCreacionDesdePlantilla(
+                        plan,
+                        pasos)
+                    && EsConsultaEspeculativaTrasCarpetaObservada(
+                        comando,
+                        pasos))
+                {
+                    mensajes.Add(new MensajeOllama("assistant", comando));
+                    mensajes.Add(
+                        new MensajeOllama(
+                            "user",
+                            CrearInstruccionBuscarEnCarpetaObservada(
+                                pasos)));
+                    continue;
+                }
+
+                string? bloqueoProcedencia = null;
 
                 if (!EsComandoCompatibleConModoConsola(comando))
                 {
@@ -841,20 +1191,47 @@ internal static class ControlWindows
 
                 if (ejecucion.Ejecutado
                     && ejecucion.CodigoSalida == 0
+                    && plan.Tareas.Any(
+                        TareaPareceCreacionDeContenido)
+                    && TryObtenerDestinoCopyItem(
+                        comando,
+                        out string archivoCreado))
+                {
+                    informacionResultado +=
+                        Environment.NewLine
+                        + Environment.NewLine
+                        + $"""
+                           ARCHIVO NUEVO CREADO:
+                           {archivoCreado}
+                           Si la tarea pide abrir el proyecto resultante,
+                           ejecuta directamente
+                           Start-Process -FilePath '{archivoCreado.Replace(
+                               "'",
+                               "''",
+                               StringComparison.Ordinal)}'
+                           para que Windows use la aplicación registrada. No
+                           inventes ni busques una ruta de ejecutable.
+                           """;
+                }
+
+                if (ejecucion.Ejecutado
+                    && ejecucion.CodigoSalida == 0
                     && EsInicioAplicacion(comando))
                 {
+                    string comandoComprobacion =
+                        CrearComandoVerificacionApertura(comando);
                     Informar(
                         informar,
                         new EventoControl(
                             "pensando",
-                            "ControlPCIA está comprobando por consola las ventanas abiertas."));
+                            "ControlPCIA está comprobando por consola el proceso abierto."));
                     ResultadoEjecucionPowerShell comprobacion =
-                        await EjecutorPowerShell.EjecutarAsync(
-                            ComandoInventarioVentanas,
+                        await ComprobarAperturaAsync(
+                            comandoComprobacion,
                             cancellationToken);
                     var pasoComprobacion = new ResultadoPasoControl(
                         pasos.Count + 1,
-                        ComandoInventarioVentanas,
+                        comandoComprobacion,
                         comprobacion.Ejecutado,
                         comprobacion.CodigoSalida,
                         comprobacion.Salida,
@@ -870,7 +1247,7 @@ internal static class ControlWindows
                             comprobacion.Ejecutado
                                 ? "Ventanas comprobadas por consola."
                                 : comprobacion.Error,
-                            ComandoInventarioVentanas,
+                            comandoComprobacion,
                             pasoComprobacion));
 
                     informacionResultado +=
@@ -880,11 +1257,99 @@ internal static class ControlWindows
                         + Environment.NewLine
                         + (comprobacion.Ejecutado
                             ? CrearResultadoEjecutado(
-                                ComandoInventarioVentanas,
+                                comandoComprobacion,
                                 comprobacion)
                             : CrearResultadoBloqueado(
                                 comprobacion,
-                                ComandoInventarioVentanas));
+                                comandoComprobacion));
+                }
+
+                if (RequiereContinuarCreacionDesdePlantilla(
+                        plan,
+                        pasos)
+                    && ejecucion.Ejecutado
+                    && ejecucion.CodigoSalida == 0
+                    && Regex.IsMatch(
+                        ejecucion.Salida,
+                        @"(?:^|\r?\n)EXTENSION=\.[^\r\n]+(?:\r?\n|$)",
+                        RegexOptions.IgnoreCase
+                        | RegexOptions.CultureInvariant))
+                {
+                    informacionResultado +=
+                        Environment.NewLine
+                        + Environment.NewLine
+                        + """
+                          EXTENSIONES REALES DE LA APLICACIÓN ENCONTRADAS.
+                          Relaciona la aplicación y el tipo de contenido pedido
+                          con una extensión de esta salida. Usa su
+                          SAMPLE_FULL_NAME para deducir la carpeta y ejecuta
+                          ahora Get-ChildItem con esa extensión concreta para
+                          obtener FULL_NAME. No respondas FIN y no vuelvas a
+                          enumerar extensiones.
+                          """;
+                }
+
+                if (RequiereContinuarCreacionDesdePlantilla(
+                        plan,
+                        pasos)
+                    && ejecucion.Ejecutado
+                    && ejecucion.CodigoSalida == 0
+                    && Regex.IsMatch(
+                        ejecucion.Salida,
+                        @"(?:^|\r?\n)FULL_NAME=.*(?:template|plantilla).*(?:\r?\n|$)",
+                        RegexOptions.IgnoreCase
+                        | RegexOptions.CultureInvariant))
+                {
+                    informacionResultado +=
+                        Environment.NewLine
+                        + Environment.NewLine
+                        + """
+                          PLANTILLA REAL ENCONTRADA. El siguiente paso debe usar
+                          uno de esos FULL_NAME literales como origen de
+                          Copy-Item y un destino nuevo con el nombre solicitado.
+                          No inventes una CLI ni vuelvas a buscar.
+                          """;
+                }
+
+                if (RequiereContinuarCreacionDesdePlantilla(
+                        plan,
+                        pasos)
+                    && ejecucion.Ejecutado
+                    && ejecucion.CodigoSalida == 0
+                    && !string.IsNullOrWhiteSpace(ejecucion.Salida)
+                    && Regex.IsMatch(
+                        comando,
+                        @"(?:^|\r?\n|[;|]\s*)Get-ChildItem\b[^\r\n;|]*-Directory\b",
+                        RegexOptions.IgnoreCase
+                        | RegexOptions.CultureInvariant))
+                {
+                    informacionResultado +=
+                        Environment.NewLine
+                        + Environment.NewLine
+                        + CrearInstruccionBuscarEnCarpetaObservada(
+                            pasos);
+                }
+
+                if (TryObtenerCreacionDesdePlantillaVerificada(
+                        plan,
+                        instruccion,
+                        pasos,
+                        out string proyectoCreado))
+                {
+                    bool aprendido =
+                        await AprenderRecetaAsync(
+                            instruccion,
+                            pasos,
+                            informar,
+                            cancellationToken);
+
+                    return Finalizar(
+                        true,
+                        "completado",
+                        $"Proyecto creado y abierto: {proyectoCreado}",
+                        pasos,
+                        informar,
+                        aprendido);
                 }
 
                 if (TryCrearRespuestaConsultasEstructuradas(
@@ -908,6 +1373,26 @@ internal static class ControlWindows
                         aprendido);
                 }
 
+                if (EsAperturaUnicaVerificada(
+                        plan,
+                        pasos))
+                {
+                    bool aprendido =
+                        await AprenderRecetaAsync(
+                            instruccion,
+                            pasos,
+                            informar,
+                            cancellationToken);
+
+                    return Finalizar(
+                        true,
+                        "completado",
+                        "Aplicación abierta y comprobada por consola.",
+                        pasos,
+                        informar,
+                        aprendido);
+                }
+
                 mensajes.Add(new MensajeOllama("assistant", comando));
                 mensajes.Add(new MensajeOllama("user", informacionResultado));
             }
@@ -915,7 +1400,9 @@ internal static class ControlWindows
             return Finalizar(
                 false,
                 "limite_pasos",
-                CrearMensajeLimitePasos(pasos),
+                CrearMensajeLimitePasos(
+                    pasos,
+                    maximoPasos),
                 pasos,
                 informar);
         }
@@ -951,7 +1438,7 @@ internal static class ControlWindows
             ? Environment.NewLine + CrearAyudaBusquedaArchivos()
             : string.Empty;
 
-        return $"""
+        return $$"""
             EL COMANDO FUE BLOQUEADO Y NO SE EJECUTÓ.
 
             Código de salida:
@@ -973,7 +1460,8 @@ internal static class ControlWindows
     }
 
     private static string CrearMensajeLimitePasos(
-        IReadOnlyList<ResultadoPasoControl> pasos)
+        IReadOnlyList<ResultadoPasoControl> pasos,
+        int maximoPasos)
     {
         ResultadoPasoControl? ultimo = pasos.LastOrDefault();
         string detalle = ultimo is null
@@ -985,8 +1473,19 @@ internal static class ControlWindows
                     : string.Empty;
 
         return
-            $"No se ha completado la petición tras {MaximoPasos} pasos.{detalle} " +
+            $"No se ha completado la petición tras {maximoPasos} pasos.{detalle} " +
             "Puedes explicarme qué resultado esperabas o repetir la orden con más detalle.";
+    }
+
+    internal static int CalcularMaximoPasos(int numeroTareas)
+    {
+        int tareas = Math.Max(1, numeroTareas);
+
+        return Math.Min(
+            MaximoPasosAbsoluto,
+            Math.Max(
+                MaximoPasosBase,
+                tareas * PasosPorTarea));
     }
 
     private static string CrearResultadoEjecutado(
@@ -1143,135 +1642,203 @@ internal static class ControlWindows
     {
         return !Regex.IsMatch(
             comando,
-            @"\bControlPCIA(?:\.exe)?\s+(?:ui|window\s+keys)\b|\.SendKeys\s*\(|\.AppActivate\s*\(|\bNew-Object\b[^\r\n;|]*-ComObject\b",
+            @"\bControlPCIA(?:\.exe)?\s+(?:ui|window\s+keys)\b|\.SendKeys\s*\(|\.AppActivate\s*\(|\bUIAutomation(?:Client)?\b",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
-    internal static string? ValidarProcedenciaAppId(
-        string comando,
-        IReadOnlyList<ResultadoPasoControl> pasos)
+    internal static string CrearComandoVerificacionApertura(
+        string comandoApertura)
     {
         Match destino = Regex.Match(
-            comando,
+            comandoApertura,
             @"^\s*explorer(?:\.exe)?\s+(?:""shell:AppsFolder\\(?<doble>[^""]+)""|'shell:AppsFolder\\(?<simple>[^']+)')\s*$",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         if (!destino.Success)
         {
-            return null;
+            return ComandoInventarioVentanas;
         }
 
         string appId = destino.Groups["doble"].Success
             ? destino.Groups["doble"].Value
             : destino.Groups["simple"].Value;
-        bool procedeDeWindows = pasos.Any(paso =>
-            paso.Ejecutado
-            && paso.CodigoSalida == 0
-            && Regex.IsMatch(
-                paso.Comando,
-                @"(?:^|[;|]\s*)Get-StartApps\b",
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
-            && paso.Salida.Contains(
-                appId,
-                StringComparison.OrdinalIgnoreCase));
-
-        return procedeDeWindows
-            ? null
-            : "El AppID no aparece literalmente en la salida de una consulta Get-StartApps ejecutada en esta petición. Consulta Windows y copia el identificador real antes de abrirlo.";
-    }
-
-    internal static string? ValidarAdecuacionConsultaInformativa(
-        string comando,
-        PlanTareasControl plan,
-        IReadOnlyList<ResultadoPasoControl> pasos)
-    {
-        bool faltaConsultaVentanas =
-            plan.Tareas
-                .Select((tarea, indice) => (tarea, indice))
-                .Any(elemento =>
-                    TareaPareceConsultaVentanas(elemento.tarea)
-                    && !HayEvidenciaConsultaVentanas(pasos));
-
-        if (faltaConsultaVentanas)
-        {
-            bool consultaProcesos = Regex.IsMatch(
-                comando,
-                @"(?:^|[;|]\s*)(?:Get-Process|gps|tasklist)\b",
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
-            if (consultaProcesos
-                && (!comando.Contains(
-                        "MainWindowTitle",
-                        StringComparison.OrdinalIgnoreCase)
-                    || !comando.Contains(
-                        "PROCESS_NAME=",
-                        StringComparison.OrdinalIgnoreCase)
-                    || !comando.Contains(
-                        "WINDOW_TITLE=",
-                        StringComparison.OrdinalIgnoreCase)))
-            {
-                return "La petición solicita programas con ventana abierta. Consulta Get-Process filtrando MainWindowTitle y publica cada resultado completo como PROCESS_NAME=... y WINDOW_TITLE=... mediante Write-Output; no uses una tabla.";
-            }
-        }
-
-        bool faltaBusquedaArchivos =
-            plan.Tareas.Any(tarea =>
-                TareaPareceBusquedaArchivo(tarea)
-                && !HayEvidenciaBusquedaArchivo(pasos));
-        bool consultaArchivos = Regex.IsMatch(
-            comando,
-            @"(?:^|[;|]\s*)(?:Get-ChildItem|gci|dir|ls)\b",
+        Match ejecutable = Regex.Match(
+            appId,
+            @"(?:^|\\)(?<nombre>[^\\/:*?""<>|]{1,120})\.exe$",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-        if (faltaBusquedaArchivos && consultaArchivos)
+        if (!ejecutable.Success)
         {
-            string? nombreOmitido =
-                ObtenerNombresArchivoLiterales(plan)
-                    .FirstOrDefault(nombre =>
-                        !comando.Contains(
-                            nombre,
-                            StringComparison.OrdinalIgnoreCase));
+            return ComandoInventarioVentanas;
+        }
 
-            if (nombreOmitido is not null)
+        string proceso = ejecutable.Groups["nombre"].Value.Replace(
+            "'",
+            "''",
+            StringComparison.Ordinal);
+
+        return
+            $"Get-Process -Name '{proceso}' -ErrorAction SilentlyContinue"
+            + " | ForEach-Object { Write-Output ('PROCESS_NAME=' + $_.ProcessName);"
+            + " Write-Output ('WINDOW_TITLE=' + $_.MainWindowTitle) }";
+    }
+
+    private static async Task<ResultadoEjecucionPowerShell>
+        ComprobarAperturaAsync(
+            string comando,
+            CancellationToken cancellationToken)
+    {
+        bool procesoConcreto = Regex.IsMatch(
+            comando,
+            @"^\s*Get-Process\s+-Name\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        int intentos = procesoConcreto ? 16 : 1;
+        ResultadoEjecucionPowerShell? ultimo = null;
+
+        for (int intento = 0; intento < intentos; intento++)
+        {
+            ultimo = await EjecutorPowerShell.EjecutarAsync(
+                comando,
+                cancellationToken);
+
+            if (!procesoConcreto
+                || ultimo.Ejecutado
+                && ultimo.CodigoSalida == 0
+                && Regex.IsMatch(
+                    ultimo.Salida,
+                    @"(?:^|\r?\n)PROCESS_NAME=.+(?:\r?\n|$)",
+                    RegexOptions.IgnoreCase
+                    | RegexOptions.CultureInvariant))
             {
-                return $"La búsqueda debe conservar literalmente el nombre solicitado: '{nombreOmitido}'. No quites ni cambies su extensión.";
+                return ultimo;
             }
 
-            bool tieneLimitePrevio = Regex.IsMatch(
-                comando,
-                @"\|\s*(?:Select-Object|select)\s+-First\s+(?:[1-9]|1\d|20)\b",
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
-            if (!tieneLimitePrevio)
+            if (intento + 1 < intentos)
             {
-                return "La búsqueda recursiva debe limitarse antes de formatear la salida: añade `| Select-Object -First 20 |` inmediatamente después de Get-ChildItem.";
+                await Task.Delay(
+                    TimeSpan.FromMilliseconds(500),
+                    cancellationToken);
             }
         }
 
-        return faltaBusquedaArchivos
-               && consultaArchivos
-               && (!comando.Contains(
-                       "FullName",
-                       StringComparison.OrdinalIgnoreCase)
-                   || !comando.Contains(
-                       "FULL_NAME=",
-                       StringComparison.OrdinalIgnoreCase))
-            ? "La petición solicita la ubicación exacta de un archivo. Usa Get-ChildItem y publica cada ruta completa como FULL_NAME=... mediante Write-Output; no uses una tabla que pueda truncar la ruta."
-            : null;
+        return ultimo
+               ?? new ResultadoEjecucionPowerShell(
+                   false,
+                   -1,
+                   string.Empty,
+                   "No se pudo comprobar el proceso abierto.");
     }
 
-    private static IReadOnlyList<string> ObtenerNombresArchivoLiterales(
-        PlanTareasControl plan)
+    internal static IReadOnlySet<string> ObtenerAppIdsAprendidos(
+        IReadOnlyList<RecetaReferencia> recetas)
     {
-        return plan.Tareas
-            .SelectMany(tarea =>
-                Regex.Matches(
-                        tarea,
-                        @"(?<![\p{L}\p{N}_.-])[\p{L}\p{N}_()-]+(?:\.[\p{L}\p{N}_()-]+)+(?![\p{L}\p{N}_.-])",
-                        RegexOptions.CultureInvariant)
-                    .Select(coincidencia => coincidencia.Value))
+        return recetas
+            .SelectMany(receta => receta.Comandos)
+            .Select(comando => Regex.Match(
+                comando,
+                @"^\s*explorer(?:\.exe)?\s+(?:""shell:AppsFolder\\(?<doble>[^""]+)""|'shell:AppsFolder\\(?<simple>[^']+)')\s*$",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            .Where(coincidencia => coincidencia.Success)
+            .Select(coincidencia =>
+                coincidencia.Groups["doble"].Success
+                    ? coincidencia.Groups["doble"].Value
+                    : coincidencia.Groups["simple"].Value)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    internal static IReadOnlyList<string>
+        ObtenerOrigenesCopyItemAprendidos(
+            IReadOnlyList<RecetaReferencia> recetas)
+    {
+        return recetas
+            .SelectMany(receta => receta.Comandos)
+            .Select(comando =>
+            {
+                Match coincidencia = Regex.Match(
+                    comando,
+                    """
+                    (?:^|\r?\n|[;|]\s*)Copy-Item\b[^\r\n;|]*?
+                    -LiteralPath(?:\s+|:)(?:"(?<doble>[^"]+)"|'(?<simple>[^']+)')
+                    """,
+                    RegexOptions.IgnoreCase
+                    | RegexOptions.CultureInvariant
+                    | RegexOptions.IgnorePatternWhitespace);
+
+                if (!coincidencia.Success)
+                {
+                    return string.Empty;
+                }
+
+                return coincidencia.Groups["doble"].Success
+                    ? coincidencia.Groups["doble"].Value
+                    : coincidencia.Groups["simple"].Value;
+            })
+            .Where(ruta =>
+                !string.IsNullOrWhiteSpace(ruta)
+                && File.Exists(ruta))
+            .Select(Path.GetFullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    internal static bool EsBusquedaDeRecursosRepetida(
+        string comando)
+    {
+        return Regex.IsMatch(
+            comando,
+            @"(?:^|\r?\n|[;|]\s*)(?:Get-ChildItem|gci|dir|ls)\b",
+            RegexOptions.IgnoreCase
+            | RegexOptions.CultureInvariant);
+    }
+
+    internal static IReadOnlyList<string>
+        ObtenerCarpetasAplicacionesAprendidas(
+            IReadOnlyList<RecetaReferencia> recetas)
+    {
+        IReadOnlyList<string> raices =
+            ObtenerCarpetasAplicacionesSugeridas();
+        var resultado = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (string appId in ObtenerAppIdsAprendidos(recetas))
+        {
+            string[] partes = appId.Split(
+                '\\',
+                StringSplitOptions.RemoveEmptyEntries);
+
+            if (partes.Length < 3
+                || !partes[0].StartsWith(
+                    "{",
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string fabricante = partes[1];
+
+            if (fabricante.Length is < 2 or > 120
+                || fabricante.Contains("..", StringComparison.Ordinal)
+                || fabricante.IndexOfAny(
+                    Path.GetInvalidFileNameChars()) >= 0)
+            {
+                continue;
+            }
+
+            foreach (string raiz in raices)
+            {
+                string candidata = Path.Combine(
+                    raiz,
+                    fabricante);
+
+                if (Directory.Exists(candidata))
+                {
+                    resultado.Add(
+                        Path.GetFullPath(candidata));
+                }
+            }
+        }
+
+        return resultado.ToArray();
     }
 
     internal static bool TryObtenerPreguntaConfirmacion(
@@ -1294,6 +1861,35 @@ internal static class ControlWindows
         if (pregunta.Length == 0)
         {
             pregunta = "Esta acción necesita confirmación. ¿Quieres que continúe?";
+        }
+        else if (pregunta.Length > 300)
+        {
+            pregunta = pregunta[..300].Trim();
+        }
+
+        return true;
+    }
+
+    internal static bool TryObtenerPreguntaUsuario(
+        string respuesta,
+        out string pregunta)
+    {
+        const string prefijo = "PREGUNTAR:";
+        string limpia = respuesta.Trim();
+
+        if (!limpia.StartsWith(
+                prefijo,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            pregunta = string.Empty;
+            return false;
+        }
+
+        pregunta = limpia[prefijo.Length..].Trim();
+
+        if (pregunta.Length == 0)
+        {
+            pregunta = "¿Qué dato falta para continuar?";
         }
         else if (pregunta.Length > 300)
         {
@@ -1370,7 +1966,10 @@ internal static class ControlWindows
         bool pareceExplicacion =
             minusculas.StartsWith("la petición", StringComparison.Ordinal)
             || minusculas.StartsWith("el comando", StringComparison.Ordinal)
+            || minusculas.StartsWith("el primer paso", StringComparison.Ordinal)
             || minusculas.StartsWith("la salida", StringComparison.Ordinal)
+            || minusculas.StartsWith("primero ", StringComparison.Ordinal)
+            || minusculas.StartsWith("vamos a ", StringComparison.Ordinal)
             || minusculas.Contains("ejecuta el siguiente comando", StringComparison.Ordinal)
             || minusculas.Contains("si necesitas información", StringComparison.Ordinal);
 
@@ -1831,6 +2430,26 @@ internal static class ControlWindows
                 bloque.AppendLine("- " + comando);
             }
 
+            foreach (string appId in ObtenerAppIdsAprendidos([receta]))
+            {
+                bloque.AppendLine("APP_ID_APRENDIDO=" + appId);
+
+                string[] partes = appId.Split(
+                    '\\',
+                    StringSplitOptions.RemoveEmptyEntries);
+
+                if (partes.Length >= 3
+                    && partes[0].StartsWith(
+                        "{",
+                        StringComparison.Ordinal))
+                {
+                    bloque.AppendLine(
+                        "FABRICANTE_APRENDIDO=" + partes[1]);
+                    bloque.AppendLine(
+                        "EJECUTABLE_APRENDIDO=" + partes[^1]);
+                }
+            }
+
             bloque.AppendLine();
 
             if (resumen.Length + bloque.Length > limite)
@@ -1850,7 +2469,7 @@ internal static class ControlWindows
     {
         return Regex.IsMatch(
             comando,
-            @"\bControlPCIA(?:\.exe)?\s+(?:ui|window\s+keys)\b|\.SendKeys\s*\(|\.AppActivate\s*\(|\bNew-Object\b[^\r\n;|]*-ComObject\b",
+            @"\bControlPCIA(?:\.exe)?\s+(?:ui|window\s+keys)\b|\.SendKeys\s*\(|\.AppActivate\s*\(|\bUIAutomation(?:Client)?\b",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
@@ -1864,6 +2483,30 @@ internal static class ControlWindows
     internal static string LimpiarComando(string respuesta)
     {
         string resultado = respuesta.Trim();
+
+        string[] lineas = resultado.Split(
+            ["\r\n", "\n"],
+            StringSplitOptions.None);
+        string[] lineasConTexto = lineas
+            .Where(linea => !string.IsNullOrWhiteSpace(linea))
+            .ToArray();
+
+        if (lineasConTexto.Length > 0
+            && lineasConTexto.All(linea =>
+                Regex.IsMatch(
+                    linea,
+                    @"^\s*>",
+                    RegexOptions.CultureInvariant)))
+        {
+            resultado = string.Join(
+                Environment.NewLine,
+                lineas.Select(linea => Regex.Replace(
+                    linea,
+                    @"^\s*>\s?",
+                    string.Empty,
+                    RegexOptions.CultureInvariant)));
+        }
+
         Match bloque = Regex.Match(
             resultado,
             @"```(?:powershell|ps1|pwsh)?\s*(?:\r?\n)?(?<comando>.*?)(?:```|$)",
@@ -1876,6 +2519,16 @@ internal static class ControlWindows
                 bloque.Groups["comando"].Value))
         {
             return bloque.Groups["comando"].Value.Trim();
+        }
+
+        Match propuestaEnProsa = Regex.Match(
+            resultado,
+            @"(?:(?:vamos\s+a\s+)?usar|utiliza|ejecuta|propongo)\s+(?:el\s+)?comando\s+`(?<comando>[^`\r\n]{1,2000})`",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        if (propuestaEnProsa.Success)
+        {
+            return propuestaEnProsa.Groups["comando"].Value.Trim();
         }
 
         if (resultado.StartsWith(
@@ -2053,6 +2706,440 @@ internal static class ControlWindows
                && ultimaConsultaPosterior < ultimoInicioFallido;
     }
 
+    internal static bool RequiereConsultarAplicacionesAntesDeLimitar(
+        PlanTareasControl plan,
+        IReadOnlyList<ResultadoPasoControl> pasos)
+    {
+        bool aperturaPendiente =
+            plan.Tareas.Any(TareaPareceAperturaAplicacion)
+            && !HayAperturaVerificada(pasos);
+
+        if (!aperturaPendiente)
+        {
+            return false;
+        }
+
+        return !pasos.Any(paso =>
+            paso.Ejecutado
+            && paso.CodigoSalida == 0
+            && Regex.IsMatch(
+                paso.Comando,
+                @"(?:^|[;|]\s*)Get-StartApps\b",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+               && !string.IsNullOrWhiteSpace(paso.Salida));
+    }
+
+    internal static bool RequiereContinuarCreacionDesdePlantilla(
+        PlanTareasControl plan,
+        IReadOnlyList<ResultadoPasoControl> pasos)
+    {
+        bool pideCrearContenido =
+            plan.Tareas.Any(TareaPareceCreacionDeContenido);
+        bool contieneNombre =
+            plan.Tareas.Any(TareaContieneNombreParaContenido);
+
+        if (!pideCrearContenido || !contieneNombre)
+        {
+            return false;
+        }
+
+        return !pasos.Any(paso =>
+            paso.Ejecutado
+            && paso.CodigoSalida == 0
+            && Regex.IsMatch(
+                paso.Comando,
+                @"\bCopy-Item\b|\.SaveAs\s*\(|\bNew-(?!Item\b)[\p{L}\p{N}_-]+\b|\b(?:Create|Save|Export)-[\p{L}\p{N}_-]+\b|--new(?:-project)?\b|/new\b",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant));
+    }
+
+    internal static bool TryObtenerDestinoCopyItem(
+        string comando,
+        out string destino)
+    {
+        Match coincidencia = Regex.Match(
+            comando,
+            """
+            (?:^|\r?\n|[;|]\s*)Copy-Item\b[^\r\n;|]*?
+            -Destination(?:\s+|:)(?:"(?<doble>[^"]+)"|'(?<simple>[^']+)')
+            """,
+            RegexOptions.IgnoreCase
+            | RegexOptions.CultureInvariant
+            | RegexOptions.IgnorePatternWhitespace);
+
+        if (!coincidencia.Success)
+        {
+            destino = string.Empty;
+            return false;
+        }
+
+        destino = coincidencia.Groups["doble"].Success
+            ? coincidencia.Groups["doble"].Value
+            : coincidencia.Groups["simple"].Value;
+        return destino.Length > 0;
+    }
+
+    internal static bool DestinoConservaNombreSolicitado(
+        string destino,
+        string instruccion,
+        PlanTareasControl plan)
+    {
+        string? nombre =
+            PlanificadorTareasIA.ExtraerNombreLiteralSolicitado(
+                instruccion)
+            ?? PlanificadorTareasIA.ExtraerNombreLiteralSolicitado(
+                plan.Formatear());
+
+        if (string.IsNullOrWhiteSpace(nombre))
+        {
+            return true;
+        }
+
+        string archivo = Path.GetFileName(destino);
+        string archivoSinExtension =
+            Path.GetFileNameWithoutExtension(archivo);
+        string nombreNormalizado =
+            InventarioTexto.Normalizar(nombre);
+
+        return InventarioTexto.Normalizar(archivo)
+                   .Equals(
+                       nombreNormalizado,
+                       StringComparison.Ordinal)
+               || InventarioTexto.Normalizar(archivoSinExtension)
+                   .Equals(
+                       nombreNormalizado,
+                       StringComparison.Ordinal);
+    }
+
+    internal static bool TryObtenerCreacionDesdePlantillaVerificada(
+        PlanTareasControl plan,
+        string instruccion,
+        IReadOnlyList<ResultadoPasoControl> pasos,
+        out string destino)
+    {
+        destino = string.Empty;
+
+        if (plan.Tareas.Count != 1
+            || !TareaPareceCreacionDeContenido(plan.Tareas[0]))
+        {
+            return false;
+        }
+
+        for (int indice = 0; indice < pasos.Count; indice++)
+        {
+            ResultadoPasoControl copia = pasos[indice];
+
+            if (!copia.Ejecutado
+                || copia.CodigoSalida != 0
+                || !TryObtenerDestinoCopyItem(
+                    copia.Comando,
+                    out string candidato)
+                || !DestinoConservaNombreSolicitado(
+                    candidato,
+                    instruccion,
+                    plan)
+                || !File.Exists(candidato))
+            {
+                continue;
+            }
+
+            bool abierto = pasos
+                .Skip(indice + 1)
+                .Any(paso =>
+                    paso.Ejecutado
+                    && paso.CodigoSalida == 0
+                    && paso.Comando.Contains(
+                        candidato,
+                        StringComparison.OrdinalIgnoreCase)
+                    && Regex.IsMatch(
+                        paso.Comando,
+                        @"(?:^|\r?\n|[;|]\s*)(?:Start-Process|start|saps|Invoke-Item|ii)\b",
+                        RegexOptions.IgnoreCase
+                        | RegexOptions.CultureInvariant));
+
+            if (!abierto)
+            {
+                continue;
+            }
+
+            destino = Path.GetFullPath(candidato);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TareaPareceCreacionDeContenido(string tarea)
+    {
+        string normalizada = InventarioTexto.Normalizar(tarea);
+
+        return Regex.IsMatch(
+                   normalizada,
+                   @"\b(?:crea|crear|nuevo|nueva|genera|generar)\b",
+                   RegexOptions.CultureInvariant)
+               && Regex.IsMatch(
+                   normalizada,
+                   @"\b(?:proyecto|documento|presentacion|hoja|libro|sesion)\b",
+                   RegexOptions.CultureInvariant);
+    }
+
+    private static bool TareaContieneNombreParaContenido(string tarea)
+    {
+        string normalizada = InventarioTexto.Normalizar(tarea);
+
+        return Regex.IsMatch(
+            normalizada,
+            @"\b(?:llamado|llamada|nombre|nombra|nombrar|nombrear|como)\b",
+            RegexOptions.CultureInvariant);
+    }
+
+    private static string CrearInstruccionCreacionDesdePlantilla(
+        PlanTareasControl plan,
+        IReadOnlyList<string> carpetasAprendidas)
+    {
+        string carpetas = string.Join(
+            Environment.NewLine,
+            ObtenerCarpetasDatosSugeridas()
+                .Select(ruta => "- " + ruta));
+        string carpetasAplicaciones = string.Join(
+            Environment.NewLine,
+            ObtenerCarpetasAplicacionesSugeridas()
+                .Select(ruta => "- " + ruta));
+        string carpetasMemoria = carpetasAprendidas.Count == 0
+            ? "- Ninguna; deduce primero fabricante o aplicación."
+            : string.Join(
+                Environment.NewLine,
+                carpetasAprendidas.Select(ruta => "- " + ruta));
+
+        return $$"""
+            ACLARACIÓN O LIMITACIÓN PREMATURA RECHAZADA.
+
+            La petición ya contiene el nombre necesario y todavía falta crear
+            el contenido solicitado:
+            {{plan.Formatear()}}
+
+            Abrir la aplicación no completa esa tarea. Consulta primero las
+            recetas aprendidas y las interfaces reales de la aplicación:
+            Get-Command, Get-Help, su CLI, cmdlets o API documentada. Si trabaja
+            con proyectos basados en plantillas, localiza por consola una
+            plantilla real de la versión instalada, crea una carpeta nueva con
+            New-Item y copia la plantilla a un archivo nuevo con el nombre
+            solicitado mediante Copy-Item. Después abre el archivo nuevo.
+            No uses la interfaz gráfica ni inventes rutas o argumentos.
+            Deduce la extensión del proyecto a partir de la aplicación y del
+            inventario local. Por ejemplo, Cubase usa proyectos y plantillas
+            `.cpr`; no hace falta abrir Cubase para buscar esos archivos.
+            Busca primero dentro de las carpetas de plantillas de aplicaciones;
+            no recorras unidades completas si una ruta específica está
+            disponible. El AppID de una receta aprendida puede contener el
+            fabricante o una ruta de instalación: úsalo para deducir el nombre
+            de la subcarpeta. Busca primero esa subcarpeta sin recursión y luego
+            busca la extensión dentro de ella. No recorras recursivamente
+            Roaming, Local y ProgramData juntos; consulta una raíz concreta por
+            paso.
+
+            Ejemplo general de descubrimiento de carpeta:
+            Get-ChildItem -LiteralPath 'RAÍZ_DE_APLICACIONES' -Directory -Filter '*FABRICANTE_O_APLICACIÓN*' -ErrorAction SilentlyContinue | Select-Object -First 20 FullName
+
+            Una búsqueda recursiva válida tiene esta forma, sustituyendo RAÍCES
+            y EXTENSIÓN por literales reales:
+            Get-ChildItem -LiteralPath 'RAÍZ1','RAÍZ2' -Filter '*.EXTENSIÓN' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 20 | ForEach-Object { Write-Output ('FULL_NAME=' + $_.FullName); Write-Output ('LENGTH=' + $_.Length); Write-Output ('LAST_WRITE_TIME=' + $_.LastWriteTime) }
+
+            Carpetas de datos existentes sugeridas:
+            {{carpetas}}
+
+            Carpetas existentes de plantillas y datos de aplicaciones:
+            {{carpetasAplicaciones}}
+
+            Carpetas concretas deducidas de recetas aprendidas; úsalas primero:
+            {{carpetasMemoria}}
+
+            Continúa con UN comando PowerShell de investigación o creación. No
+            vuelvas a preguntar por el nombre que ya dio el usuario.
+            """;
+    }
+
+    internal static bool EsAperturaSimpleSinParametros(string comando)
+    {
+        if (!EsInicioAplicacion(comando))
+        {
+            return false;
+        }
+
+        if (Regex.IsMatch(
+                comando,
+                @"\bArgumentList\b|--[\p{L}\p{N}_-]+|/[A-Za-z][A-Za-z0-9_-]*",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+        {
+            return false;
+        }
+
+        Match archivo = Regex.Match(
+            comando,
+            @"[A-Za-z]:[\\/][^'""\r\n]+\.(?<extension>[A-Za-z0-9]{1,12})",
+            RegexOptions.CultureInvariant);
+
+        return !archivo.Success
+               || archivo.Groups["extension"].Value.Equals(
+                   "exe",
+                   StringComparison.OrdinalIgnoreCase)
+               || archivo.Groups["extension"].Value.Equals(
+                   "com",
+                   StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IReadOnlyList<string> ObtenerCarpetasDatosSugeridas()
+    {
+        string[] candidatas =
+        [
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.MyDocuments),
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.DesktopDirectory),
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.MyMusic),
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.MyPictures),
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.MyVideos),
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.UserProfile),
+            Environment.GetEnvironmentVariable("OneDrive") ?? string.Empty,
+            Environment.GetEnvironmentVariable(
+                "OneDriveConsumer") ?? string.Empty
+        ];
+
+        return candidatas
+            .Where(ruta =>
+                !string.IsNullOrWhiteSpace(ruta)
+                && Directory.Exists(ruta))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<string>
+        ObtenerCarpetasAplicacionesSugeridas()
+    {
+        string[] candidatas =
+        [
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.ApplicationData),
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData),
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.CommonApplicationData)
+        ];
+
+        return candidatas
+            .Where(ruta =>
+                !string.IsNullOrWhiteSpace(ruta)
+                && Directory.Exists(ruta))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    internal static bool EsConsultaEspeculativaTrasCarpetaObservada(
+        string comando,
+        IReadOnlyList<ResultadoPasoControl> pasos)
+    {
+        return HayCarpetaAplicacionObservada(pasos)
+               && Regex.IsMatch(
+                   comando,
+                   @"(?:^|\r?\n)\s*(?:Test-Path|Get-ItemProperty)\b",
+                   RegexOptions.IgnoreCase
+                   | RegexOptions.CultureInvariant);
+    }
+
+    private static bool HayCarpetaAplicacionObservada(
+        IReadOnlyList<ResultadoPasoControl> pasos)
+    {
+        return pasos.Any(paso =>
+            paso.Ejecutado
+            && paso.CodigoSalida == 0
+            && !string.IsNullOrWhiteSpace(paso.Salida)
+            && Regex.IsMatch(
+                paso.Comando,
+                @"(?:^|\r?\n|[;|]\s*)Get-ChildItem\b[^\r\n;|]*-Directory\b",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant));
+    }
+
+    private static string CrearInstruccionBuscarEnCarpetaObservada(
+        IReadOnlyList<ResultadoPasoControl> pasos)
+    {
+        string salida = pasos
+            .LastOrDefault(paso =>
+                paso.Ejecutado
+                && paso.CodigoSalida == 0
+                && !string.IsNullOrWhiteSpace(paso.Salida)
+                && Regex.IsMatch(
+                    paso.Comando,
+                    @"(?:^|\r?\n|[;|]\s*)Get-ChildItem\b[^\r\n;|]*-Directory\b",
+                    RegexOptions.IgnoreCase
+                    | RegexOptions.CultureInvariant))
+            ?.Salida
+            ?? string.Empty;
+
+        return $$"""
+            CARPETAS REALES DE LA APLICACIÓN YA OBSERVADAS:
+            {{LimitarTexto(salida)}}
+
+            No adivines subcarpetas ni extensiones con Test-Path y no consultes
+            el registro. Usa una de esas rutas literales devueltas y enumera
+            primero las extensiones que existen realmente dentro de la versión
+            instalada más reciente:
+
+            Get-ChildItem -LiteralPath 'RUTA_OBSERVADA' -Filter '*.*' -File
+            -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension } |
+            Group-Object Extension | Sort-Object Count -Descending |
+            Select-Object -First 30 | ForEach-Object {
+            Write-Output ('EXTENSION=' + $_.Name);
+            Write-Output ('COUNT=' + $_.Count);
+            Write-Output ('SAMPLE_FULL_NAME=' + ($_.Group |
+            Select-Object -First 1 -ExpandProperty FullName)) }
+
+            Cuando la salida demuestre la extensión correcta, busca esa
+            extensión concreta y usa un FULL_NAME real como origen de
+            Copy-Item. No vuelvas a enumerar las raíces generales.
+            """;
+    }
+
+    internal static bool EsAperturaUnicaVerificada(
+        PlanTareasControl plan,
+        IReadOnlyList<ResultadoPasoControl> pasos)
+    {
+        return plan.Tareas.Count == 1
+               && TareaPareceAperturaAplicacion(plan.Tareas[0])
+               && pasos.Any(paso =>
+                   paso.Ejecutado
+                   && paso.CodigoSalida == 0
+                   && Regex.IsMatch(
+                       paso.Comando,
+                       @"^\s*Get-Process\s+-Name\b",
+                       RegexOptions.IgnoreCase
+                       | RegexOptions.CultureInvariant)
+                   && Regex.IsMatch(
+                       paso.Salida,
+                       @"(?:^|\r?\n)PROCESS_NAME=.+(?:\r?\n|$)",
+                       RegexOptions.IgnoreCase
+                       | RegexOptions.CultureInvariant))
+               && HayAperturaVerificada(pasos);
+    }
+
+    private static string CrearInstruccionInvestigacionApertura()
+    {
+        return """
+            LIMITACIÓN PREMATURA RECHAZADA. Una aplicación instalada puede
+            abrirse mediante consola. Ejecuta primero una consulta Get-StartApps
+            filtrada por el nombre deducido y publica cada resultado así:
+            Get-StartApps | Where-Object { ... } | ForEach-Object { Write-Output ('APP_NAME=' + $_.Name); Write-Output ('APP_ID=' + $_.AppID) }
+            Después usa exactamente el APP_ID devuelto mediante
+            explorer.exe 'shell:AppsFolder\APPID'. No confundas una aplicación
+            instalada con un archivo que no se pueda abrir.
+            """;
+    }
+
     internal static bool RequiereReintentarBusquedaArchivos(
         IReadOnlyList<ResultadoPasoControl> pasos)
     {
@@ -2102,11 +3189,12 @@ internal static class ControlWindows
         return $$"""
             BÚSQUEDA DE ARCHIVOS:
             No pidas al usuario una ruta que Windows ya conoce y no uses
-            variables de entorno. Reintenta con las raíces literales
+            variables de entorno. Reintenta con las unidades locales literales
             autorizadas:
             Get-ChildItem -LiteralPath {{rutas}} -Filter 'NOMBRE' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 20 | ForEach-Object { Write-Output ('FULL_NAME=' + $_.FullName); Write-Output ('LENGTH=' + $_.Length); Write-Output ('LAST_WRITE_TIME=' + $_.LastWriteTime) }
             Sustituye sólo NOMBRE por el nombre o patrón literal solicitado.
-            No abras ni leas el contenido.
+            Esta consulta no lee contenido. Si el usuario también ha pedido
+            abrir un resultado, usa después `Start-Process 'FULL_NAME_LITERAL'`.
             """;
     }
 
@@ -2135,10 +3223,21 @@ internal static class ControlWindows
                     paso.Comando,
                     @"(?:^|[;|]\s*)Get-Process\b",
                     RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
-                && Regex.IsMatch(
-                    paso.Salida,
-                    @"(?:^|\r?\n)WINDOW_TITLE=.+(?:\r?\n|$)",
-                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                && (Regex.IsMatch(
+                        paso.Comando,
+                        @"^\s*Get-Process\s+-Name\b",
+                        RegexOptions.IgnoreCase
+                        | RegexOptions.CultureInvariant)
+                    && Regex.IsMatch(
+                        paso.Salida,
+                        @"(?:^|\r?\n)PROCESS_NAME=.+(?:\r?\n|$)",
+                        RegexOptions.IgnoreCase
+                        | RegexOptions.CultureInvariant)
+                    || Regex.IsMatch(
+                        paso.Salida,
+                        @"(?:^|\r?\n)WINDOW_TITLE=.+(?:\r?\n|$)",
+                        RegexOptions.IgnoreCase
+                        | RegexOptions.CultureInvariant)))
             {
                 return true;
             }
@@ -2154,6 +3253,33 @@ internal static class ControlWindows
             normalizada,
             @"\b(?:abre|abrir|inicia|iniciar|lanza|lanzar|ejecuta|ejecutar|open|start|launch)\b",
             RegexOptions.CultureInvariant);
+    }
+
+    private static bool TareaPareceAperturaAplicacion(string tarea)
+    {
+        if (!TareaPareceApertura(tarea))
+        {
+            return false;
+        }
+
+        string normalizada = InventarioTexto.Normalizar(tarea);
+        bool mencionaArchivo =
+            normalizada.Contains("archivo", StringComparison.Ordinal)
+            || normalizada.Contains("fichero", StringComparison.Ordinal)
+            || normalizada.Contains("carpeta", StringComparison.Ordinal)
+            || normalizada.Contains("documento", StringComparison.Ordinal)
+            || normalizada.Contains("pdf", StringComparison.Ordinal)
+            || normalizada.Contains("proyecto", StringComparison.Ordinal)
+            || normalizada.Contains("imagen", StringComparison.Ordinal)
+            || normalizada.Contains("foto", StringComparison.Ordinal)
+            || normalizada.Contains("audio", StringComparison.Ordinal)
+            || normalizada.Contains("video", StringComparison.Ordinal)
+            || Regex.IsMatch(
+                tarea,
+                @"(?:[A-Za-z]:[\\/]|[\p{L}\p{N}_()-]+\.[\p{L}\p{N}_()-]+)",
+                RegexOptions.CultureInvariant);
+
+        return !mencionaArchivo;
     }
 
     private static string FormatearTitulosObservados(

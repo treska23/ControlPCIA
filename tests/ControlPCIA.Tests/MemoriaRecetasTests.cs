@@ -81,6 +81,19 @@ public sealed class MemoriaRecetasTests
 
             Assert.Single(recetas);
             Assert.True(recetas[0].Similitud >= 0.25);
+
+            IReadOnlyList<RecetaReferencia> mismaAplicacionOtraAccion =
+                await segundaInstancia.BuscarAsync(
+                    "crea un proyecto nuevo en spotify",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken);
+
+            Assert.Single(mismaAplicacionOtraAccion);
+            Assert.DoesNotContain(
+                mismaAplicacionOtraAccion[0].Comandos,
+                comando => comando.Contains(
+                    "Get-StartApps",
+                    StringComparison.OrdinalIgnoreCase));
         }
         finally
         {
@@ -116,10 +129,15 @@ public sealed class MemoriaRecetasTests
                         cancellationToken:
                             TestContext.Current.CancellationToken));
 
-                Assert.Equal(3, receta.Comandos.Count);
+                Assert.Equal(2, receta.Comandos.Count);
+                Assert.DoesNotContain(
+                    receta.Comandos,
+                    comando => comando.Contains(
+                        "Get-StartApps",
+                        StringComparison.OrdinalIgnoreCase));
                 Assert.Equal(
                     "Get-Process -Name Aplicacion",
-                    receta.Comandos[2]);
+                    receta.Comandos[1]);
             });
     }
 

@@ -30,6 +30,7 @@ public partial class MainPage : ContentPage
     private bool _ejecutandoOrden;
     private int _idSesionVoz;
     private string? _ordenPendienteConfirmacion;
+    private string? _preguntaPendiente;
 
     public MainPage()
     {
@@ -198,6 +199,7 @@ public partial class MainPage : ContentPage
         _api.Olvidar();
         _wake.Olvidar();
         _ordenPendienteConfirmacion = null;
+        _preguntaPendiente = null;
         _conversacion.Clear();
         HistoryStack.Children.Clear();
         HistoryStack.Children.Add(EmptyHistoryLabel);
@@ -492,7 +494,9 @@ public partial class MainPage : ContentPage
         SendButton.IsEnabled = !_ejecutandoOrden;
         VoiceStateTitle.Text = string.IsNullOrWhiteSpace(
                 _ordenPendienteConfirmacion)
-            ? "Preparado para escucharte"
+            ? string.IsNullOrWhiteSpace(_preguntaPendiente)
+                ? "Preparado para escucharte"
+                : "Necesito un dato"
             : "Necesito tu confirmación";
         ActualizarModoVoz();
     }
@@ -626,15 +630,28 @@ public partial class MainPage : ContentPage
                     StringComparison.OrdinalIgnoreCase) == true)
             {
                 _ordenPendienteConfirmacion = orden;
+                _preguntaPendiente = null;
                 VoiceStateTitle.Text = "Necesito tu confirmación";
                 VoiceTranscriptLabel.Text =
                     (resultado.Mensaje ?? "¿Quieres que continúe?")
                     + " Responde sí o no.";
                 VoiceTranscriptLabel.TextColor = ColorAviso;
             }
+            else if (resultado.Estado?.Equals(
+                         "requiere_aclaracion",
+                         StringComparison.OrdinalIgnoreCase) == true)
+            {
+                _ordenPendienteConfirmacion = null;
+                _preguntaPendiente =
+                    resultado.Mensaje ?? "¿Qué dato falta para continuar?";
+                VoiceStateTitle.Text = "Necesito un dato";
+                VoiceTranscriptLabel.Text = _preguntaPendiente;
+                VoiceTranscriptLabel.TextColor = ColorAviso;
+            }
             else
             {
                 _ordenPendienteConfirmacion = null;
+                _preguntaPendiente = null;
             }
 
             MostrarResultado(ControlStatusLabel, resultado);
@@ -770,6 +787,9 @@ public partial class MainPage : ContentPage
                 StringComparison.OrdinalIgnoreCase) == true
             ? " Responde sí o no."
             : string.Empty;
+        bool aclaracion = resultado.Estado?.Equals(
+                "requiere_aclaracion",
+                StringComparison.OrdinalIgnoreCase) == true;
 
         MostrarMensaje(
             etiqueta,
@@ -779,7 +799,13 @@ public partial class MainPage : ContentPage
             + confirmacion,
             correcto: resultado.Completado,
             error: !resultado.Completado
-                   && confirmacion.Length == 0);
+                   && confirmacion.Length == 0
+                   && !aclaracion);
+
+        if (aclaracion)
+        {
+            etiqueta.TextColor = ColorAviso;
+        }
     }
 
     private void AgregarIntercambio(
@@ -801,6 +827,9 @@ public partial class MainPage : ContentPage
                 Color.FromArgb("#102A25"),
                 resultado.Estado?.Equals(
                     "requiere_confirmacion",
+                    StringComparison.OrdinalIgnoreCase) == true
+                || resultado.Estado?.Equals(
+                    "requiere_aclaracion",
                     StringComparison.OrdinalIgnoreCase) == true
                     ? ColorAviso
                     : resultado.Completado

@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Net.Http;
+using System.Text.RegularExpressions;
 
 namespace ControlPCIA;
 
@@ -21,12 +22,103 @@ internal sealed record RevisionTareasControl(
     IReadOnlyList<int> Pendientes,
     string Motivo);
 
+internal sealed record PreparacionSolicitudControl(
+    bool Lista,
+    string? Pregunta);
+
 /// <summary>
 /// Llama descompone la petición y audita su propia ejecución. El programa no
 /// contiene un catálogo de acciones ni sabe qué significa cada tarea.
 /// </summary>
 internal static class PlanificadorTareasIA
 {
+    public static async Task<PreparacionSolicitudControl> PrepararAsync(
+        string instruccion,
+        IReadOnlyList<MensajeConversacionControl> contexto,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var mensajes = new List<MensajeOllama>
+            {
+                new(
+                    "system",
+                    """
+                    Antes de controlar un PC, decide si falta un dato que sólo
+                    puede elegir el usuario. Tú haces esta decisión: el programa
+                    no contiene un catálogo de aplicaciones ni acciones.
+
+                    Investigar comandos, aplicaciones instaladas, plantillas,
+                    rutas predeterminadas y estado de Windows corresponde a la
+                    IA y NO justifica preguntar al usuario. Usa un valor normal,
+                    reversible y predecible cuando exista; por ejemplo, una
+                    carpeta de documentos para contenido nuevo.
+
+                    Si Windows proporciona una carpeta Documentos existente,
+                    úsala como ubicación predeterminada para proyectos o
+                    documentos nuevos cuando el usuario no indique otra. No
+                    preguntes dónde guardar en ese caso. La aplicación puede
+                    crear dentro una subcarpeta con el nombre del contenido.
+
+                    Pregunta únicamente por una decisión personal imprescindible
+                    que no aparezca ni en la petición ni en la conversación. Por
+                    ejemplo, si se pide crear un proyecto nuevo sin darle nombre,
+                    pregunta qué nombre quiere. Si ya dijo «llamado Demo», no
+                    preguntes otra vez. No abras una aplicación antes de obtener
+                    el dato imprescindible.
+
+                    Si el mensaje actual responde a una pregunta anterior, usa
+                    esa respuesta junto con la petición previa y marca la
+                    solicitud como lista.
+
+                    Responde exclusivamente con uno de estos JSON:
+                    {"lista":true,"pregunta":null}
+                    {"lista":false,"pregunta":"Una sola pregunta breve"}
+                    """)
+            };
+
+            mensajes.AddRange(
+                contexto
+                    .TakeLast(8)
+                    .Select(mensaje =>
+                        new MensajeOllama(
+                            mensaje.Rol,
+                            mensaje.Texto)));
+            string documentos = Environment.GetFolderPath(
+                Environment.SpecialFolder.MyDocuments);
+            string escritorio = Environment.GetFolderPath(
+                Environment.SpecialFolder.DesktopDirectory);
+            mensajes.Add(
+                new MensajeOllama(
+                    "user",
+                    $"""
+                    PETICIÓN ACTUAL:
+                    {instruccion.Trim()}
+
+                    CARPETAS PREDETERMINADAS REALES DE WINDOWS:
+                    Documentos: {documentos}
+                    Escritorio: {escritorio}
+                    """));
+
+            string respuesta =
+                await ClienteOllama.ConversarAsync(
+                    mensajes,
+                    cancellationToken);
+
+            return ExtraerPreparacion(respuesta)
+                   ?? new PreparacionSolicitudControl(true, null);
+        }
+        catch (Exception ex) when (
+            !cancellationToken.IsCancellationRequested
+            && ex is HttpRequestException
+                or JsonException
+                or InvalidOperationException
+                or TaskCanceledException)
+        {
+            return new PreparacionSolicitudControl(true, null);
+        }
+    }
+
     public static async Task<PlanTareasControl> CrearAsync(
         string instruccion,
         IReadOnlyList<MensajeConversacionControl> contexto,
@@ -48,6 +140,16 @@ internal static class PlanificadorTareasIA
                     conviertas los pasos técnicos necesarios en tareas: sólo
                     enumera resultados observables solicitados.
 
+                    Si el mensaje actual responde a una pregunta anterior,
+                    reconstruye la petición original usando la conversación e
+                    incorpora la respuesta. No planifiques sólo la palabra o
+                    frase de la respuesta actual.
+
+                    «Crea un proyecto nuevo en Cubase» es UNA tarea observable,
+                    no cinco tareas para abrir, elegir, nombrar, ubicar y
+                    confirmar. «Crea un proyecto nuevo en Cubase llamado Demo»
+                    también es una sola tarea y debe conservar el nombre Demo.
+
                     Separa siempre resultados independientes unidos por "y",
                     "luego", "después" o equivalentes. Por ejemplo, "abre X y
                     realiza Y dentro de X" son dos tareas: "abrir X" y
@@ -57,7 +159,7 @@ internal static class PlanificadorTareasIA
                     Responde exclusivamente con JSON válido:
                     {"tareas":["primera tarea","segunda tarea"]}
 
-                    Usa entre 1 y 12 tareas. Si sólo se pide una cosa, devuelve
+                    Usa entre 1 y 24 tareas. Si sólo se pide una cosa, devuelve
                     una sola. No des por supuesta ninguna tarea que el usuario
                     no haya pedido.
                     """)
@@ -81,7 +183,10 @@ internal static class PlanificadorTareasIA
 
             return tareas.Count == 0
                 ? CrearPlanMinimo(instruccion)
-                : new PlanTareasControl(tareas);
+                : new PlanTareasControl(
+                    ConservarNombreLiteralExacto(
+                        instruccion,
+                        tareas));
         }
         catch (Exception ex) when (
             !cancellationToken.IsCancellationRequested
@@ -92,6 +197,76 @@ internal static class PlanificadorTareasIA
         {
             return CrearPlanMinimo(instruccion);
         }
+    }
+
+    internal static IReadOnlyList<string>
+        ConservarNombreLiteralExacto(
+            string instruccion,
+            IReadOnlyList<string> tareas)
+    {
+        string? nombre = ExtraerNombreLiteralSolicitado(
+            instruccion);
+
+        if (string.IsNullOrWhiteSpace(nombre)
+            || tareas.Any(tarea =>
+                tarea.Contains(
+                    nombre,
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return tareas;
+        }
+
+        string[] resultado = tareas.ToArray();
+        int indice = Array.FindIndex(
+            resultado,
+            tarea => Regex.IsMatch(
+                InventarioTexto.Normalizar(tarea),
+                @"\b(?:crea|crear|genera|generar|nuevo|nueva)\b",
+                RegexOptions.CultureInvariant));
+
+        if (indice < 0)
+        {
+            indice = 0;
+        }
+
+        resultado[indice] =
+            resultado[indice].TrimEnd()
+            + $" con el nombre literal exacto «{nombre}»";
+
+        return resultado;
+    }
+
+    internal static string? ExtraerNombreLiteralSolicitado(
+        string instruccion)
+    {
+        if (string.IsNullOrWhiteSpace(instruccion))
+        {
+            return null;
+        }
+
+        Match coincidencia = Regex.Match(
+            instruccion,
+            """
+            \b(?:llamad[oa]|(?:con\s+el\s+)?nombre(?:\s+de)?|n[oó]mbral[oa]?\s+como|como)\s+
+            ["“«']?(?<nombre>.+?)["”»']?
+            (?=\s+(?:y\s+)?(?:luego|despu[eé]s)\b|[,.!?;]|$)
+            """,
+            RegexOptions.IgnoreCase
+            | RegexOptions.CultureInvariant
+            | RegexOptions.IgnorePatternWhitespace);
+
+        if (!coincidencia.Success)
+        {
+            return null;
+        }
+
+        string nombre = coincidencia.Groups["nombre"].Value
+            .Trim()
+            .Trim('"', '\'', '“', '”', '«', '»');
+
+        return nombre.Length is >= 1 and <= 180
+            ? nombre
+            : null;
     }
 
     public static async Task<RevisionTareasControl> RevisarAsync(
@@ -132,6 +307,10 @@ internal static class PlanificadorTareasIA
                     completa nada. Abrir una aplicación no demuestra una
                     segunda acción pedida dentro de ella. No aceptes una
                     afirmación sin un comando correspondiente.
+                    Una apertura sí queda demostrada cuando un comando de inicio
+                    correcto va seguido por `Get-Process -Name` y stdout contiene
+                    el `PROCESS_NAME` concreto; no exijas que la aplicación haya
+                    terminado toda su pantalla de carga.
                     Las acciones mediante SendKeys, AppActivate, atajos,
                     automatización de interfaz, ratón u OCR están prohibidas y
                     nunca cuentan como evidencia. Una tarea interna de una
@@ -212,8 +391,48 @@ internal static class PlanificadorTareasIA
             .Select(elemento => elemento.GetString()?.Trim() ?? string.Empty)
             .Where(tarea => tarea.Length is >= 1 and <= 240)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(12)
+            .Take(24)
             .ToArray();
+    }
+
+    internal static PreparacionSolicitudControl? ExtraerPreparacion(
+        string respuesta)
+    {
+        using JsonDocument? documento = ExtraerJson(respuesta);
+
+        if (documento is null
+            || !documento.RootElement.TryGetProperty(
+                "lista",
+                out JsonElement lista)
+            || lista.ValueKind is not (
+                JsonValueKind.True or JsonValueKind.False))
+        {
+            return null;
+        }
+
+        if (lista.GetBoolean())
+        {
+            return new PreparacionSolicitudControl(true, null);
+        }
+
+        string pregunta =
+            documento.RootElement.TryGetProperty(
+                "pregunta",
+                out JsonElement texto)
+            && texto.ValueKind == JsonValueKind.String
+                ? texto.GetString()?.Trim() ?? string.Empty
+                : string.Empty;
+
+        if (pregunta.Length == 0)
+        {
+            return null;
+        }
+
+        return new PreparacionSolicitudControl(
+            false,
+            pregunta.Length <= 300
+                ? pregunta
+                : pregunta[..300].Trim());
     }
 
     internal static RevisionTareasControl? ExtraerRevision(

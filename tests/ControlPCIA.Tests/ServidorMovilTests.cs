@@ -83,6 +83,28 @@ public sealed class ServidorMovilTests
     }
 
     [Fact]
+    public void Publica_la_descarga_de_la_aplicacion_android()
+    {
+        Assert.Equal(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                ServidorMovil.NombreArchivoApkAndroid),
+            ServidorMovil.ObtenerRutaApkAndroid());
+        Assert.Contains(
+            $"href=\"{ServidorMovil.RutaDescargaApkAndroid}\"",
+            ServidorMovil.PaginaMovil,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Descargar app Android",
+            ServidorMovil.PaginaMovil,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "url.pathname === '/app-android.apk'",
+            ServidorMovil.ServiceWorkerPwa,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Descubrimiento_publica_protocolo_y_direcciones_locales()
     {
         byte[] contenido =

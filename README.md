@@ -8,7 +8,7 @@ No hay un traductor intermedio ni una función programada para cada acción. El 
 móvil → texto → Llama propone comando → validador local → PowerShell → Windows
 ```
 
-Llama puede razonar sobre aplicaciones, ventanas, audio, multimedia, pantallas e información del sistema. Antes de ejecutar nada, un validador independiente analiza el AST oficial de PowerShell. Se permite localizar archivos por nombre y devolver su ruta, tamaño y fecha, pero no abrirlos, leerlos, crearlos, copiarlos, moverlos, renombrarlos, sobrescribirlos ni borrarlos. También se bloquean instalaciones, operaciones destructivas de disco, credenciales y mecanismos de evasión.
+Llama puede razonar sobre aplicaciones, ventanas, audio, multimedia, pantallas, archivos e información del sistema. Antes de ejecutar nada, un validador independiente analiza el AST oficial de PowerShell. La política es deliberadamente mínima: permite cualquier operación invocable por consola salvo eliminar, mover/cortar y formatear o reinicializar unidades.
 
 ## Requisitos
 
@@ -66,9 +66,20 @@ APK Android generado para instalación manual:
 mobile\ControlPCIA.Mobile\bin\Release\net10.0-android\publish\com.treska.controlpcia-Signed.apk
 ```
 
-La publicación actual es la versión 1.3.1 (código 5), firmada con los esquemas APK v1, v2 y v3. Su SHA-256 es `461052D286FBFEE8E1C995687F402CB3A50DF775CF41E58ECF575848496E464E`.
+La publicación actual es la versión 1.4.1 (código 7), firmada con los esquemas APK v1, v2 y v3. Su SHA-256 es `BA1C6C62A3F93FA5CE32AEE74A3B0BB07F11D1C28812BB2382ED5693C12A5D42`.
 
-Para instalarlo, copia el APK al teléfono, ábrelo y permite la instalación desde esa fuente cuando Android lo solicite. Después abre ControlPCIA en el PC, pulsa **Buscar mi PC** en el móvil y escribe el código de seis cifras.
+Con el agente del PC encendido, el móvil puede descargar siempre la compilación
+firmada más reciente desde:
+
+```text
+http://192.168.1.15:5187/app-android.apk
+```
+
+También aparece el botón **Descargar app Android** en la página principal. Abre
+el APK descargado y permite la instalación desde esa fuente cuando Android lo
+solicite. Una actualización conserva la configuración de la app porque usa la
+misma firma. Después abre ControlPCIA en el móvil, pulsa **Buscar mi PC** y
+escribe el código de seis cifras.
 
 El APK actual tiene una firma local de desarrollo. Es instalable manualmente, pero para Google Play será necesario crear y proteger una clave de publicación definitiva. El mismo código está preparado para iPhone, aunque compilar y firmar la versión iOS requiere un Mac y una cuenta de Apple Developer.
 
@@ -94,7 +105,7 @@ ControlPCIA no cambia automáticamente BIOS, controladores ni ajustes de energí
 
 ## PWA de respaldo
 
-La página incluye manifiesto, iconos, modo `standalone` y un service worker que guarda únicamente la interfaz. Nunca almacena respuestas de `/api/`, órdenes ni resultados. La dirección actual de este PC es:
+La página incluye manifiesto, iconos, modo `standalone` y un service worker que guarda únicamente la interfaz. Nunca almacena respuestas de `/api/`, órdenes, resultados ni el APK; cada descarga de Android sale directamente del agente residente. La dirección actual de este PC es:
 
 ```text
 http://192.168.1.15:5187
@@ -110,9 +121,9 @@ Las órdenes no se resuelven con capturas, OCR ni reconocimiento gráfico. El fl
 
 Llama no ejecuta acciones ni afirma resultados por su cuenta. ControlPCIA valida cada comando, lo ejecuta en un proceso externo de PowerShell y devuelve a Llama stdout, stderr y el código de salida. Si falla, el móvil recibe el error y puede continuar la conversación para aclarar la petición.
 
-La consulta de ventanas abiertas se hace con comandos de consola (`Get-Process` y títulos de ventana). La localización de archivos usa `Get-ChildItem` dentro de las carpetas personales autorizadas y devuelve rutas completas sin leer contenido. Cuando esas consultas ya produjeron evidencia válida, ControlPCIA compone la respuesta directamente con el `stdout` real para que el modelo no pueda reinterpretarlo o contradecirlo. El aprendizaje sólo guarda secuencias que hayan terminado con una observación válida y vuelve a pasar cada receta por el validador antes de reutilizarla.
+La consulta de ventanas abiertas se hace con comandos de consola (`Get-Process` y títulos de ventana). Los archivos pueden localizarse, leerse, crearse, copiarse, sobrescribirse y abrirse mediante PowerShell, programas nativos o las APIs de cada aplicación. Cuando una consulta ya produjo evidencia válida, ControlPCIA compone la respuesta directamente con el `stdout` real para que el modelo no pueda reinterpretarlo o contradecirlo.
 
-La política permite controlar aplicaciones, audio, multimedia, pantallas y ajustes normales cuando exista un comando, CLI, cmdlet, API o protocolo URI real. Bloquea toda manipulación de archivos, instalaciones, credenciales, consolas, seguridad y operaciones destructivas de discos. Una confirmación conversacional nunca levanta estas prohibiciones.
+La política permite controlar aplicaciones, audio, multimedia, pantallas, archivos, instalaciones y configuración de Windows cuando exista un comando, CLI, cmdlet, API o protocolo URI real. Las únicas prohibiciones sobre el equipo son eliminar, mover/cortar y formatear unidades. Renombrar está permitido. La automatización gráfica antigua sigue retirada: no se usan capturas, OCR, `SendKeys`, `AppActivate`, ratón ni teclado simulado.
 
 ## Agente residente de Windows
 
@@ -125,7 +136,7 @@ ControlPCIA.exe --activar-inicio
 ControlPCIA.exe --desactivar-inicio
 ```
 
-Esta configuración la realiza código de confianza de ControlPCIA en `HKCU`, sin administrador y sólo para la sesión del usuario. Llama no puede ejecutar estas opciones: el validador continúa bloqueando registro, arranque y configuración sensible.
+Esta configuración la realiza ControlPCIA en `HKCU`, sin administrador y sólo para la sesión del usuario. El agente de consola también puede usar el registro y otras interfaces de Windows cuando una petición lo requiera; el subcomando gráfico antiguo de ControlPCIA no se expone a Llama.
 
 ## Aprendizaje local
 
@@ -141,26 +152,28 @@ No guarda stdout, stderr, contenido de archivos ni datos obtenidos del PC. Las r
 %LOCALAPPDATA%\ControlPCIA\recetas-v1.json
 ```
 
-Ante una orden parecida, Llama recibe las recetas relacionadas como referencias. No se ejecutan directamente: la IA revisa el contexto, puede adaptarlas y cada comando vuelve a pasar por el validador actual. Una receta que deje de cumplir la política queda descartada automáticamente.
+Ante una orden parecida, Llama recibe primero las recetas relacionadas. La memoria extrae además recursos comprobados —por ejemplo AppID, ejecutables, plantillas y rutas— y evita repetir una investigación cuando el recurso sigue existiendo. La IA adapta los datos variables, como el nombre y destino de un proyecto nuevo, y cada comando vuelve a pasar por el validador actual. Una receta que deje de cumplir la política queda descartada automáticamente.
 
 ## Seguridad
 
-La barrera de seguridad se aplica después del modelo y no depende de que Llama obedezca el prompt. Entre otras restricciones:
+La barrera se aplica después del modelo y no depende de que Llama obedezca el prompt. La política de acciones tiene exactamente tres categorías prohibidas:
 
-- Nunca se permite abrir, leer, crear, copiar, mover, renombrar, sobrescribir o borrar archivos, carpetas, documentos o proyectos.
-- Sólo se pueden consultar nombres, rutas, tamaño y fecha de archivos dentro de carpetas personales autorizadas; la búsqueda exige filtro literal, límite de resultados y rutas completas.
-- Se bloquean instalación, actualización y desinstalación de programas, operaciones destructivas sobre discos o particiones, credenciales, permisos, cuentas, Defender y arranque.
-- `winget` sólo puede consultar el catálogo mediante `search`, `show` o `list`.
-- Se bloquean intérpretes anidados, ejecución dinámica, reflexión peligrosa, exfiltración y clientes de red arbitrarios.
-- `Start-Process` puede abrir aplicaciones registradas y direcciones web públicas seguras, pero no archivos, carpetas, documentos, proyectos, ejecutables, scripts, instaladores o ubicaciones de red.
-- Los programas nativos reciben argumentos literales validados.
-- Se bloquean `SendKeys`, `AppActivate`, COM de interfaz, atajos, simulación de ratón o teclado y el antiguo subcomando `ControlPCIA.exe ui`.
-- Las aplicaciones se controlan únicamente con comandos de consola de Windows o con la CLI/PowerShell documentada por cada aplicación. No se usan capturas, OCR, UI Automation ni cuadros de texto.
-- Si una aplicación no ofrece una CLI, un cmdlet, una API o un protocolo invocable íntegramente por consola para una acción interna, ControlPCIA explica ese límite y no simula la acción.
-- Después de ejecutar un comando, Llama recibe stdout, stderr y el código de salida reales. Sólo puede afirmar que terminó cuando esa salida demuestra el resultado.
-- El control queda limitado a las aplicaciones mencionadas por el usuario; una orden para Calculadora no debe actuar sobre ChatGPT u otra aplicación ajena.
-- Una petición ambigua puede devolver una pregunta de confirmación. Confirmar no habilita manipulación de archivos, descarte de trabajo, instalaciones ni daños de disco.
-- Cada proceso PowerShell tiene 20 segundos de límite, salida acotada y terminación del árbol completo si vence el tiempo.
+- Eliminar elementos o contenido, también mediante alias, APIs, intérpretes, desinstaladores o comandos anidados.
+- Mover o cortar elementos. Renombrar sin cambiar de ubicación está permitido.
+- Formatear, limpiar o reinicializar discos y unidades.
+
+Todo lo demás que pueda invocarse desde consola está permitido: leer, buscar, crear, copiar, sobrescribir, abrir, guardar, descargar, instalar, configurar Windows, usar registro, servicios, red, módulos, ejecutables, intérpretes, APIs .NET y COM de aplicaciones.
+
+El validador rechaza código codificado o nombres de comando dinámicos únicamente cuando impedirían comprobar esas tres prohibiciones. `SendKeys`, `AppActivate`, UI Automation y `ControlPCIA.exe ui` permanecen fuera porque la arquitectura gráfica fue retirada, no porque formen una cuarta categoría de seguridad. Las aplicaciones se controlan mediante comandos, CLI, cmdlets, APIs o protocolos reales.
+
+Los nombres `Move-*` no se bloquean de forma genérica: colocar una ventana u
+otro objeto está permitido. Se bloquean los movimientos persistentes
+comprobables (`Move-Item`, `Move-ItemProperty`, APIs de archivo, `robocopy
+/MOVE`, etc.). Del mismo modo, reemplazar texto y eliminar objetos temporales
+de la sesión de PowerShell está permitido; reemplazar, mover o eliminar archivos
+y contenido persistente sigue bloqueado.
+
+Después de ejecutar un comando, Llama recibe stdout, stderr y el código de salida reales. ControlPCIA conserva comprobaciones deterministas para no declarar éxito sin evidencia y puede pedir un dato personal imprescindible, como el nombre de un proyecto. Cada proceso PowerShell tiene un máximo operativo de diez minutos y salida acotada para que una orden bloqueada no deje colgado el agente residente. Las órdenes multitarea admiten hasta 24 resultados y el presupuesto crece hasta 96 pasos.
 
 El acceso móvil añade código de emparejado, token aleatorio de sesión, caducidad, límite de intentos, restricción a direcciones privadas, cabeceras de seguridad y una sola orden simultánea. El móvil conserva el token real en `SecureStorage`; el PC guarda únicamente su hash y caducidad durante 90 días, renovables con el uso, para que el emparejado sobreviva a los reinicios. Ollama sólo escucha para ControlPCIA en `127.0.0.1`.
 
@@ -204,7 +217,7 @@ Configuración opcional mediante variables de entorno:
 dotnet test ControlPCIA.slnx
 ```
 
-La batería cubre comandos permitidos, operaciones restringidas, evasiones conocidas, ejecución con tiempo y salida limitados, red local, memoria persistente y revalidación de recetas.
+La batería cubre una matriz amplia de operaciones permitidas, las tres prohibiciones y sus evasiones, ejecución con tiempo y salida limitados, red local, conversación, memoria persistente y reutilización de recursos aprendidos.
 
 ## Componentes principales
 

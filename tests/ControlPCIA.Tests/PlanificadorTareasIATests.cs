@@ -5,6 +5,52 @@ namespace ControlPCIA.Tests;
 public sealed class PlanificadorTareasIATests
 {
     [Fact]
+    public void Conserva_el_nombre_literal_aunque_el_modelo_omita_el_final()
+    {
+        const string instruccion =
+            "crea un proyecto nuevo en Cubase llamado ControlPCIA IA 20260718 O";
+
+        IReadOnlyList<string> tareas =
+            PlanificadorTareasIA.ConservarNombreLiteralExacto(
+                instruccion,
+                [
+                    "crea un proyecto nuevo en Cubase llamado ControlPCIA IA 20260718"
+                ]);
+
+        string tarea = Assert.Single(tareas);
+        Assert.Contains(
+            "ControlPCIA IA 20260718 O",
+            tarea,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            "ControlPCIA IA 20260718 O",
+            PlanificadorTareasIA.ExtraerNombreLiteralSolicitado(
+                instruccion));
+    }
+
+    [Theory]
+    [InlineData(
+        """{"lista":false,"pregunta":"¿Qué nombre quieres poner al proyecto?"}""",
+        false,
+        "¿Qué nombre quieres poner al proyecto?")]
+    [InlineData(
+        """{"lista":true,"pregunta":null}""",
+        true,
+        null)]
+    public void Extrae_si_la_ia_necesita_un_dato_del_usuario(
+        string respuesta,
+        bool lista,
+        string? pregunta)
+    {
+        PreparacionSolicitudControl preparacion = Assert.IsType<
+            PreparacionSolicitudControl>(
+            PlanificadorTareasIA.ExtraerPreparacion(respuesta));
+
+        Assert.Equal(lista, preparacion.Lista);
+        Assert.Equal(pregunta, preparacion.Pregunta);
+    }
+
+    [Fact]
     public void Conserva_todas_las_tareas_de_un_plan_json()
     {
         IReadOnlyList<string> tareas =
