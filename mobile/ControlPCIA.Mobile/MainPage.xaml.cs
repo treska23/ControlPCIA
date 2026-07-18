@@ -900,7 +900,10 @@ public partial class MainPage : ContentPage
         string recetas = estado.RecetasAprendidas == 1
             ? "1 receta aprendida"
             : $"{estado.RecetasAprendidas} recetas aprendidas";
-        string mensaje = estado.Disponible
+        string mensaje = estado.ModoPrueba
+            ? $"Modo de prueba seguro · {estado.Modelo} · "
+              + "la IA traduce, pero el PC no ejecuta comandos"
+            : estado.Disponible
             ? $"IA preparada · {estado.Modelo} · {recetas}"
             : estado.Mensaje ?? "La IA local no esta disponible.";
 
@@ -931,6 +934,9 @@ public partial class MainPage : ContentPage
         bool aclaracion = resultado.Estado?.Equals(
                 "requiere_aclaracion",
                 StringComparison.OrdinalIgnoreCase) == true;
+        bool prueba = resultado.Estado?.Equals(
+                "prueba_sin_ejecucion",
+                StringComparison.OrdinalIgnoreCase) == true;
 
         MostrarMensaje(
             etiqueta,
@@ -941,9 +947,10 @@ public partial class MainPage : ContentPage
             correcto: resultado.Completado,
             error: !resultado.Completado
                    && confirmacion.Length == 0
-                   && !aclaracion);
+                   && !aclaracion
+                   && !prueba);
 
-        if (aclaracion)
+        if (aclaracion || prueba)
         {
             etiqueta.TextColor = ColorAviso;
         }
@@ -971,6 +978,9 @@ public partial class MainPage : ContentPage
                     StringComparison.OrdinalIgnoreCase) == true
                 || resultado.Estado?.Equals(
                     "requiere_aclaracion",
+                    StringComparison.OrdinalIgnoreCase) == true
+                || resultado.Estado?.Equals(
+                    "prueba_sin_ejecucion",
                     StringComparison.OrdinalIgnoreCase) == true
                     ? ColorAviso
                     : resultado.Completado

@@ -113,6 +113,12 @@ Existe `--traducir-sin-ejecutar`, que devuelve JSON con el plan, las recetas, el
 primer comando, su validación, duración y `ejecutado: false`. Se ha usado para
 probar formulaciones distintas sin manipular el escritorio.
 
+El servidor admite además `--solo-traducir`. Está pensado para comprobar desde
+Android el micrófono, Cancelar y la conversación completa sin tocar el
+escritorio. El endpoint `/api/orden` toma una ruta aislada que no invoca
+`ControlarAsync`, devuelve los pasos como no ejecutados y nunca afirma que la
+tarea se haya completado. La aplicación muestra **Modo de prueba seguro**.
+
 ## Aplicación móvil
 
 La app .NET MAUI para Android es la experiencia principal. Incluye:
@@ -143,7 +149,7 @@ automático o salir.
 
 ## Verificaciones actuales
 
-- 286 pruebas automatizadas correctas en Release.
+- 289 pruebas automatizadas correctas en Release.
 - Matriz positiva explícita para lectura, escritura, creación, copia,
   sobrescritura, descargas, instalación, registro, servicios, red, Defender,
   apagado/reinicio, WMI/CIM, intérpretes, .NET y COM.
@@ -152,23 +158,23 @@ automático o salir.
 - Creación real de proyectos Cubase comprobada sólo por consola.
 - Reutilización real de la memoria comprobada sin repetir descubrimiento.
 - Instancias de Cubase abiertas durante las pruebas cerradas al terminar.
-- APK Android 1.4.2 (código 8) publicado, SHA-256
-  `0968785F200FE07B2D201ADED0F3EF98683DCE9F397FF9B8E714DAC33110961A`
+- APK Android 1.4.3 (código 9) publicado, SHA-256
+  `1980E0E728B39F2EC49F284E966CAA6D4FBFB7255628F67BFB8A72E995CAF069`
   y firma v1, v2 y v3 verificada.
 - Descarga del APK publicada por el propio agente en
-  `http://192.168.1.15:5187/app-android.apk`: HTTP 200, 29.964.392 bytes,
+  `http://192.168.1.15:5187/app-android.apk`: 29.984.807 bytes,
   tipo Android correcto y hash idéntico al APK firmado. El service worker no
   intercepta ni cachea esta ruta.
 - Aplicación Android 1.3.1 probada previamente en Samsung SM-S928B con
   descubrimiento, emparejado, ambos modos de micrófono y Wake-on-LAN por voz.
-- Aplicación Android 1.4.2 instalada encima en el mismo Samsung mediante ADB
+- Aplicación Android 1.4.3 instalada encima en el mismo Samsung mediante ADB
   `install -r`: conserva la fecha de primera instalación y los datos, declara
-  código 8, alcanza `192.168.1.15:5187` desde Android y arranca sin excepciones
-  fatales.
+  código 9; queda pendiente comprobar sus estados y conversación en el modo
+  seguro sin ejecución.
 - El agente corregido está publicado e instalado en
   `%LOCALAPPDATA%\ControlPCIA\App`; el ejecutable, la DLL y el APK coinciden
   byte por byte con la publicación. SHA-256 de la DLL:
-  `98B53CE562E52E3A1EFB75627294D3439056C8AC711CB2F27B02CEE8FD2E5A5D`.
+  `A47B940727E4BCA7BB6365F485D09F933DB44DE882B219252F16624A6C533D20`.
   Conserva 16 recetas y el inicio oculto registrado. El proceso residente sigue
   detenido intencionadamente; ninguna prueba nueva ejecuta órdenes sobre
   aplicaciones reales.
@@ -177,6 +183,7 @@ automático o salir.
 
 - [x] Ejecutar pruebas y compilación Release completas tras estos cambios.
 - [x] Añadir traducción diagnóstica sin ejecución y probar variaciones naturales.
+- [x] Añadir un modo móvil de prueba que no pueda invocar el ejecutor.
 - [x] Impedir que una orden de ventana cierre Edge o abra propiedades del sistema.
 - [x] Publicar e instalar los binarios de esta corrección.
 - [ ] Reactivar el agente residente sólo después de la revisión final.

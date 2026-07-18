@@ -67,7 +67,7 @@ APK Android generado para instalación manual:
 mobile\ControlPCIA.Mobile\bin\Release\net10.0-android\publish\com.treska.controlpcia-Signed.apk
 ```
 
-La publicación actual es la versión 1.4.2 (código 8), firmada con los esquemas APK v1, v2 y v3. Su SHA-256 es `0968785F200FE07B2D201ADED0F3EF98683DCE9F397FF9B8E714DAC33110961A`.
+La publicación actual es la versión 1.4.3 (código 9), firmada con los esquemas APK v1, v2 y v3. Su SHA-256 es `1980E0E728B39F2EC49F284E966CAA6D4FBFB7255628F67BFB8A72E995CAF069`.
 
 Con el agente del PC encendido, el móvil puede descargar siempre la compilación
 firmada más reciente desde:
@@ -218,6 +218,18 @@ La salida JSON incluye tareas, conocimientos seleccionados, comando propuesto,
 resultado de validación, duración y `ejecutado: false`. Este modo permite probar
 variaciones de lenguaje y medir Llama sin tocar aplicaciones ni ventanas.
 
+Probar desde la aplicación Android la voz, Cancelar y la conversación sin que
+ninguna orden pueda llegar al ejecutor:
+
+```powershell
+dotnet run --project ControlPCIA\ControlPCIA.csproj -- --servidor --solo-traducir --sin-inicio
+```
+
+El estado de la app indica **Modo de prueba seguro**. `/api/orden` usa una ruta
+separada que sólo planifica, traduce y valida; devuelve todos los pasos con
+`ejecutado: false` y nunca invoca el controlador normal. Al quitar
+`--solo-traducir`, el servidor conserva su funcionamiento habitual.
+
 Probar el validador con PowerShell, sólo para desarrollo:
 
 ```powershell
@@ -236,7 +248,7 @@ Configuración opcional mediante variables de entorno:
 dotnet test ControlPCIA.slnx
 ```
 
-La batería actual contiene 286 pruebas y cubre una matriz amplia de operaciones permitidas, las tres prohibiciones y sus evasiones, ejecución con tiempo y salida limitados, red local, conversación, memoria persistente, selección de conocimientos por significado, procedencia de AppID y archivos, plantillas fijas de ventanas, revisión de correspondencia y reutilización de recursos aprendidos.
+La batería actual contiene 289 pruebas y cubre una matriz amplia de operaciones permitidas, las tres prohibiciones y sus evasiones, ejecución con tiempo y salida limitados, red local, conversación, memoria persistente, selección de conocimientos por significado, procedencia de AppID y archivos, plantillas fijas de ventanas, revisión de correspondencia, reutilización de recursos aprendidos y aislamiento del modo móvil sin ejecución.
 
 ## Componentes principales
 

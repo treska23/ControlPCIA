@@ -13,6 +13,7 @@ public sealed record EstadoPc(
     int RecetasAprendidas,
     string? Modelo,
     string? Mensaje,
+    bool ModoPrueba,
     IReadOnlyList<DestinoWakeOnLan>? WakeOnLan);
 
 public sealed record DestinoWakeOnLan(

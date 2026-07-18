@@ -74,13 +74,18 @@ if (args.Length == 0
     Console.CancelKeyPress += cancelar;
     bool oculto = args.Any(argumento =>
         argumento.Equals("--oculto", StringComparison.OrdinalIgnoreCase));
+    bool soloTraducir = args.Any(argumento =>
+        argumento.Equals(
+            "--solo-traducir",
+            StringComparison.OrdinalIgnoreCase));
     using var bandeja = new AgenteBandeja(cancelacion, oculto);
 
     try
     {
         await ServidorMovil.IniciarAsync(
             cancelacion.Token,
-            bandeja.ActualizarEstado);
+            bandeja.ActualizarEstado,
+            soloTraducir);
     }
     catch (OperationCanceledException)
         when (cancelacion.IsCancellationRequested)

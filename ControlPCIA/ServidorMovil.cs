@@ -32,7 +32,8 @@ internal static class ServidorMovil
 
     public static async Task IniciarAsync(
         CancellationToken cancellationToken = default,
-        Action<EstadoInicioServidor>? alIniciar = null)
+        Action<EstadoInicioServidor>? alIniciar = null,
+        bool soloTraducir = false)
     {
         int puerto = ObtenerPuerto();
         var seguridad = new SeguridadMovil();
@@ -240,6 +241,7 @@ internal static class ServidorMovil
                         recetasAprendidas = recetas,
                         modelo = ollama.Modelo,
                         mensaje = ollama.Mensaje,
+                        modoPrueba = soloTraducir,
                         wakeOnLan = InformacionWakeOnLan.ObtenerDestinos()
                     });
             });
@@ -280,11 +282,11 @@ internal static class ServidorMovil
                 try
                 {
                     ResultadoControl resultado =
-                        await ControlWindows.ControlarAsync(
+                        await ProcesarOrdenAsync(
                             texto,
-                            contextoConversacion: solicitud.Contexto,
-                            cancellationToken:
-                                contexto.RequestAborted);
+                            solicitud.Contexto,
+                            soloTraducir,
+                            contexto.RequestAborted);
 
                     return Results.Ok(resultado);
                 }
@@ -303,7 +305,8 @@ internal static class ServidorMovil
         MostrarInicio(
             puerto,
             seguridad.Codigo,
-            diagnostico);
+            diagnostico,
+            soloTraducir);
         alIniciar?.Invoke(
             new EstadoInicioServidor(
                 puerto,
@@ -328,6 +331,103 @@ internal static class ServidorMovil
             await cancelacionDescubrimiento.CancelAsync();
             await descubrimiento;
         }
+    }
+
+    internal static async Task<ResultadoControl> ProcesarOrdenAsync(
+        string texto,
+        IReadOnlyList<MensajeConversacionControl>? contexto,
+        bool soloTraducir,
+        CancellationToken cancellationToken = default,
+        Func<
+            string,
+            IReadOnlyList<MensajeConversacionControl>?,
+            CancellationToken,
+            Task<ResultadoControl>>? controlarAsync = null,
+        Func<
+            string,
+            IReadOnlyList<MensajeConversacionControl>?,
+            CancellationToken,
+            Task<ResultadoTraduccionControl>>? traducirAsync = null)
+    {
+        controlarAsync ??= static (instruccion, conversacion, cancelacion) =>
+            ControlWindows.ControlarAsync(
+                instruccion,
+                contextoConversacion: conversacion,
+                cancellationToken: cancelacion);
+
+        if (!soloTraducir)
+        {
+            return await controlarAsync(
+                texto,
+                contexto,
+                cancellationToken);
+        }
+
+        traducirAsync ??= static (instruccion, conversacion, cancelacion) =>
+            ControlWindows.TraducirSinEjecutarAsync(
+                instruccion,
+                conversacion,
+                cancelacion);
+
+        ResultadoTraduccionControl traduccion =
+            await traducirAsync(
+                texto,
+                contexto,
+                cancellationToken);
+
+        return CrearResultadoPrueba(traduccion);
+    }
+
+    internal static ResultadoControl CrearResultadoPrueba(
+        ResultadoTraduccionControl traduccion)
+    {
+        const string sinEjecucion =
+            " No se ha ejecutado ningún comando en el PC.";
+
+        if (traduccion.Estado.Equals(
+                "requiere_aclaracion",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return new ResultadoControl(
+                false,
+                "requiere_aclaracion",
+                traduccion.Motivo + sinEjecucion,
+                [],
+                false);
+        }
+
+        if (!traduccion.Permitido
+            || string.IsNullOrWhiteSpace(traduccion.Comando))
+        {
+            return new ResultadoControl(
+                false,
+                "prueba_sin_ejecucion",
+                "Modo de prueba seguro: "
+                + traduccion.Motivo
+                + sinEjecucion,
+                [],
+                false);
+        }
+
+        string tareas = traduccion.Plan.Tareas.Count == 0
+            ? "la petición"
+            : string.Join("; ", traduccion.Plan.Tareas);
+        var pasoPropuesto = new ResultadoPasoControl(
+            1,
+            traduccion.Comando,
+            false,
+            0,
+            string.Empty,
+            string.Empty);
+
+        return new ResultadoControl(
+            false,
+            "prueba_sin_ejecucion",
+            $"Modo de prueba seguro: he entendido {tareas} "
+            + "y he preparado un comando válido."
+            + sinEjecucion,
+            [pasoPropuesto],
+            false);
     }
 
     internal static bool EsDireccionPermitida(IPAddress? direccion)
@@ -435,12 +535,22 @@ internal static class ServidorMovil
     private static void MostrarInicio(
         int puerto,
         string codigo,
-        EstadoOllama diagnostico)
+        EstadoOllama diagnostico,
+        bool soloTraducir)
     {
         Console.WriteLine();
         Console.WriteLine("CONTROLPCIA ESTÁ PREPARADO");
         Console.WriteLine();
         Console.WriteLine(diagnostico.Mensaje);
+
+        if (soloTraducir)
+        {
+            Console.WriteLine();
+            Console.WriteLine(
+                "MODO DE PRUEBA: la IA traducirá las órdenes, "
+                + "pero no se ejecutará ningún comando.");
+        }
+
         Console.WriteLine();
         Console.WriteLine("Abre una de estas direcciones en el móvil:");
 
