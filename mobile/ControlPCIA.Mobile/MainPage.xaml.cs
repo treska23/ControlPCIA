@@ -7,6 +7,8 @@ namespace ControlPCIA.Mobile;
 
 public partial class MainPage : ContentPage
 {
+    private const double UmbralAnclajeVoz = -72;
+
     private static readonly Color ColorNormal =
         Color.FromArgb("#AFC2D8");
     private static readonly Color ColorCorrecto =
@@ -44,7 +46,8 @@ public partial class MainPage : ContentPage
     private CancellationTokenSource? _temporizadorVoz;
     private DateTimeOffset _inicioEscucha;
     private bool _inicializada;
-    private bool _modoBloqueado = true;
+    private bool _microfonoAnclado;
+    private bool _arrastreVozActivo;
     private bool _iniciandoVoz;
     private bool _soltarPendiente;
     private bool _ejecutandoOrden;
@@ -57,7 +60,6 @@ public partial class MainPage : ContentPage
     {
         InitializeComponent();
         _wake.Cargar();
-        ActualizarModoVoz();
     }
 
     protected override async void OnAppearing()
@@ -242,7 +244,7 @@ public partial class MainPage : ContentPage
 
         if (_sesionVoz is not null)
         {
-            if (_modoBloqueado)
+            if (_microfonoAnclado)
             {
                 await DetenerEscuchaAsync();
             }
@@ -255,10 +257,12 @@ public partial class MainPage : ContentPage
             return;
         }
 
+        _microfonoAnclado = false;
+        _arrastreVozActivo = true;
         _soltarPendiente = false;
         await IniciarEscuchaAsync();
 
-        if (_soltarPendiente && !_modoBloqueado)
+        if (_soltarPendiente && !_microfonoAnclado)
         {
             await DetenerEscuchaAsync();
         }
@@ -266,7 +270,9 @@ public partial class MainPage : ContentPage
 
     private async void OnVoiceReleased(object? sender, EventArgs e)
     {
-        if (_modoBloqueado)
+        _arrastreVozActivo = false;
+
+        if (_microfonoAnclado)
         {
             return;
         }
@@ -283,15 +289,54 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private void OnVoiceModeClicked(object? sender, EventArgs e)
+    private async void OnVoicePanUpdated(
+        object? sender,
+        PanUpdatedEventArgs e)
     {
-        if (_sesionVoz is not null || _iniciandoVoz)
+        if (e.StatusType == GestureStatus.Started)
         {
+            _arrastreVozActivo = true;
             return;
         }
 
-        _modoBloqueado = !_modoBloqueado;
-        ActualizarModoVoz();
+        if (e.StatusType == GestureStatus.Running
+            && !_microfonoAnclado
+            && _arrastreVozActivo
+            && (_sesionVoz is not null || _iniciandoVoz)
+            && e.TotalY <= UmbralAnclajeVoz)
+        {
+            AnclarMicrofono();
+            return;
+        }
+
+        if (e.StatusType is GestureStatus.Completed
+            or GestureStatus.Canceled)
+        {
+            _arrastreVozActivo = false;
+
+            if (!_microfonoAnclado
+                && !_iniciandoVoz
+                && _sesionVoz is not null)
+            {
+                await DetenerEscuchaAsync();
+            }
+        }
+    }
+
+    private void AnclarMicrofono()
+    {
+        _microfonoAnclado = true;
+        _soltarPendiente = false;
+        VoiceButton.Text = "Micrófono fijado · toca para enviar";
+        VoiceStateTitle.Text = "Micrófono fijado";
+        VoiceTranscriptLabel.Text =
+            "Puedes soltar el botón. Tócalo cuando quieras terminar y enviar.";
+        VoiceTranscriptLabel.TextColor = ColorCorrecto;
+        VoiceLockHintLabel.Text = "🔒 Micrófono fijado";
+        VoiceLockHintLabel.TextColor = ColorCorrecto;
+        SemanticProperties.SetHint(
+            VoiceButton,
+            "El micrófono está fijado; toca para terminar y enviar");
         Vibrar();
     }
 
@@ -336,8 +381,12 @@ public partial class MainPage : ContentPage
         {
             SesionReconocimientoVoz sesion =
                 await ReconocimientoVoz.IniciarAsync(
-                    _modoBloqueado,
-                    estado => ActualizarEstadoVoz(idSesion, estado));
+                    escuchaBloqueada: true,
+                    alCambiarEstado:
+                        estado =>
+                            ActualizarEstadoVoz(
+                                idSesion,
+                                estado));
 
             if (idSesion != _idSesionVoz)
             {
@@ -348,8 +397,8 @@ public partial class MainPage : ContentPage
 
             _sesionVoz = sesion;
             _inicioEscucha = DateTimeOffset.UtcNow;
-            VoiceButton.Text = _modoBloqueado
-                ? "Escuchando · toca para enviar"
+            VoiceButton.Text = _microfonoAnclado
+                ? "Micrófono fijado · toca para enviar"
                 : "Escuchando · suelta para enviar";
             AplicarAspectoEscuchando();
             IniciarTemporizadorVoz(idSesion);
@@ -406,10 +455,9 @@ public partial class MainPage : ContentPage
     {
         try
         {
-            TimeSpan limite = _modoBloqueado
-                ? Timeout.InfiniteTimeSpan
-                : TimeSpan.FromSeconds(45);
-            string texto = await sesion.Resultado.WaitAsync(limite);
+            string texto =
+                await sesion.Resultado.WaitAsync(
+                    Timeout.InfiniteTimeSpan);
 
             if (idSesion != _idSesionVoz)
             {
@@ -459,6 +507,8 @@ public partial class MainPage : ContentPage
     private async Task CancelarEscuchaAsync(bool mostrarMensaje)
     {
         ++_idSesionVoz;
+        _microfonoAnclado = false;
+        _arrastreVozActivo = false;
         _soltarPendiente = false;
         SesionReconocimientoVoz? sesion = _sesionVoz;
         _sesionVoz = null;
@@ -514,9 +564,9 @@ public partial class MainPage : ContentPage
             case FaseReconocimientoVoz.Preparado:
                 VoiceStateTitle.Text = "Escuchando";
                 AplicarAspectoEscuchando();
-                VoiceTranscriptLabel.Text = _modoBloqueado
-                    ? "El microfono queda abierto. Toca Detener cuando termines."
-                    : "Habla ahora. Suelta el boton cuando termines.";
+                VoiceTranscriptLabel.Text = _microfonoAnclado
+                    ? "Puedes soltar el botón. Tócalo cuando quieras terminar y enviar."
+                    : "Habla ahora. Suelta para enviar o desliza hacia arriba para fijar.";
                 break;
             case FaseReconocimientoVoz.VozDetectada:
                 VoiceStateTitle.Text = "Te estoy escuchando";
@@ -541,22 +591,21 @@ public partial class MainPage : ContentPage
         VoiceIdleIndicator.IsVisible = false;
         VoiceDurationLabel.IsVisible = true;
         VoiceDurationLabel.Text = "00:00";
-        VoiceModeButton.IsEnabled = false;
         CancelVoiceButton.IsVisible = true;
         CancelVoiceButton.IsEnabled = true;
         SendButton.IsEnabled = false;
         OrderEditor.IsEnabled = false;
         VoiceStateTitle.Text = "Preparando el microfono…";
-        VoiceTranscriptLabel.Text = _modoBloqueado
-            ? "Escucha bloqueada: podras soltar el boton y tocarlo otra vez para detener."
-            : "Manten el boton pulsado mientras hablas.";
+        VoiceTranscriptLabel.Text =
+            "Mantén pulsado mientras hablas. Suelta para enviar o desliza hacia arriba para fijar.";
         VoiceTranscriptLabel.TextColor = ColorNormal;
+        VoiceLockHintLabel.Text = "↑ Desliza hacia arriba para fijar";
+        VoiceLockHintLabel.TextColor = ColorCorrecto;
         VoiceStateBorder.BackgroundColor = ColorFondoEscucha;
         VoiceStateBorder.Stroke =
             new SolidColorBrush(ColorVerde);
         VoiceButton.BackgroundColor = ColorVerde;
         VoiceButton.TextColor = Colors.White;
-        VoiceModeButton.BackgroundColor = ColorSecundario;
         CancelVoiceButton.BackgroundColor = ColorRojo;
         CancelVoiceButton.TextColor = Colors.White;
     }
@@ -568,7 +617,9 @@ public partial class MainPage : ContentPage
         VoiceIdleIndicator.IsVisible = true;
         VoiceDurationLabel.IsVisible = false;
         CancelVoiceButton.IsVisible = false;
-        VoiceModeButton.IsEnabled = !_ejecutandoOrden;
+        _microfonoAnclado = false;
+        _arrastreVozActivo = false;
+        _soltarPendiente = false;
         VoiceButton.IsEnabled = !_ejecutandoOrden;
         SendButton.IsEnabled = !_ejecutandoOrden;
         OrderEditor.IsEnabled = !_ejecutandoOrden;
@@ -579,7 +630,6 @@ public partial class MainPage : ContentPage
         VoiceActivity.Color = ColorAzul;
         VoiceButton.BackgroundColor = ColorAzul;
         VoiceButton.TextColor = Colors.White;
-        VoiceModeButton.BackgroundColor = ColorSecundario;
         SendButton.BackgroundColor = ColorSecundario;
         SendButton.Text = "Enviar mensaje escrito";
         CancelVoiceButton.BackgroundColor = ColorSecundario;
@@ -590,29 +640,14 @@ public partial class MainPage : ContentPage
                 ? "Preparado para escucharte"
                 : "Necesito un dato"
             : "Necesito tu confirmación";
-        ActualizarModoVoz();
-    }
-
-    private void ActualizarModoVoz()
-    {
-        VoiceModeButton.Text = _modoBloqueado
-            ? "Modo: tocar para hablar"
-            : "Modo: mantener pulsado";
-        VoiceModeHelpLabel.Text = _modoBloqueado
-            ? "Toca una vez para empezar. Habla todo lo que necesites y toca de nuevo para enviar."
-            : "Manten pulsado mientras hablas y suelta para transcribir y enviar.";
-
-        if (_sesionVoz is null && !_iniciandoVoz)
-        {
-            VoiceButton.Text = _modoBloqueado
-                ? "Toca para empezar a escuchar"
-                : "Manten pulsado para hablar";
-            SemanticProperties.SetHint(
-                VoiceButton,
-                _modoBloqueado
-                    ? "Toca para empezar a escuchar; toca otra vez para enviar"
-                    : "Manten pulsado para hablar y suelta para enviar la orden");
-        }
+        VoiceButton.Text = "Mantén pulsado para hablar";
+        VoiceLockHintLabel.Text = "↑ Desliza hacia arriba para fijar";
+        VoiceLockHintLabel.TextColor = ColorCorrecto;
+        VoiceModeHelpLabel.Text =
+            "Como en WhatsApp: mantén pulsado, suelta para enviar o arrastra hacia arriba para dejar el micrófono abierto.";
+        SemanticProperties.SetHint(
+            VoiceButton,
+            "Mantén pulsado para hablar, suelta para enviar o desliza hacia arriba para bloquear el micrófono");
     }
 
     private void IniciarTemporizadorVoz(int idSesion)
@@ -811,7 +846,6 @@ public partial class MainPage : ContentPage
         string detalle)
     {
         VoiceButton.IsEnabled = false;
-        VoiceModeButton.IsEnabled = false;
         SendButton.IsEnabled = false;
         OrderEditor.IsEnabled = false;
         CancelVoiceButton.IsVisible = false;
@@ -829,7 +863,8 @@ public partial class MainPage : ContentPage
         VoiceButton.BackgroundColor = ColorVioleta;
         VoiceButton.TextColor = Colors.White;
         VoiceButton.Text = "Procesando · espera un momento";
-        VoiceModeButton.BackgroundColor = ColorVioleta;
+        VoiceLockHintLabel.Text = "La IA está preparando los comandos";
+        VoiceLockHintLabel.TextColor = ColorAviso;
         SendButton.BackgroundColor = ColorVioleta;
         SendButton.Text = "Esperando respuesta de la IA…";
     }

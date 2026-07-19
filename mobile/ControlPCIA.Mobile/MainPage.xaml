@@ -214,24 +214,29 @@
 
                             <Label
                                 x:Name="VoiceTranscriptLabel"
-                                Text="Toca el botón, habla y vuelve a tocarlo para enviar."
+                                Text="Mantén pulsado el botón, habla y suelta para enviar."
                                 TextColor="#9CB4CE"
                                 LineHeight="1.2" />
 
                             <Button
                                 x:Name="VoiceButton"
-                                Text="Toca para empezar a escuchar"
+                                Text="Mantén pulsado para hablar"
                                 Style="{StaticResource PrimaryButton}"
                                 Pressed="OnVoicePressed"
                                 Released="OnVoiceReleased"
-                                SemanticProperties.Hint="Toca para empezar a escuchar y toca otra vez para enviar la orden" />
+                                SemanticProperties.Hint="Mantén pulsado para hablar, suelta para enviar o desliza hacia arriba para bloquear el micrófono">
+                                <Button.GestureRecognizers>
+                                    <PanGestureRecognizer PanUpdated="OnVoicePanUpdated" />
+                                </Button.GestureRecognizers>
+                            </Button>
 
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                                <Button
-                                    x:Name="VoiceModeButton"
-                                    Text="Modo: tocar para hablar"
-                                    Style="{StaticResource SecondaryButton}"
-                                    Clicked="OnVoiceModeClicked" />
+                                <Label
+                                    x:Name="VoiceLockHintLabel"
+                                    Text="↑ Desliza hacia arriba para fijar"
+                                    TextColor="#86EFAC"
+                                    FontAttributes="Bold"
+                                    VerticalTextAlignment="Center" />
                                 <Button
                                     x:Name="CancelVoiceButton"
                                     Grid.Column="1"
@@ -243,7 +248,7 @@
 
                             <Label
                                 x:Name="VoiceModeHelpLabel"
-                                Text="Toca una vez para empezar. Habla todo lo que necesites y toca de nuevo para enviar."
+                                Text="Como en WhatsApp: mantén pulsado, suelta para enviar o arrastra hacia arriba para dejar el micrófono abierto."
                                 TextColor="#7890AA"
                                 FontSize="12" />
                         </VerticalStackLayout>

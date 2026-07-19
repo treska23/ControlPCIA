@@ -123,20 +123,25 @@ if (args[0].Equals(
 
     string peticion = string.Join(' ', args.Skip(1));
     long inicio = Environment.TickCount64;
-    ResultadoTraduccionControl traduccion =
-        await ControlWindows.TraducirSinEjecutarAsync(peticion);
+    ResultadoControl traduccion =
+        await ControlWindows.ControlarAsync(
+            peticion,
+            soloTraducir: true);
     long duracion = Environment.TickCount64 - inicio;
+    ResultadoPasoControl? propuesta =
+        traduccion.Pasos.LastOrDefault();
 
     Console.WriteLine(
         JsonSerializer.Serialize(
             new
             {
                 estado = traduccion.Estado,
-                tareas = traduccion.Plan.Tareas,
-                conocimientos = traduccion.Conocimientos,
-                comando = traduccion.Comando,
-                permitido = traduccion.Permitido,
-                motivo = traduccion.Motivo,
+                comando = propuesta?.Comando,
+                permitido =
+                    propuesta is not null
+                    && !propuesta.Ejecutado
+                    && string.IsNullOrWhiteSpace(propuesta.Error),
+                motivo = traduccion.Mensaje,
                 ejecutado = false,
                 duracionMs = duracion
             },
@@ -144,7 +149,12 @@ if (args[0].Equals(
             {
                 WriteIndented = true
             }));
-    Environment.ExitCode = traduccion.Permitido ? 0 : 1;
+    Environment.ExitCode =
+        propuesta is not null
+        && !propuesta.Ejecutado
+        && string.IsNullOrWhiteSpace(propuesta.Error)
+            ? 0
+            : 1;
     return;
 }
 

@@ -26,10 +26,17 @@
 		<ApplicationId>com.treska.controlpcia</ApplicationId>
 
 		<!-- Versions -->
-		<ApplicationDisplayVersion>1.4.3</ApplicationDisplayVersion>
-		<ApplicationVersion>9</ApplicationVersion>
+		<ApplicationDisplayVersion>1.5.0</ApplicationDisplayVersion>
+		<ApplicationVersion>10</ApplicationVersion>
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)' == 'Release'">
+		<!-- El ensamblador AOT del SDK Android 36.1.43 falla de forma
+		     intermitente en Windows. Android admite JIT y el enlazado Release
+		     sigue activo, así que se prioriza una APK reproducible. -->
+		<RunAOTCompilation>false</RunAOTCompilation>
 	</PropertyGroup>
 
 	<ItemGroup>

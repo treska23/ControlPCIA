@@ -12,18 +12,20 @@ la evidencia real.
 móvil
 → voz o texto
 → Ollama / qwen3:8b
-→ tareas + selección semántica de receta conocida
-→ plantilla conocida o comando investigado
-→ validador local + comprobación de correspondencia
+→ conversación + comandos aprendidos relacionados
+→ un comando PowerShell propuesto por Llama
+→ validador local
 → proceso PowerShell
 → stdout, stderr y código de salida
 → siguiente paso o respuesta al móvil
 ```
 
-No existe una función ni una comparación literal por cada frase. Llama traduce
-distintas formas de pedir lo mismo y selecciona recetas de comandos
-reutilizables. Tampoco se usan capturas, OCR, reconocimiento gráfico, TextBox,
-ratón, teclado simulado ni UI Automation.
+No existe un planificador, un catálogo de acciones, una función por frase ni un
+segundo revisor con IA. Sólo existe una llamada a Llama con la instrucción de
+traducir la petición a PowerShell. Si necesita investigar, el programa ejecuta
+la consulta validada y devuelve el resultado real al mismo modelo. Tampoco se
+usan capturas, OCR, reconocimiento gráfico, TextBox, ratón, teclado simulado ni
+UI Automation.
 
 ## Política definitiva
 
@@ -72,10 +74,10 @@ reales de archivos, registro y contenido persistente continúan bloqueados.
 - conteo y fechas de éxito.
 
 No guarda stdout, stderr ni contenido leído. Antes de investigar, ControlPCIA
-busca recetas relacionadas, extrae recursos reutilizables como AppID, fabricante,
-ejecutable y plantilla, comprueba que sigan existiendo y se los entrega a Llama.
-Si ya existe una plantilla aprendida, otra búsqueda `Get-ChildItem` se rechaza
-como investigación repetida; sólo se adaptan los datos variables.
+busca por similitud y entrega a Llama únicamente los comandos aprendidos
+relacionados. Las recetas antiguas que contengan UI Automation o que ya no
+cumplan el validador se ignoran automáticamente. No existe una regla especial
+para AppID, fabricantes, plantillas ni ninguna aplicación concreta.
 
 Prueba real verificada:
 
@@ -86,38 +88,21 @@ Prueba real verificada:
 - Petición posterior con nombre `S`: reutilizó directamente la plantilla
   aprendida, sin ejecutar otra búsqueda de plantillas.
 
-El programa conserva literalmente nombres pronunciados aunque el plan de Llama
-omita accidentalmente un sufijo. Una copia con otro nombre se rechaza y se pide
-al modelo que repita `Copy-Item` con el destino exacto. Una creación por
-plantilla queda comprobada cuando el destino existe y se abre correctamente;
-Llama ya no puede contradecir después ese resultado.
+El controlador no impone procedencias, rutas, nombres de ejecutable ni
+estrategias por aplicación. Una ruta equivocada simplemente produce el error
+real de PowerShell; ese error vuelve a Llama para que pruebe otra consulta o
+comando. Una acción sin stdout continúa hasta obtener una comprobación y no se
+declara completada sólo por recibir código de salida cero.
 
-El planificador selecciona además conocimientos integrados por significado:
-`ventanas.estado`, `aplicaciones.abrir`, `aplicaciones.inventario`,
-`archivos.buscar` y `archivos.abrir`. Los cinco están conectados al camino corto
-real. Una petición conocida usa traducir → adaptar receta → ejecutar → verificar.
-Las consultas iniciales de procesos, aplicaciones y archivos son plantillas
-fijas. Para activar, maximizar, minimizar o restaurar una ventana se selecciona
-únicamente un `PROCESS_NAME` aparecido en stdout y ControlPCIA construye el
-bloque Win32; Llama no redacta ese bloque. Una desconocida investiga por consola
-y, si funciona, se convierte en memoria reutilizable.
-
-La procedencia también se valida: un AppID sólo se abre si apareció en
-`Get-StartApps` o en una receta comprobada, y un archivo sólo se abre desde un
-`FULL_NAME` observado. El agente general pasa además por
-`RevisorAlineacionComandoIA`: una propuesta que cierre, abra o modifique un
-objetivo ajeno a las tareas pendientes no se ejecuta. Esto corrige traducciones
-equivocadas sin convertir la correspondencia semántica en otra prohibición.
-
-Existe `--traducir-sin-ejecutar`, que devuelve JSON con el plan, las recetas, el
-primer comando, su validación, duración y `ejecutado: false`. Se ha usado para
-probar formulaciones distintas sin manipular el escritorio.
+Existe `--traducir-sin-ejecutar`, que devuelve JSON con el primer comando, su
+validación, duración y `ejecutado: false`. Se ha usado para probar formulaciones
+distintas sin manipular el escritorio.
 
 El servidor admite además `--solo-traducir`. Está pensado para comprobar desde
 Android el micrófono, Cancelar y la conversación completa sin tocar el
-escritorio. El endpoint `/api/orden` toma una ruta aislada que no invoca
-`ControlarAsync`, devuelve los pasos como no ejecutados y nunca afirma que la
-tarea se haya completado. La aplicación muestra **Modo de prueba seguro**.
+escritorio. El endpoint `/api/orden` usa el mismo `ControlarAsync` con ejecución
+desactivada, devuelve el comando como no ejecutado y nunca afirma que la tarea
+se haya completado. La aplicación muestra **Modo de prueba seguro**.
 
 ## Aplicación móvil
 
@@ -126,7 +111,8 @@ La app .NET MAUI para Android es la experiencia principal. Incluye:
 - descubrimiento UDP del PC y dirección manual como alternativa;
 - emparejado por código de seis cifras y token en `SecureStorage`;
 - un único control de voz para Wake-on-LAN y órdenes normales;
-- modo tocar–hablar–tocar y modo mantener pulsado;
+- gesto de voz tipo WhatsApp: mantener pulsado, soltar para enviar y arrastrar
+  hacia arriba para dejar el micrófono anclado hasta una pulsación posterior;
 - envío automático al finalizar la voz;
 - estados de color y texto: verde al escuchar, ámbar al transcribir y violeta
   mientras Llama decide, además de contador, texto parcial y respuesta háptica;
@@ -149,7 +135,7 @@ automático o salir.
 
 ## Verificaciones actuales
 
-- 289 pruebas automatizadas correctas en Release.
+- 199 pruebas automatizadas correctas en Release.
 - Matriz positiva explícita para lectura, escritura, creación, copia,
   sobrescritura, descargas, instalación, registro, servicios, red, Defender,
   apagado/reinicio, WMI/CIM, intérpretes, .NET y COM.
@@ -158,26 +144,31 @@ automático o salir.
 - Creación real de proyectos Cubase comprobada sólo por consola.
 - Reutilización real de la memoria comprobada sin repetir descubrimiento.
 - Instancias de Cubase abiertas durante las pruebas cerradas al terminar.
-- APK Android 1.4.3 (código 9) publicado, SHA-256
-  `1980E0E728B39F2EC49F284E966CAA6D4FBFB7255628F67BFB8A72E995CAF069`
+- APK Android 1.5.0 (código 10) publicado, SHA-256
+  `5C6C1664E976616FCB42954BAEB611569B974EFF6670D6342C8C7748074C4253`
   y firma v1, v2 y v3 verificada.
 - Descarga del APK publicada por el propio agente en
-  `http://192.168.1.15:5187/app-android.apk`: 29.984.807 bytes,
+  `http://192.168.1.15:5187/app-android.apk`: 22.880.376 bytes,
   tipo Android correcto y hash idéntico al APK firmado. El service worker no
   intercepta ni cachea esta ruta.
 - Aplicación Android 1.3.1 probada previamente en Samsung SM-S928B con
   descubrimiento, emparejado, ambos modos de micrófono y Wake-on-LAN por voz.
-- Aplicación Android 1.4.3 instalada encima en el mismo Samsung mediante ADB
+- Aplicación Android 1.5.0 instalada encima en el mismo Samsung mediante ADB
   `install -r`: conserva la fecha de primera instalación y los datos, declara
-  código 9; queda pendiente comprobar sus estados y conversación en el modo
-  seguro sin ejecución.
+  código 10; queda pendiente comprobar manualmente el gesto de voz y su
+  conversación en el modo seguro sin ejecución.
 - El agente corregido está publicado e instalado en
   `%LOCALAPPDATA%\ControlPCIA\App`; el ejecutable, la DLL y el APK coinciden
   byte por byte con la publicación. SHA-256 de la DLL:
-  `A47B940727E4BCA7BB6365F485D09F933DB44DE882B219252F16624A6C533D20`.
-  Conserva 16 recetas y el inicio oculto registrado. El proceso residente sigue
-  detenido intencionadamente; ninguna prueba nueva ejecuta órdenes sobre
-  aplicaciones reales.
+  `6B0344E477F58A5CDFB12E0819074003657F5EDB3FCAA1DB2B0468CCA102328F`.
+  Conserva 16 recetas y el inicio oculto registrado.
+- El agente instalado se comprobó primero en el puerto 5188 con
+  `--solo-traducir`: `/api/estado` devolvió `modoPrueba: true` y una petición
+  devolvió un comando validado con `ejecutado: false`.
+- El agente residente definitivo está activo de forma oculta en el puerto
+  5187, con Ollama disponible, `modoPrueba: false`, un destino Wake-on-LAN y
+  la entrada de inicio de Windows apuntando al ejecutable instalado. No se
+  enviaron órdenes de prueba al modo normal.
 
 ## Tareas pendientes
 
@@ -186,10 +177,11 @@ automático o salir.
 - [x] Añadir un modo móvil de prueba que no pueda invocar el ejecutor.
 - [x] Impedir que una orden de ventana cierre Edge o abra propiedades del sistema.
 - [x] Publicar e instalar los binarios de esta corrección.
-- [ ] Reactivar el agente residente sólo después de la revisión final.
-- [x] Instalar APK 1.4.2 en el móvil conservando datos.
-- [ ] Verificar manualmente en Android los estados de escucha/proceso y que
-      Cancelar no envía ni cierra la aplicación.
+- [x] Reactivar el agente residente sólo después de la revisión final.
+- [x] Instalar APK 1.5.0 en el móvil conservando datos.
+- [ ] Verificar manualmente en Android el gesto de mantener, soltar y anclar,
+      los estados de escucha/proceso y que Cancelar no envía ni cierra la
+      aplicación.
 - [ ] Verificar desde el móvil una conversación con error real y continuación.
 - [ ] Probar Wake-on-LAN con el PC realmente apagado.
 - [ ] Crear un instalador firmado para Windows.

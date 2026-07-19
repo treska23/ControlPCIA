@@ -104,6 +104,10 @@ internal static class ClienteOllama
             messages = mensajes,
             stream = false,
             think = false,
+            keep_alive =
+                Environment.GetEnvironmentVariable(
+                    "CONTROLPCIA_OLLAMA_KEEP_ALIVE")
+                ?? "30m",
             options = new
             {
                 temperature = 0
