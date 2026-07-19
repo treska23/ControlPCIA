@@ -54,4 +54,29 @@ public sealed class InventarioAplicacionesTests
 
         Assert.Empty(candidatas);
     }
+
+    [Fact]
+    public void No_confunde_explorador_de_windows_con_click_to_do()
+    {
+        AplicacionInstalada[] aplicaciones =
+        [
+            new(
+                "Click to Do",
+                "MicrosoftWindows.Client.CoreAI_cw5n1h2txyewy!ClickToDoApp"),
+            new(
+                "Explorador de archivos",
+                "Microsoft.Windows.Explorer")
+        ];
+
+        IReadOnlyList<AplicacionInstalada> candidatas =
+            InventarioAplicaciones.SeleccionarCandidatas(
+                "explorador de Windows",
+                aplicaciones);
+
+        AplicacionInstalada candidata =
+            Assert.Single(candidatas);
+        Assert.Equal(
+            "Explorador de archivos",
+            candidata.Nombre);
+    }
 }

@@ -45,7 +45,12 @@ internal static class ControlBasico
                 ["calculadora"] = "Calculator",
                 ["la calculadora"] = "Calculator",
                 ["bloc de notas"] = "Notepad",
-                ["el bloc de notas"] = "Notepad"
+                ["el bloc de notas"] = "Notepad",
+                ["explorador"] = "Explorador de archivos",
+                ["explorador de windows"] = "Explorador de archivos",
+                ["explorador de archivos"] = "Explorador de archivos",
+                ["explorador de ficheros"] = "Explorador de archivos",
+                ["administrador de archivos"] = "Explorador de archivos"
             };
 
     private static readonly Regex VerboAbrir = new(

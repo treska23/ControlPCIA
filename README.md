@@ -198,10 +198,12 @@ dotnet test tests\ControlPCIA.Tests\ControlPCIA.Tests.csproj `
   --configuration Release
 ```
 
-La batería actual contiene **245 pruebas**. Cubre el controlador básico,
+La batería actual contiene **250 pruebas**. Cubre el controlador básico,
 inventario de aplicaciones, errores de PowerShell, Wake-on-LAN, reconocimiento
 de la orden de encendido, gesto de voz, cancelación, emparejado, sesiones,
-red privada, servidor, validador y el código experimental conservado.
+red privada, servidor, validador y el código experimental conservado. Incluye
+una regresión específica para impedir que «Explorador de Windows» vuelva a
+resolverse como Click to Do.
 
 ## Componentes
 

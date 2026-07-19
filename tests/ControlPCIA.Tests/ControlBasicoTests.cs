@@ -153,6 +153,49 @@ public sealed class ControlBasicoTests
         Assert.Single(resultado.Pasos);
     }
 
+    [Theory]
+    [InlineData("abre el explorador de Windows")]
+    [InlineData("abre el explorador de archivos")]
+    [InlineData("abre el explorador")]
+    [InlineData("abre el administrador de archivos")]
+    public async Task Abre_el_explorador_y_no_click_to_do(
+        string peticion)
+    {
+        DependenciasControlBasico dependencias =
+            CrearDependencias(
+                [
+                    new AplicacionInstalada(
+                        "Click to Do",
+                        "MicrosoftWindows.Client.CoreAI_cw5n1h2txyewy!ClickToDoApp"),
+                    new AplicacionInstalada(
+                        "Explorador de archivos",
+                        "Microsoft.Windows.Explorer")
+                ],
+                (_, _) =>
+                    throw new InvalidOperationException(
+                        "El modo de prueba no debe ejecutar PowerShell."));
+
+        ResultadoControl resultado =
+            await ControlBasico.ControlarConDependenciasAsync(
+                peticion,
+                true,
+                dependencias,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            "prueba_sin_ejecucion",
+            resultado.Estado);
+        Assert.Single(resultado.Pasos);
+        Assert.Contains(
+            "Microsoft.Windows.Explorer",
+            resultado.Pasos[0].Comando,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "ClickToDo",
+            resultado.Pasos[0].Comando,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task Devuelve_el_error_de_powershell_sin_comprobar_la_ventana()
     {

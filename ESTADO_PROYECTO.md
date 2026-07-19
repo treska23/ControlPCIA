@@ -51,14 +51,14 @@ del servidor y de `Program.cs` hasta que se decida retomarlos individualmente.
 
 ## Evidencias actuales
 
-- **245/245 pruebas Release correctas**.
+- **250/250 pruebas Release correctas**.
 - APK congelada: versión **1.5.5**, código **15**.
 - SHA-256 de la APK:
   `F7EEA61ED2E2E0EB4D89C3AA33296B13D0B9522806407CA9239BD5D1CEF96198`.
 - Agente instalado en:
   `%LOCALAPPDATA%\ControlPCIA\App`.
 - SHA-256 de la DLL instalada:
-  `B6534D9666F2127E312A6D28BF6C14835DEF0361EF79786BC00EE3B141E4894A`.
+  `5A6FF7BD586C6D0ED039AFE51F65E4CAED212A5D8146AD67A6C144D7F00F8AF6`.
 - La DLL instalada coincide byte por byte con la publicación Release.
 - La APK servida por el agente coincide byte por byte con el artefacto 1.5.5.
 - Agente residente activo en `0.0.0.0:5187`.
@@ -75,6 +75,9 @@ del servidor y de `Program.cs` hasta que se decida retomarlos individualmente.
 - Petición no compatible: rechazada con estado `no_disponible` y cero pasos.
 - `abre Cubase` en modo sin ejecución: AppID real de Cubase 15 y exactamente un
   comando, sin verificación posterior.
+- `abre el explorador de Windows`: AppID exacto
+  `Microsoft.Windows.Explorer`; el comparador ya no acepta coincidencias
+  parciales producidas por palabras de dos letras como `do` en Click to Do.
 
 ## Alcance cerrado de esta versión
 

@@ -202,6 +202,7 @@ internal static class InventarioAplicaciones
                 }
 
                 if (termino.Length >= 3
+                    && palabra.Length >= 3
                     && (palabra.Contains(
                             termino,
                             StringComparison.Ordinal)
