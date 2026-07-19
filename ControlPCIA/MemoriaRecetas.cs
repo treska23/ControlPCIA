@@ -13,7 +13,7 @@ internal sealed record RecetaReferencia(
 
 internal sealed class MemoriaRecetas
 {
-    private const int VersionActual = 1;
+    private const int VersionActual = 2;
     private const int MaximoRecetas = 300;
     private const int MaximoComandosPorReceta = 10;
     private const int MaximoCaracteresComando = 4000;
@@ -464,7 +464,7 @@ internal sealed class MemoriaRecetas
         return Path.Combine(
             carpeta,
             "ControlPCIA",
-            "recetas-v1.json");
+            "recetas-v2.json");
     }
 
     private sealed class AlmacenRecetas

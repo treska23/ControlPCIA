@@ -25,6 +25,8 @@
              Link="Servicios\DetectorConfirmacion.cs" />
     <Compile Include="..\..\mobile\ControlPCIA.Mobile\Servicios\EmisorWakeOnLan.cs"
              Link="Servicios\EmisorWakeOnLan.cs" />
+    <Compile Include="..\..\mobile\ControlPCIA.Mobile\Servicios\GestorGestoVoz.cs"
+             Link="Servicios\GestorGestoVoz.cs" />
     <Compile Include="..\..\mobile\ControlPCIA.Mobile\Modelos\ModelosApi.cs"
              Link="Modelos\ModelosApi.cs" />
   </ItemGroup>

@@ -13,7 +13,48 @@ internal sealed record EstadoOllama(
 
 internal sealed record MensajeOllama(
     [property: JsonPropertyName("role")] string Rol,
-    [property: JsonPropertyName("content")] string Contenido);
+    [property: JsonPropertyName("content")] string Contenido,
+    [property: JsonPropertyName("tool_calls")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<LlamadaHerramientaOllama>? LlamadasHerramientas = null,
+    [property: JsonPropertyName("tool_name")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? NombreHerramienta = null);
+
+internal sealed record LlamadaHerramientaOllama(
+    [property: JsonPropertyName("type")] string Tipo,
+    [property: JsonPropertyName("function")]
+    FuncionLlamadaOllama Funcion);
+
+internal sealed record FuncionLlamadaOllama(
+    [property: JsonPropertyName("name")] string Nombre,
+    [property: JsonPropertyName("arguments")]
+    IReadOnlyDictionary<string, JsonElement> Argumentos);
+
+internal sealed record PropiedadHerramientaOllama(
+    [property: JsonPropertyName("type")] string Tipo,
+    [property: JsonPropertyName("description")] string Descripcion);
+
+internal sealed record ParametrosHerramientaOllama(
+    [property: JsonPropertyName("type")] string Tipo,
+    [property: JsonPropertyName("properties")]
+    IReadOnlyDictionary<string, PropiedadHerramientaOllama> Propiedades,
+    [property: JsonPropertyName("required")]
+    IReadOnlyList<string> Requeridos);
+
+internal sealed record FuncionHerramientaOllama(
+    [property: JsonPropertyName("name")] string Nombre,
+    [property: JsonPropertyName("description")] string Descripcion,
+    [property: JsonPropertyName("parameters")]
+    ParametrosHerramientaOllama Parametros);
+
+internal sealed record HerramientaOllama(
+    [property: JsonPropertyName("type")] string Tipo,
+    [property: JsonPropertyName("function")]
+    FuncionHerramientaOllama Funcion);
+
+internal sealed record RespuestaChatOllama(
+    [property: JsonPropertyName("message")] MensajeOllama Mensaje);
 
 internal static class ClienteOllama
 {
@@ -94,16 +135,18 @@ internal static class ClienteOllama
         }
     }
 
-    public static async Task<string> ConversarAsync(
+    public static async Task<MensajeOllama> ConversarAsync(
         IReadOnlyList<MensajeOllama> mensajes,
+        IReadOnlyList<HerramientaOllama> herramientas,
         CancellationToken cancellationToken = default)
     {
         var peticion = new
         {
             model = Modelo,
             messages = mensajes,
+            tools = herramientas,
             stream = false,
-            think = false,
+            think = ObtenerRazonamiento(),
             keep_alive =
                 Environment.GetEnvironmentVariable(
                     "CONTROLPCIA_OLLAMA_KEEP_ALIVE")
@@ -126,16 +169,21 @@ internal static class ClienteOllama
             await respuesta.Content.ReadAsStreamAsync(
                 cancellationToken);
 
-        using JsonDocument json =
-            await JsonDocument.ParseAsync(
+        RespuestaChatOllama? json =
+            await JsonSerializer.DeserializeAsync<RespuestaChatOllama>(
                 contenido,
                 cancellationToken: cancellationToken);
 
-        return json.RootElement
-                   .GetProperty("message")
-                   .GetProperty("content")
-                   .GetString()
-               ?? string.Empty;
+        if (json?.Mensaje is null)
+        {
+            throw new JsonException(
+                "Ollama no devolvió un mensaje válido.");
+        }
+
+        return json.Mensaje with
+        {
+            Contenido = json.Mensaje.Contenido ?? string.Empty
+        };
     }
 
     private static Uri ObtenerDireccionBase()
@@ -168,7 +216,7 @@ internal static class ClienteOllama
         string modelo =
             Environment.GetEnvironmentVariable(
                 "CONTROLPCIA_OLLAMA_MODELO")
-            ?? "qwen3:8b";
+            ?? "qwen3.5:9b";
 
         modelo = modelo.Trim();
 
@@ -181,5 +229,48 @@ internal static class ClienteOllama
         }
 
         return modelo;
+    }
+
+    private static object ObtenerRazonamiento()
+    {
+        string? configurado =
+            Environment.GetEnvironmentVariable(
+                "CONTROLPCIA_OLLAMA_RAZONAMIENTO");
+
+        if (!string.IsNullOrWhiteSpace(configurado))
+        {
+            string valor = configurado.Trim();
+
+            if (bool.TryParse(
+                    valor,
+                    out bool booleano))
+            {
+                return booleano;
+            }
+
+            if (valor.Equals(
+                    "low",
+                    StringComparison.OrdinalIgnoreCase)
+                ||
+                valor.Equals(
+                    "medium",
+                    StringComparison.OrdinalIgnoreCase)
+                ||
+                valor.Equals(
+                    "high",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return valor.ToLowerInvariant();
+            }
+
+            throw new InvalidOperationException(
+                "CONTROLPCIA_OLLAMA_RAZONAMIENTO debe ser true, false, low, medium o high.");
+        }
+
+        return Modelo.StartsWith(
+            "gpt-oss",
+            StringComparison.OrdinalIgnoreCase)
+                ? "low"
+                : false;
     }
 }

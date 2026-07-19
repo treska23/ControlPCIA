@@ -7,12 +7,22 @@ Console.OutputEncoding = new UTF8Encoding(
     encoderShouldEmitUTF8Identifier: false);
 
 if (args.Length > 0
-    && (args[0].Equals("ui", StringComparison.OrdinalIgnoreCase)
-        || args[0].Equals("window", StringComparison.OrdinalIgnoreCase)))
+    && args[0].Equals("ui", StringComparison.OrdinalIgnoreCase))
 {
     Console.Error.WriteLine(
         "La automatización de interfaz, ratón o teclado está deshabilitada. ControlPCIA sólo ejecuta comandos, API o protocolos invocables íntegramente desde consola.");
     Environment.ExitCode = 2;
+    return;
+}
+
+if (args.Length > 0
+    && args[0].Equals("window", StringComparison.OrdinalIgnoreCase))
+{
+    Environment.ExitCode =
+        await ComandoVentanas.EjecutarAsync(
+            args.Skip(1).ToArray(),
+            Console.Out,
+            Console.Error);
     return;
 }
 
@@ -129,7 +139,19 @@ if (args[0].Equals(
             soloTraducir: true);
     long duracion = Environment.TickCount64 - inicio;
     ResultadoPasoControl? propuesta =
-        traduccion.Pasos.LastOrDefault();
+        traduccion.Pasos.FirstOrDefault(paso =>
+            !paso.Ejecutado
+            && string.IsNullOrWhiteSpace(paso.Error));
+    ResultadoPasoControl? verificacion =
+        propuesta is null
+            ? null
+            : traduccion.Pasos
+                .SkipWhile(paso =>
+                    !ReferenceEquals(paso, propuesta))
+                .Skip(1)
+                .FirstOrDefault(paso =>
+                    !paso.Ejecutado
+                    && string.IsNullOrWhiteSpace(paso.Error));
 
     Console.WriteLine(
         JsonSerializer.Serialize(
@@ -137,13 +159,15 @@ if (args[0].Equals(
             {
                 estado = traduccion.Estado,
                 comando = propuesta?.Comando,
+                verificacion = verificacion?.Comando,
                 permitido =
                     propuesta is not null
                     && !propuesta.Ejecutado
                     && string.IsNullOrWhiteSpace(propuesta.Error),
                 motivo = traduccion.Mensaje,
                 ejecutado = false,
-                duracionMs = duracion
+                duracionMs = duracion,
+                pasos = traduccion.Pasos
             },
             new JsonSerializerOptions
             {

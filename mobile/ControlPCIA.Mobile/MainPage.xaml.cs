@@ -1,4 +1,5 @@
 using ControlPCIA.Mobile.Modelos;
+using ControlPCIA.Mobile.Platforms.Android;
 using ControlPCIA.Mobile.Servicios;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Graphics;
@@ -7,7 +8,9 @@ namespace ControlPCIA.Mobile;
 
 public partial class MainPage : ContentPage
 {
-    private const double UmbralAnclajeVoz = -72;
+    // El carril mide 176 dp y el círculo 64 dp. La diferencia de 112 dp
+    // lleva el centro del círculo exactamente del extremo inferior al superior.
+    private const double RecorridoCarrilVozDp = 112;
 
     private static readonly Color ColorNormal =
         Color.FromArgb("#AFC2D8");
@@ -47,7 +50,6 @@ public partial class MainPage : ContentPage
     private DateTimeOffset _inicioEscucha;
     private bool _inicializada;
     private bool _microfonoAnclado;
-    private bool _arrastreVozActivo;
     private bool _iniciandoVoz;
     private bool _soltarPendiente;
     private bool _ejecutandoOrden;
@@ -55,11 +57,18 @@ public partial class MainPage : ContentPage
     private int _idSesionVoz;
     private string? _ordenPendienteConfirmacion;
     private string? _preguntaPendiente;
+    private float _inicioGestoVozRawY;
+    private EscuchaToqueVoz? _escuchaToqueVoz;
+    private Android.Views.View? _vistaVozNativa;
+    private readonly GestorGestoVoz _gestorGestoVoz =
+        new(RecorridoCarrilVozDp);
 
     public MainPage()
     {
         InitializeComponent();
         _wake.Cargar();
+        VoiceGestureSurface.HandlerChanged +=
+            OnVoiceGestureHandlerChanged;
     }
 
     protected override async void OnAppearing()
@@ -235,7 +244,118 @@ public partial class MainPage : ContentPage
             "Busca el PC o escribe su direccion para conectarlo de nuevo.");
     }
 
-    private async void OnVoicePressed(object? sender, EventArgs e)
+    private void OnVoiceGestureHandlerChanged(
+        object? sender,
+        EventArgs e)
+    {
+        if (_vistaVozNativa is not null)
+        {
+            _vistaVozNativa.SetOnTouchListener(null);
+            _vistaVozNativa = null;
+        }
+
+        if (VoiceGestureSurface.Handler?.PlatformView
+            is not Android.Views.View vista)
+        {
+            return;
+        }
+
+        _escuchaToqueVoz ??=
+            new EscuchaToqueVoz(ProcesarToqueVoz);
+        _vistaVozNativa = vista;
+        vista.Clickable = true;
+        vista.SetOnTouchListener(_escuchaToqueVoz);
+        global::Android.Util.Log.Debug(
+            "ControlPCIA.Voz",
+            "Control tactil nativo preparado");
+    }
+
+    private async void ProcesarToqueVoz(
+        FaseToqueVoz fase,
+        float posicionRawY)
+    {
+        try
+        {
+            switch (fase)
+            {
+                case FaseToqueVoz.Pulsado:
+                    if (!VoiceGestureSurface.IsEnabled
+                        || _ejecutandoOrden)
+                    {
+                        return;
+                    }
+
+                    AccionGestoVoz accionPulsar =
+                        _gestorGestoVoz.Pulsar();
+
+                    if (accionPulsar
+                        == AccionGestoVoz.IniciarEscucha)
+                    {
+                        _inicioGestoVozRawY = posicionRawY;
+                        MostrarCarrilDeAnclaje();
+                        await PulsarControlVozAsync();
+                    }
+                    else if (accionPulsar
+                             == AccionGestoVoz.Enviar)
+                    {
+                        await DetenerEscuchaAsync();
+                    }
+
+                    break;
+
+                case FaseToqueVoz.Movido:
+                    ActualizarArrastreVoz(posicionRawY);
+                    break;
+
+                case FaseToqueVoz.Soltado:
+                    AccionGestoVoz accionSoltar =
+                        _gestorGestoVoz.Soltar();
+
+                    if (accionSoltar == AccionGestoVoz.Enviar)
+                    {
+                        VoiceGestureSurface.TranslationY = 0;
+                        await SoltarControlVozAsync();
+                    }
+                    else if (_gestorGestoVoz.Estado
+                             == EstadoGestoVoz.Anclado)
+                    {
+                        VoiceGestureSurface.TranslationY =
+                            -RecorridoCarrilVozDp;
+                    }
+
+                    break;
+
+                case FaseToqueVoz.Cancelado:
+                    AccionGestoVoz accionCancelar =
+                        _gestorGestoVoz.Cancelar();
+
+                    if (accionCancelar
+                        == AccionGestoVoz.Cancelar)
+                    {
+                        VoiceGestureSurface.TranslationY = 0;
+                        await CancelarEscuchaAsync(
+                            mostrarMensaje: false);
+                    }
+                    else if (_gestorGestoVoz.Estado
+                             == EstadoGestoVoz.Anclado)
+                    {
+                        VoiceGestureSurface.TranslationY =
+                            -RecorridoCarrilVozDp;
+                    }
+
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            await CancelarEscuchaAsync(mostrarMensaje: false);
+            VoiceStateTitle.Text = "No se pudo usar el micrófono";
+            VoiceTranscriptLabel.Text = MensajeAmigable(ex);
+            VoiceTranscriptLabel.TextColor = ColorError;
+        }
+    }
+
+    private async Task PulsarControlVozAsync()
     {
         if (_ejecutandoOrden)
         {
@@ -258,7 +378,6 @@ public partial class MainPage : ContentPage
         }
 
         _microfonoAnclado = false;
-        _arrastreVozActivo = true;
         _soltarPendiente = false;
         await IniciarEscuchaAsync();
 
@@ -268,14 +387,16 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private async void OnVoiceReleased(object? sender, EventArgs e)
+    private async Task SoltarControlVozAsync()
     {
-        _arrastreVozActivo = false;
-
         if (_microfonoAnclado)
         {
+            VoiceGestureSurface.TranslationY =
+                -RecorridoCarrilVozDp;
             return;
         }
+
+        VoiceGestureSurface.TranslationY = 0;
 
         if (_iniciandoVoz)
         {
@@ -289,53 +410,84 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private async void OnVoicePanUpdated(
-        object? sender,
-        PanUpdatedEventArgs e)
+    private void ActualizarArrastreVoz(float posicionRawY)
     {
-        if (e.StatusType == GestureStatus.Started)
+        if (_gestorGestoVoz.Estado
+            != EstadoGestoVoz.Pulsando
+            || (_sesionVoz is null && !_iniciandoVoz))
         {
-            _arrastreVozActivo = true;
             return;
         }
 
-        if (e.StatusType == GestureStatus.Running
-            && !_microfonoAnclado
-            && _arrastreVozActivo
-            && (_sesionVoz is not null || _iniciandoVoz)
-            && e.TotalY <= UmbralAnclajeVoz)
+        double densidad =
+            DeviceDisplay.Current.MainDisplayInfo.Density;
+        double distanciaDp =
+            Math.Max(
+                0,
+                (_inicioGestoVozRawY - posicionRawY)
+                / Math.Max(densidad, 1));
+        double progreso =
+            _gestorGestoVoz.CalcularProgreso(
+                distanciaDp);
+
+        VoiceLockRail.Opacity = 0.55 + progreso * 0.45;
+        VoiceGestureSurface.TranslationY =
+            -Math.Min(distanciaDp, RecorridoCarrilVozDp);
+
+        if (_gestorGestoVoz.Mover(distanciaDp)
+            == AccionGestoVoz.Anclar)
         {
             AnclarMicrofono();
-            return;
         }
+    }
 
-        if (e.StatusType is GestureStatus.Completed
-            or GestureStatus.Canceled)
-        {
-            _arrastreVozActivo = false;
-
-            if (!_microfonoAnclado
-                && !_iniciandoVoz
-                && _sesionVoz is not null)
-            {
-                await DetenerEscuchaAsync();
-            }
-        }
+    private void MostrarCarrilDeAnclaje()
+    {
+        VoiceLockRail.IsVisible = true;
+        VoiceLockRail.Opacity = 0.55;
+        VoiceLockRail.BackgroundColor = ColorSecundario;
+        VoiceLockRail.Stroke =
+            new SolidColorBrush(ColorBordeReposo);
+        VoiceLockHintLabel.Text = "↑";
+        VoiceLockHintLabel.FontSize = 22;
+        VoiceLockHintLabel.TextColor = Colors.White;
+        VoiceLockIcon.Scale = 1;
     }
 
     private void AnclarMicrofono()
     {
+        global::Android.Util.Log.Debug(
+            "ControlPCIA.Voz",
+            "Anclado");
         _microfonoAnclado = true;
         _soltarPendiente = false;
-        VoiceButton.Text = "Micrófono fijado · toca para enviar";
+        VoiceGestureSurface.TranslationY =
+            -RecorridoCarrilVozDp;
+        VoiceGestureSurface.BackgroundColor = ColorVerde;
+        VoiceGestureSurface.Stroke =
+            new SolidColorBrush(ColorCorrecto);
+        VoiceMicIcon.IsVisible = false;
+        VoiceSendIcon.IsVisible = true;
+        VoiceButtonLockBadge.IsVisible = true;
+        VoiceButtonActivity.IsVisible = false;
+        VoiceButtonActivity.IsRunning = false;
+        VoiceLockRail.IsVisible = true;
+        VoiceLockRail.Opacity = 1;
+        VoiceLockRail.BackgroundColor = ColorVerde;
+        VoiceLockRail.Stroke =
+            new SolidColorBrush(ColorCorrecto);
+        VoiceLockIcon.Scale = 1.12;
+        VoiceLockHintLabel.Text = "FIJO";
+        VoiceLockHintLabel.FontSize = 11;
+        VoiceLockHintLabel.TextColor = Colors.White;
+        VoiceActionLabel.Text =
+            "Micrófono fijado · toca el círculo para enviar";
         VoiceStateTitle.Text = "Micrófono fijado";
         VoiceTranscriptLabel.Text =
-            "Puedes soltar el botón. Tócalo cuando quieras terminar y enviar.";
+            "Puedes hablar todo el tiempo que quieras. Toca el botón de enviar cuando termines.";
         VoiceTranscriptLabel.TextColor = ColorCorrecto;
-        VoiceLockHintLabel.Text = "🔒 Micrófono fijado";
-        VoiceLockHintLabel.TextColor = ColorCorrecto;
         SemanticProperties.SetHint(
-            VoiceButton,
+            VoiceGestureSurface,
             "El micrófono está fijado; toca para terminar y enviar");
         Vibrar();
     }
@@ -397,7 +549,7 @@ public partial class MainPage : ContentPage
 
             _sesionVoz = sesion;
             _inicioEscucha = DateTimeOffset.UtcNow;
-            VoiceButton.Text = _microfonoAnclado
+            VoiceActionLabel.Text = _microfonoAnclado
                 ? "Micrófono fijado · toca para enviar"
                 : "Escuchando · suelta para enviar";
             AplicarAspectoEscuchando();
@@ -429,8 +581,12 @@ public partial class MainPage : ContentPage
             return;
         }
 
+        // Al enviar termina el modo anclado. El círculo vuelve al extremo
+        // inferior para indicar que ya no se está capturando voz.
+        _microfonoAnclado = false;
+        _gestorGestoVoz.Restablecer();
         DetenerTemporizadorVoz();
-        VoiceButton.IsEnabled = false;
+        VoiceGestureSurface.IsEnabled = false;
         VoiceStateTitle.Text = "Transcribiendo…";
         VoiceTranscriptLabel.Text = "Espera un momento mientras preparo la orden.";
         VoiceTranscriptLabel.TextColor = ColorNormal;
@@ -508,7 +664,7 @@ public partial class MainPage : ContentPage
     {
         ++_idSesionVoz;
         _microfonoAnclado = false;
-        _arrastreVozActivo = false;
+        _gestorGestoVoz.Restablecer();
         _soltarPendiente = false;
         SesionReconocimientoVoz? sesion = _sesionVoz;
         _sesionVoz = null;
@@ -599,13 +755,22 @@ public partial class MainPage : ContentPage
         VoiceTranscriptLabel.Text =
             "Mantén pulsado mientras hablas. Suelta para enviar o desliza hacia arriba para fijar.";
         VoiceTranscriptLabel.TextColor = ColorNormal;
-        VoiceLockHintLabel.Text = "↑ Desliza hacia arriba para fijar";
-        VoiceLockHintLabel.TextColor = ColorCorrecto;
+        VoiceActionLabel.Text = "Escuchando · suelta para enviar";
+        VoiceLockHintLabel.Text = "↑";
+        VoiceLockHintLabel.FontSize = 22;
+        VoiceLockHintLabel.TextColor = Colors.White;
         VoiceStateBorder.BackgroundColor = ColorFondoEscucha;
         VoiceStateBorder.Stroke =
             new SolidColorBrush(ColorVerde);
-        VoiceButton.BackgroundColor = ColorVerde;
-        VoiceButton.TextColor = Colors.White;
+        VoiceGestureSurface.IsEnabled = true;
+        VoiceGestureSurface.BackgroundColor = ColorVerde;
+        VoiceGestureSurface.Stroke =
+            new SolidColorBrush(ColorCorrecto);
+        VoiceMicIcon.IsVisible = true;
+        VoiceSendIcon.IsVisible = false;
+        VoiceButtonLockBadge.IsVisible = false;
+        VoiceButtonActivity.IsVisible = false;
+        VoiceButtonActivity.IsRunning = false;
         CancelVoiceButton.BackgroundColor = ColorRojo;
         CancelVoiceButton.TextColor = Colors.White;
     }
@@ -618,9 +783,9 @@ public partial class MainPage : ContentPage
         VoiceDurationLabel.IsVisible = false;
         CancelVoiceButton.IsVisible = false;
         _microfonoAnclado = false;
-        _arrastreVozActivo = false;
+        _gestorGestoVoz.Restablecer();
         _soltarPendiente = false;
-        VoiceButton.IsEnabled = !_ejecutandoOrden;
+        VoiceGestureSurface.IsEnabled = !_ejecutandoOrden;
         SendButton.IsEnabled = !_ejecutandoOrden;
         OrderEditor.IsEnabled = !_ejecutandoOrden;
         VoiceStateBorder.BackgroundColor = ColorFondoReposo;
@@ -628,8 +793,22 @@ public partial class MainPage : ContentPage
             new SolidColorBrush(ColorBordeReposo);
         VoiceIdleIndicator.BackgroundColor = ColorAzul;
         VoiceActivity.Color = ColorAzul;
-        VoiceButton.BackgroundColor = ColorAzul;
-        VoiceButton.TextColor = Colors.White;
+        VoiceGestureSurface.TranslationY = 0;
+        VoiceGestureSurface.Scale = 1;
+        VoiceGestureSurface.BackgroundColor = ColorVerde;
+        VoiceGestureSurface.Stroke =
+            new SolidColorBrush(ColorCorrecto);
+        VoiceMicIcon.IsVisible = true;
+        VoiceSendIcon.IsVisible = false;
+        VoiceButtonLockBadge.IsVisible = false;
+        VoiceButtonActivity.IsVisible = false;
+        VoiceButtonActivity.IsRunning = false;
+        VoiceLockRail.IsVisible = true;
+        VoiceLockRail.Opacity = 0.65;
+        VoiceLockRail.BackgroundColor = ColorSecundario;
+        VoiceLockRail.Stroke =
+            new SolidColorBrush(ColorBordeReposo);
+        VoiceLockIcon.Scale = 1;
         SendButton.BackgroundColor = ColorSecundario;
         SendButton.Text = "Enviar mensaje escrito";
         CancelVoiceButton.BackgroundColor = ColorSecundario;
@@ -640,13 +819,14 @@ public partial class MainPage : ContentPage
                 ? "Preparado para escucharte"
                 : "Necesito un dato"
             : "Necesito tu confirmación";
-        VoiceButton.Text = "Mantén pulsado para hablar";
-        VoiceLockHintLabel.Text = "↑ Desliza hacia arriba para fijar";
-        VoiceLockHintLabel.TextColor = ColorCorrecto;
+        VoiceActionLabel.Text = "Mantén pulsado para hablar";
+        VoiceLockHintLabel.Text = "↑";
+        VoiceLockHintLabel.FontSize = 22;
+        VoiceLockHintLabel.TextColor = Colors.White;
         VoiceModeHelpLabel.Text =
-            "Como en WhatsApp: mantén pulsado, suelta para enviar o arrastra hacia arriba para dejar el micrófono abierto.";
+            "Mantén pulsado, suelta para enviar o desliza el círculo hacia el candado.";
         SemanticProperties.SetHint(
-            VoiceButton,
+            VoiceGestureSurface,
             "Mantén pulsado para hablar, suelta para enviar o desliza hacia arriba para bloquear el micrófono");
     }
 
@@ -738,11 +918,11 @@ public partial class MainPage : ContentPage
 
         _ejecutandoOrden = true;
         BloquearControlesDuranteOrden(
-            "Llama está decidiendo qué hacer…",
+            "La IA local está decidiendo qué hacer…",
             $"«{orden}»");
         MostrarMensaje(
             ControlStatusLabel,
-            "Llama esta interpretando la orden y decidiendo los comandos…");
+            "La IA local está interpretando la orden y proponiendo los comandos…");
 
         try
         {
@@ -845,7 +1025,7 @@ public partial class MainPage : ContentPage
         string titulo,
         string detalle)
     {
-        VoiceButton.IsEnabled = false;
+        VoiceGestureSurface.IsEnabled = false;
         SendButton.IsEnabled = false;
         OrderEditor.IsEnabled = false;
         CancelVoiceButton.IsVisible = false;
@@ -860,11 +1040,18 @@ public partial class MainPage : ContentPage
         VoiceStateTitle.Text = titulo;
         VoiceTranscriptLabel.Text = detalle;
         VoiceTranscriptLabel.TextColor = ColorNormal;
-        VoiceButton.BackgroundColor = ColorVioleta;
-        VoiceButton.TextColor = Colors.White;
-        VoiceButton.Text = "Procesando · espera un momento";
-        VoiceLockHintLabel.Text = "La IA está preparando los comandos";
-        VoiceLockHintLabel.TextColor = ColorAviso;
+        VoiceGestureSurface.TranslationY = 0;
+        VoiceGestureSurface.BackgroundColor = ColorVioleta;
+        VoiceGestureSurface.Stroke =
+            new SolidColorBrush(ColorVioleta);
+        VoiceMicIcon.IsVisible = false;
+        VoiceSendIcon.IsVisible = false;
+        VoiceButtonLockBadge.IsVisible = false;
+        VoiceButtonActivity.IsVisible = true;
+        VoiceButtonActivity.IsRunning = true;
+        VoiceLockRail.IsVisible = true;
+        VoiceLockRail.Opacity = 0.65;
+        VoiceActionLabel.Text = "La IA está preparando los comandos";
         SendButton.BackgroundColor = ColorVioleta;
         SendButton.Text = "Esperando respuesta de la IA…";
     }
@@ -876,8 +1063,18 @@ public partial class MainPage : ContentPage
             new SolidColorBrush(ColorVerde);
         VoiceIdleIndicator.BackgroundColor = ColorVerde;
         VoiceActivity.Color = ColorVerde;
-        VoiceButton.BackgroundColor = ColorVerde;
-        VoiceButton.TextColor = Colors.White;
+        VoiceGestureSurface.TranslationY = _microfonoAnclado
+            ? -RecorridoCarrilVozDp
+            : 0;
+        VoiceGestureSurface.BackgroundColor = ColorVerde;
+        VoiceGestureSurface.Stroke =
+            new SolidColorBrush(ColorCorrecto);
+        VoiceMicIcon.IsVisible = !_microfonoAnclado;
+        VoiceSendIcon.IsVisible = _microfonoAnclado;
+        VoiceButtonLockBadge.IsVisible =
+            _microfonoAnclado;
+        VoiceButtonActivity.IsVisible = false;
+        VoiceButtonActivity.IsRunning = false;
         CancelVoiceButton.BackgroundColor = ColorRojo;
         CancelVoiceButton.TextColor = Colors.White;
     }
@@ -889,9 +1086,23 @@ public partial class MainPage : ContentPage
         VoiceStateBorder.Stroke =
             new SolidColorBrush(ColorAmbar);
         VoiceActivity.Color = ColorAmbar;
-        VoiceButton.BackgroundColor = ColorAmbar;
-        VoiceButton.TextColor = Colors.White;
-        VoiceButton.Text = "Transcribiendo · espera";
+        // En escucha anclada, OnEndOfSpeech es solo una pausa temporal:
+        // Android reanuda el reconocimiento. El círculo debe permanecer
+        // junto al candado hasta que el usuario envíe o cancele.
+        VoiceGestureSurface.TranslationY = _microfonoAnclado
+            ? -RecorridoCarrilVozDp
+            : 0;
+        VoiceGestureSurface.BackgroundColor = ColorAmbar;
+        VoiceGestureSurface.Stroke =
+            new SolidColorBrush(ColorAviso);
+        VoiceMicIcon.IsVisible = false;
+        VoiceSendIcon.IsVisible = false;
+        VoiceButtonLockBadge.IsVisible = false;
+        VoiceButtonActivity.IsVisible = true;
+        VoiceButtonActivity.IsRunning = true;
+        VoiceLockRail.IsVisible = true;
+        VoiceLockRail.Opacity = 0.65;
+        VoiceActionLabel.Text = "Transcribiendo · espera";
     }
 
     private void MostrarConexion()

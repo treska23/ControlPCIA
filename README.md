@@ -5,7 +5,7 @@ ControlPCIA permite enviar una orden hablada o escrita desde una aplicación mó
 No hay un traductor intermedio ni una función programada para cada acción. El único flujo principal es:
 
 ```text
-móvil → texto → Llama propone comando → validador local → PowerShell → Windows
+móvil → texto → qwen3.5 propone consulta/comando → validador local → PowerShell → comprobación → móvil
 ```
 
 Llama puede razonar sobre aplicaciones, ventanas, audio, multimedia, pantallas, archivos e información del sistema. Antes de ejecutar nada, un validador independiente analiza el AST oficial de PowerShell. La política es deliberadamente mínima: permite cualquier operación invocable por consola salvo eliminar, mover/cortar y formatear o reinicializar unidades.
@@ -15,10 +15,10 @@ Llama puede razonar sobre aplicaciones, ventanas, audio, multimedia, pantallas, 
 - Windows 10 u 11.
 - [.NET 10](https://dotnet.microsoft.com/download/dotnet/10.0).
 - [Ollama](https://ollama.com/) en el mismo PC.
-- El modelo `qwen3:8b` instalado:
+- El modelo `qwen3.5:9b` instalado:
 
 ```powershell
-ollama pull qwen3:8b
+ollama pull qwen3.5:9b
 ```
 
 Ollama debe estar iniciado. Se puede usar la aplicación de Ollama o ejecutar:
@@ -55,7 +55,11 @@ La experiencia principal está en `mobile/ControlPCIA.Mobile`. La aplicación:
 - Permite introducir la dirección manual como alternativa.
 - Guarda el token de emparejado en el almacén seguro del móvil.
 - Usa un único micrófono para encender el PC mediante Wake-on-LAN o enviar cualquier otra petición directamente a Llama.
-- El control de voz reproduce el gesto de WhatsApp: se mantiene pulsado para hablar y se suelta para enviar. Mientras se mantiene pulsado se puede arrastrar hacia arriba para dejar el micrófono anclado; una pulsación posterior lo detiene y envía.
+- El control de voz es un círculo pequeño con micrófono y carril vertical: se
+  mantiene pulsado para hablar y se suelta para enviar. Al arrastrarlo hasta el
+  candado queda anclado, muestra el icono de enviar y una pulsación posterior
+  termina y envía. Android recibe el gesto mediante un listener táctil nativo
+  para que el desplazamiento de la página no intercepte la pulsación.
 - Muestra de forma visible cuándo prepara el micrófono, escucha, transcribe y decide: verde durante la escucha, ámbar al transcribir y violeta mientras Llama prepara la respuesta. Los botones cambian de texto y color en cada fase.
 - **Cancelar** descarta la sesión de voz y garantiza que no se envíe la orden; una carrera con el reconocedor nativo de Android no puede cerrar la aplicación.
 - Si no entiende la voz lo indica y permite repetirla. Si Llama necesita confirmar una acción permitida pero ambigua, pregunta y acepta una respuesta posterior de sí o no.
@@ -64,10 +68,11 @@ La experiencia principal está en `mobile/ControlPCIA.Mobile`. La aplicación:
 APK Android generado para instalación manual:
 
 ```text
-mobile\ControlPCIA.Mobile\bin\Release\net10.0-android\publish\com.treska.controlpcia-Signed.apk
+mobile\ControlPCIA.Mobile\bin\Release\net10.0-android\com.treska.controlpcia-Signed.apk
 ```
 
-La publicación actual es la versión 1.5.0 (código 10), firmada con los esquemas APK v1, v2 y v3. Su SHA-256 es `5C6C1664E976616FCB42954BAEB611569B974EFF6670D6342C8C7748074C4253`.
+La publicación móvil actual es la versión 1.5.5 (código 15). Su SHA-256 es
+`F7EEA61ED2E2E0EB4D89C3AA33296B13D0B9522806407CA9239BD5D1CEF96198`.
 
 Con el agente del PC encendido, el móvil puede descargar siempre la compilación
 firmada más reciente desde:
@@ -158,12 +163,14 @@ Cuando una petición termina correctamente, la aplicación guarda una receta for
 No guarda stdout, stderr, contenido de archivos ni datos obtenidos del PC. Las recetas viven en:
 
 ```text
-%LOCALAPPDATA%\ControlPCIA\recetas-v1.json
+%LOCALAPPDATA%\ControlPCIA\recetas-v2.json
 ```
 
-Ante una orden parecida, Llama recibe únicamente los comandos aprendidos
-relacionados. No recibe un catálogo de acciones, identificadores por aplicación,
-plantillas fijas ni instrucciones especiales para Cubase, ventanas o archivos.
+Ante una orden parecida, el modelo recibe únicamente los comandos aprendidos y
+las aplicaciones instaladas relacionadas. No recibe plantillas fijas ni reglas
+específicas para Cubase u otra aplicación. ControlPCIA expone una única CLI
+genérica para consultar y cambiar el estado de ventanas superiores sin
+inspeccionar su contenido.
 Si la memoria no basta, puede proponer una consulta de PowerShell o una consulta
 de Internet ejecutable por consola. El resultado real vuelve al mismo modelo
 para que prepare el comando siguiente. Cada propuesta, incluida una aprendida,
@@ -250,7 +257,7 @@ dotnet run --project ControlPCIA\ControlPCIA.csproj -- --comando-powershell "Get
 Configuración opcional mediante variables de entorno:
 
 - `CONTROLPCIA_OLLAMA_URL`: URL HTTP local de Ollama. Sólo se aceptan direcciones loopback.
-- `CONTROLPCIA_OLLAMA_MODELO`: modelo; valor predeterminado `qwen3:8b`.
+- `CONTROLPCIA_OLLAMA_MODELO`: modelo; valor predeterminado `qwen3.5:9b`.
 - `CONTROLPCIA_OLLAMA_KEEP_ALIVE`: tiempo que Ollama mantiene el modelo cargado;
   valor predeterminado `30m`.
 - `CONTROLPCIA_PUERTO`: puerto móvil entre 1024 y 65535; valor predeterminado `5187`.
@@ -261,10 +268,11 @@ Configuración opcional mediante variables de entorno:
 dotnet test ControlPCIA.slnx
 ```
 
-La batería actual contiene 199 pruebas y cubre el traductor único, investigación
+La batería actual contiene 231 pruebas y cubre las herramientas estructuradas, investigación
 en varios pasos, errores reales, conversación, memoria persistente, modo móvil
-sin ejecución, una matriz amplia de operaciones permitidas y las tres
-prohibiciones con sus evasiones.
+sin ejecución, el estado completo del gesto circular de voz, inventario de
+aplicaciones, ventanas superiores, existencia de comandos, una matriz amplia de
+operaciones permitidas y las tres prohibiciones con sus evasiones.
 
 ## Componentes principales
 

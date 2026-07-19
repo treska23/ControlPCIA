@@ -1021,7 +1021,7 @@ internal static class ServidorMovil
                   <button id="mic" type="button" aria-label="Dictar orden">🎙 Dictar</button>
                   <button id="send" class="primary" type="submit">Enviar a la IA</button>
                 </div>
-                <p class="hint">También puedes usar el micrófono del teclado del móvil. La voz solo sirve para escribir el texto; Llama decide los comandos en el PC.</p>
+                <p class="hint">También puedes usar el micrófono del teclado del móvil. La voz solo escribe el texto; la IA local propone los comandos y ControlPCIA los valida y ejecuta en el PC.</p>
                 <p id="controlState" class="state" role="status"></p>
               </form>
               <div id="result" aria-live="polite"></div>
@@ -1099,7 +1099,7 @@ internal static class ServidorMovil
               if (!text) return;
               send.disabled = true;
               mic.disabled = true;
-              setState(controlState, 'Llama está interpretando la orden…');
+              setState(controlState, 'La IA local está interpretando la orden…');
               try {
                 const context = conversation.slice(-12);
                 const data = await request('/api/orden', {

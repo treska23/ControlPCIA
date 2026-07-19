@@ -26,7 +26,8 @@ public sealed class SesionReconocimientoVoz : IAsyncDisposable
     private readonly Func<Task> _detener;
     private readonly Func<Task> _cancelar;
     private readonly Func<Task> _liberar;
-    private int _liberada;
+    private readonly object _sincronizacionLiberacion = new();
+    private Task? _tareaLiberacion;
 
     internal SesionReconocimientoVoz(
         Task<string> resultado,
@@ -52,17 +53,29 @@ public sealed class SesionReconocimientoVoz : IAsyncDisposable
         return _cancelar();
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _liberada, 1) == 0)
+        Task tarea;
+
+        lock (_sincronizacionLiberacion)
         {
-            await _liberar();
+            _tareaLiberacion ??= _liberar();
+            tarea = _tareaLiberacion;
         }
+
+        return new ValueTask(tarea);
     }
 }
 
 public static class ReconocimientoVoz
 {
+#if ANDROID
+    private static readonly object SincronizacionOyentesEnDrenaje =
+        new();
+    private static readonly HashSet<OyenteReconocimiento>
+        OyentesEnDrenaje = [];
+#endif
+
     public static async Task<SesionReconocimientoVoz> IniciarAsync(
         bool escuchaBloqueada,
         Action<EstadoReconocimientoVoz>? alCambiarEstado = null,
@@ -116,6 +129,7 @@ public static class ReconocimientoVoz
         var acumulador = new AcumuladorDictado();
         int detencionSolicitada = 0;
         int cancelacionSolicitada = 0;
+        int cancelacionNativaSolicitada = 0;
         int reinicioEnCurso = 0;
 
         void Publicar(EstadoReconocimientoVoz estado)
@@ -329,6 +343,14 @@ public static class ReconocimientoVoz
             Interlocked.Exchange(ref detencionSolicitada, 1);
             resultado.TrySetCanceled();
 
+            if (Interlocked.Exchange(
+                    ref cancelacionNativaSolicitada,
+                    1)
+                != 0)
+            {
+                return;
+            }
+
             try
             {
                 await MainThread.InvokeOnMainThreadAsync(
@@ -410,16 +432,35 @@ public static class ReconocimientoVoz
                 Interlocked.Exchange(ref cancelacionSolicitada, 1);
                 registroCancelacion.Dispose();
 
+                if (oyente is not null)
+                {
+                    ConservarOyenteDuranteDrenaje(oyente);
+                }
+
                 try
                 {
+                    if (!resultado.Task.IsCompleted
+                        && Interlocked.Exchange(
+                               ref cancelacionNativaSolicitada,
+                               1)
+                           == 0)
+                    {
+                        await MainThread.InvokeOnMainThreadAsync(
+                            () => reconocedor?.Cancel());
+                    }
+
+                    // Android puede dejar callbacks del reconocimiento ya
+                    // encolados después de Cancel. Damos tiempo a que lleguen
+                    // antes de destruir el reconocedor y mantenemos vivo el
+                    // listener durante todo el drenaje.
+                    await Task.Delay(250);
+
                     await MainThread.InvokeOnMainThreadAsync(() =>
                     {
-                        reconocedor?.Cancel();
+                        reconocedor?.SetRecognitionListener(null);
                         reconocedor?.Destroy();
                         reconocedor?.Dispose();
-                        oyente?.Dispose();
                         reconocedor = null;
-                        oyente = null;
                     });
                 }
                 catch
@@ -428,6 +469,31 @@ public static class ReconocimientoVoz
                     // propagarse a la interfaz ni cerrar la aplicación.
                 }
             });
+    }
+
+    private static void ConservarOyenteDuranteDrenaje(
+        OyenteReconocimiento oyente)
+    {
+        lock (SincronizacionOyentesEnDrenaje)
+        {
+            OyentesEnDrenaje.Add(oyente);
+        }
+
+        _ = LiberarOyenteTrasDrenajeAsync(oyente);
+    }
+
+    private static async Task LiberarOyenteTrasDrenajeAsync(
+        OyenteReconocimiento oyente)
+    {
+        // Algunos servicios de voz envían callbacks tardíos aun después de
+        // Cancel/Destroy. Mantener el peer administrado evita que Android
+        // intente reactivarlo desde un handle ya liberado.
+        await Task.Delay(TimeSpan.FromSeconds(5));
+
+        lock (SincronizacionOyentesEnDrenaje)
+        {
+            OyentesEnDrenaje.Remove(oyente);
+        }
     }
 
     private sealed class OyenteReconocimiento(

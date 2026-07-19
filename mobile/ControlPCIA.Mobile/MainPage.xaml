@@ -61,7 +61,7 @@
                 <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="1">
                     <Label Text="ControlPCIA" FontSize="24" FontAttributes="Bold" />
                     <Label
-                        Text="Díselo al móvil. Llama decide cómo hacerlo."
+                        Text="Díselo al móvil. La IA local propone cómo hacerlo."
                         TextColor="#9CB4CE"
                         FontSize="13" />
                 </VerticalStackLayout>
@@ -212,45 +212,126 @@
                                 </VerticalStackLayout>
                             </Grid>
 
-                            <Label
-                                x:Name="VoiceTranscriptLabel"
-                                Text="Mantén pulsado el botón, habla y suelta para enviar."
-                                TextColor="#9CB4CE"
-                                LineHeight="1.2" />
+                            <Grid
+                                ColumnDefinitions="*,78"
+                                ColumnSpacing="14"
+                                MinimumHeightRequest="188">
+                                <VerticalStackLayout
+                                    Spacing="10"
+                                    VerticalOptions="Center">
+                                    <Label
+                                        x:Name="VoiceTranscriptLabel"
+                                        Text="Mantén pulsado el micrófono, habla y suelta para enviar."
+                                        TextColor="#9CB4CE"
+                                        LineHeight="1.2" />
+                                    <Label
+                                        x:Name="VoiceActionLabel"
+                                        Text="Mantén pulsado para hablar"
+                                        TextColor="#86EFAC"
+                                        FontAttributes="Bold"
+                                        FontSize="13" />
+                                    <Button
+                                        x:Name="CancelVoiceButton"
+                                        Text="Cancelar grabación"
+                                        Style="{StaticResource SecondaryButton}"
+                                        HorizontalOptions="Start"
+                                        IsVisible="False"
+                                        Clicked="OnCancelVoiceClicked" />
+                                    <Label
+                                        x:Name="VoiceModeHelpLabel"
+                                        Text="Mientras hablas, desliza el círculo hacia el candado para fijarlo."
+                                        TextColor="#7890AA"
+                                        FontSize="12" />
+                                </VerticalStackLayout>
 
-                            <Button
-                                x:Name="VoiceButton"
-                                Text="Mantén pulsado para hablar"
-                                Style="{StaticResource PrimaryButton}"
-                                Pressed="OnVoicePressed"
-                                Released="OnVoiceReleased"
-                                SemanticProperties.Hint="Mantén pulsado para hablar, suelta para enviar o desliza hacia arriba para bloquear el micrófono">
-                                <Button.GestureRecognizers>
-                                    <PanGestureRecognizer PanUpdated="OnVoicePanUpdated" />
-                                </Button.GestureRecognizers>
-                            </Button>
-
-                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                                <Label
-                                    x:Name="VoiceLockHintLabel"
-                                    Text="↑ Desliza hacia arriba para fijar"
-                                    TextColor="#86EFAC"
-                                    FontAttributes="Bold"
-                                    VerticalTextAlignment="Center" />
-                                <Button
-                                    x:Name="CancelVoiceButton"
+                                <Grid
                                     Grid.Column="1"
-                                    Text="Cancelar"
-                                    Style="{StaticResource SecondaryButton}"
-                                    IsVisible="False"
-                                    Clicked="OnCancelVoiceClicked" />
-                            </Grid>
+                                    HeightRequest="176"
+                                    WidthRequest="72"
+                                    HorizontalOptions="Center">
+                                    <Border
+                                        x:Name="VoiceLockRail"
+                                        WidthRequest="52"
+                                        HeightRequest="176"
+                                        Padding="7"
+                                        HorizontalOptions="Center"
+                                        VerticalOptions="Center"
+                                        BackgroundColor="#172A42"
+                                        Stroke="#3D5875"
+                                        StrokeThickness="1"
+                                        StrokeShape="RoundRectangle 26"
+                                        IsVisible="True"
+                                        Opacity="0.65">
+                                        <Grid RowDefinitions="Auto,*,Auto">
+                                            <Image
+                                                x:Name="VoiceLockIcon"
+                                                Grid.Row="0"
+                                                Source="lock.svg"
+                                                WidthRequest="22"
+                                                HeightRequest="22"
+                                                HorizontalOptions="Center" />
+                                            <Label
+                                                x:Name="VoiceLockHintLabel"
+                                                Grid.Row="1"
+                                                Text="↑"
+                                                TextColor="#FFFFFF"
+                                                FontAttributes="Bold"
+                                                FontSize="22"
+                                                HorizontalTextAlignment="Center"
+                                                VerticalTextAlignment="Center" />
+                                            <BoxView
+                                                Grid.Row="2"
+                                                WidthRequest="8"
+                                                HeightRequest="8"
+                                                CornerRadius="4"
+                                                HorizontalOptions="Center"
+                                                Color="#5EE58A" />
+                                        </Grid>
+                                    </Border>
 
-                            <Label
-                                x:Name="VoiceModeHelpLabel"
-                                Text="Como en WhatsApp: mantén pulsado, suelta para enviar o arrastra hacia arriba para dejar el micrófono abierto."
-                                TextColor="#7890AA"
-                                FontSize="12" />
+                                    <Border
+                                        x:Name="VoiceGestureSurface"
+                                        WidthRequest="64"
+                                        HeightRequest="64"
+                                        Padding="17"
+                                        HorizontalOptions="Center"
+                                        VerticalOptions="End"
+                                        BackgroundColor="#16A34A"
+                                        Stroke="#5EE58A"
+                                        StrokeThickness="2"
+                                        StrokeShape="RoundRectangle 32"
+                                        AutomationProperties.IsInAccessibleTree="True"
+                                        SemanticProperties.Description="Micrófono"
+                                        SemanticProperties.Hint="Mantén pulsado para hablar, suelta para enviar o desliza hacia arriba hasta el candado">
+                                        <Grid>
+                                            <Image
+                                                x:Name="VoiceMicIcon"
+                                                Source="microphone.svg"
+                                                Aspect="AspectFit" />
+                                            <Image
+                                                x:Name="VoiceSendIcon"
+                                                Source="send.svg"
+                                                Aspect="AspectFit"
+                                                IsVisible="False" />
+                                            <Image
+                                                x:Name="VoiceButtonLockBadge"
+                                                Source="lock.svg"
+                                                WidthRequest="13"
+                                                HeightRequest="13"
+                                                HorizontalOptions="End"
+                                                VerticalOptions="Start"
+                                                TranslationX="10"
+                                                TranslationY="-10"
+                                                IsVisible="False" />
+                                            <ActivityIndicator
+                                                x:Name="VoiceButtonActivity"
+                                                Color="#FFFFFF"
+                                                IsVisible="False"
+                                                IsRunning="False" />
+                                        </Grid>
+                                    </Border>
+                                </Grid>
+                            </Grid>
                         </VerticalStackLayout>
                     </Border>
 

@@ -11,21 +11,23 @@ la evidencia real.
 ```text
 móvil
 → voz o texto
-→ Ollama / qwen3:8b
-→ conversación + comandos aprendidos relacionados
-→ un comando PowerShell propuesto por Llama
+→ Ollama / qwen3.5:9b
+→ conversación + aplicaciones reales + comandos aprendidos
+→ consulta o comando PowerShell mediante herramientas estructuradas
 → validador local
 → proceso PowerShell
-→ stdout, stderr y código de salida
+→ comprobación real, stdout, stderr y código de salida
 → siguiente paso o respuesta al móvil
 ```
 
-No existe un planificador, un catálogo de acciones, una función por frase ni un
-segundo revisor con IA. Sólo existe una llamada a Llama con la instrucción de
-traducir la petición a PowerShell. Si necesita investigar, el programa ejecuta
-la consulta validada y devuelve el resultado real al mismo modelo. Tampoco se
-usan capturas, OCR, reconocimiento gráfico, TextBox, ratón, teclado simulado ni
-UI Automation.
+No existe una función por frase ni un segundo revisor con IA. El modelo sólo
+puede `proponer_consulta`, `proponer_comando` o `preguntar_usuario`; nunca
+ejecuta. Si necesita investigar, ControlPCIA ejecuta la consulta de sólo lectura
+y devuelve el resultado real al mismo modelo. Antes de una acción compuesta,
+PowerShell confirma además que todos los nombres de comando existen, evitando
+ejecuciones parciales causadas por comandos inventados. Tampoco se usan
+capturas, OCR, reconocimiento gráfico, TextBox, ratón, teclado simulado ni UI
+Automation.
 
 ## Política definitiva
 
@@ -67,7 +69,7 @@ reales de archivos, registro y contenido persistente continúan bloqueados.
 ## Aprendizaje local
 
 `MemoriaRecetas` guarda en
-`%LOCALAPPDATA%\ControlPCIA\recetas-v1.json`:
+`%LOCALAPPDATA%\ControlPCIA\recetas-v2.json`:
 
 - intención normalizada;
 - comandos comprobados;
@@ -111,8 +113,9 @@ La app .NET MAUI para Android es la experiencia principal. Incluye:
 - descubrimiento UDP del PC y dirección manual como alternativa;
 - emparejado por código de seis cifras y token en `SecureStorage`;
 - un único control de voz para Wake-on-LAN y órdenes normales;
-- gesto de voz tipo WhatsApp: mantener pulsado, soltar para enviar y arrastrar
-  hacia arriba para dejar el micrófono anclado hasta una pulsación posterior;
+- control circular de voz tipo WhatsApp con listener táctil nativo, carril
+  vertical, candado, mantener pulsado, soltar para enviar y arrastrar hacia
+  arriba para dejarlo anclado hasta una pulsación posterior;
 - envío automático al finalizar la voz;
 - estados de color y texto: verde al escuchar, ámbar al transcribir y violeta
   mientras Llama decide, además de contador, texto parcial y respuesta háptica;
@@ -135,7 +138,8 @@ automático o salir.
 
 ## Verificaciones actuales
 
-- 199 pruebas automatizadas correctas en Release.
+- 231 pruebas automatizadas correctas en Debug; la última comprobación Release
+  se ejecuta antes de publicar este estado.
 - Matriz positiva explícita para lectura, escritura, creación, copia,
   sobrescritura, descargas, instalación, registro, servicios, red, Defender,
   apagado/reinicio, WMI/CIM, intérpretes, .NET y COM.
@@ -144,19 +148,20 @@ automático o salir.
 - Creación real de proyectos Cubase comprobada sólo por consola.
 - Reutilización real de la memoria comprobada sin repetir descubrimiento.
 - Instancias de Cubase abiertas durante las pruebas cerradas al terminar.
-- APK Android 1.5.0 (código 10) publicado, SHA-256
-  `5C6C1664E976616FCB42954BAEB611569B974EFF6670D6342C8C7748074C4253`
-  y firma v1, v2 y v3 verificada.
+- APK Android 1.5.5 (código 15), SHA-256
+  `F7EEA61ED2E2E0EB4D89C3AA33296B13D0B9522806407CA9239BD5D1CEF96198`.
 - Descarga del APK publicada por el propio agente en
-  `http://192.168.1.15:5187/app-android.apk`: 22.880.376 bytes,
+  `http://192.168.1.15:5187/app-android.apk`: 22.926.540 bytes,
   tipo Android correcto y hash idéntico al APK firmado. El service worker no
   intercepta ni cachea esta ruta.
 - Aplicación Android 1.3.1 probada previamente en Samsung SM-S928B con
   descubrimiento, emparejado, ambos modos de micrófono y Wake-on-LAN por voz.
-- Aplicación Android 1.5.0 instalada encima en el mismo Samsung mediante ADB
-  `install -r`: conserva la fecha de primera instalación y los datos, declara
-  código 10; queda pendiente comprobar manualmente el gesto de voz y su
-  conversación en el modo seguro sin ejecución.
+- Aplicación Android 1.5.5 instalada encima en el mismo Samsung mediante ADB
+  `install -r`: conserva sus datos. Se comprobó físicamente que el círculo
+  recorre el carril completo, permanece junto al candado tras una pausa y que
+  Cancelar muestra «Escucha cancelada», no envía la orden y mantiene vivo el
+  mismo proceso Android. El cierre anterior procedía de callbacks tardíos del
+  reconocedor nativo y quedó drenado antes de destruirlo.
 - El agente corregido está publicado e instalado en
   `%LOCALAPPDATA%\ControlPCIA\App`; el ejecutable, la DLL y el APK coinciden
   byte por byte con la publicación. SHA-256 de la DLL:
@@ -172,16 +177,22 @@ automático o salir.
 
 ## Tareas pendientes
 
-- [x] Ejecutar pruebas y compilación Release completas tras estos cambios.
-- [x] Añadir traducción diagnóstica sin ejecución y probar variaciones naturales.
-- [x] Añadir un modo móvil de prueba que no pueda invocar el ejecutor.
-- [x] Impedir que una orden de ventana cierre Edge o abra propiedades del sistema.
-- [x] Publicar e instalar los binarios de esta corrección.
-- [x] Reactivar el agente residente sólo después de la revisión final.
-- [x] Instalar APK 1.5.0 en el móvil conservando datos.
-- [ ] Verificar manualmente en Android el gesto de mantener, soltar y anclar,
-      los estados de escucha/proceso y que Cancelar no envía ni cierra la
-      aplicación.
+- [x] Corregir e instalar APK 1.5.5: carril completo y Cancelar sin cierre.
+- [x] Sustituir texto libre del modelo por propuestas estructuradas.
+- [x] Añadir inventario real de aplicaciones, memoria v2 y diagnóstico sin ejecución.
+- [x] Añadir control genérico de ventanas superiores por consola, sin interfaz gráfica.
+- [x] Comprobar con PowerShell los nombres de comando antes de ejecutar una multitarea.
+- [ ] Exigir evidencia de todas las acciones de una petición multitarea; la
+      traducción «abre calculadora y bloc de notas» ya propone ambos comandos,
+      pero su primera verificación sólo comprueba la calculadora.
+- [ ] Terminar la matriz de traducciones reales y reducir la latencia de
+      `qwen3.5:9b`, incluido el precalentamiento al iniciar Windows.
+- [ ] Verificar de extremo a extremo móvil → agente → PowerShell → móvil en modo
+      normal, sin pruebas que manipulen gráficamente el escritorio.
+- [ ] Publicar e instalar la nueva compilación del agente de Windows; la APK
+      1.5.5 sí está instalada, pero el agente residente aún ejecuta la versión anterior.
+- [ ] Retirar el modelo antiguo `qwen3:8b` cuando quede confirmada definitivamente
+      la configuración `qwen3.5:9b`.
 - [ ] Verificar desde el móvil una conversación con error real y continuación.
 - [ ] Probar Wake-on-LAN con el PC realmente apagado.
 - [ ] Crear un instalador firmado para Windows.
