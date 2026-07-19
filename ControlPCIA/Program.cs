@@ -16,17 +16,6 @@ if (args.Length > 0
 }
 
 if (args.Length > 0
-    && args[0].Equals("window", StringComparison.OrdinalIgnoreCase))
-{
-    Environment.ExitCode =
-        await ComandoVentanas.EjecutarAsync(
-            args.Skip(1).ToArray(),
-            Console.Out,
-            Console.Error);
-    return;
-}
-
-if (args.Length > 0
     && args[0].Equals("--activar-inicio", StringComparison.OrdinalIgnoreCase))
 {
     GestorInicioWindows.Activar();
@@ -111,8 +100,8 @@ if (args.Length == 0
 
 if (args[0].Equals("--diagnostico", StringComparison.OrdinalIgnoreCase))
 {
-    EstadoOllama diagnostico =
-        await ClienteOllama.DiagnosticarAsync();
+    EstadoControlBasico diagnostico =
+        ControlBasico.Estado;
 
     Console.WriteLine(diagnostico.Mensaje);
     Environment.ExitCode = diagnostico.Disponible ? 0 : 1;
@@ -134,7 +123,7 @@ if (args[0].Equals(
     string peticion = string.Join(' ', args.Skip(1));
     long inicio = Environment.TickCount64;
     ResultadoControl traduccion =
-        await ControlWindows.ControlarAsync(
+        await ControlBasico.ControlarAsync(
             peticion,
             soloTraducir: true);
     long duracion = Environment.TickCount64 - inicio;
@@ -142,16 +131,6 @@ if (args[0].Equals(
         traduccion.Pasos.FirstOrDefault(paso =>
             !paso.Ejecutado
             && string.IsNullOrWhiteSpace(paso.Error));
-    ResultadoPasoControl? verificacion =
-        propuesta is null
-            ? null
-            : traduccion.Pasos
-                .SkipWhile(paso =>
-                    !ReferenceEquals(paso, propuesta))
-                .Skip(1)
-                .FirstOrDefault(paso =>
-                    !paso.Ejecutado
-                    && string.IsNullOrWhiteSpace(paso.Error));
 
     Console.WriteLine(
         JsonSerializer.Serialize(
@@ -159,7 +138,6 @@ if (args[0].Equals(
             {
                 estado = traduccion.Estado,
                 comando = propuesta?.Comando,
-                verificacion = verificacion?.Comando,
                 permitido =
                     propuesta is not null
                     && !propuesta.Ejecutado
@@ -233,22 +211,20 @@ if (string.IsNullOrWhiteSpace(orden))
 }
 
 ResultadoControl resultadoControl =
-    await ControlWindows.ControlarAsync(
-        orden,
-        evento =>
-        {
-            Console.WriteLine();
+    await ControlBasico.ControlarAsync(
+        orden);
 
-            if (evento.Tipo == "comando"
-                &&
-                evento.Comando is not null)
-            {
-                Console.WriteLine("COMANDO PROPUESTO:");
-                Console.WriteLine(evento.Comando);
-                return;
-            }
+Console.WriteLine();
+Console.WriteLine(resultadoControl.Mensaje);
 
-            Console.WriteLine(evento.Mensaje);
-        });
+foreach (ResultadoPasoControl paso in resultadoControl.Pasos)
+{
+    Console.WriteLine();
+    Console.WriteLine(
+        paso.Ejecutado
+            ? "COMANDO EJECUTADO:"
+            : "COMANDO PREPARADO:");
+    Console.WriteLine(paso.Comando);
+}
 
 Environment.ExitCode = resultadoControl.Completado ? 0 : 1;

@@ -92,7 +92,7 @@ internal static class InventarioAplicaciones
         _cacheHasta = default;
     }
 
-    private static async Task<IReadOnlyList<AplicacionInstalada>>
+    internal static async Task<IReadOnlyList<AplicacionInstalada>>
         ObtenerAplicacionesAsync(
             CancellationToken cancellationToken)
     {

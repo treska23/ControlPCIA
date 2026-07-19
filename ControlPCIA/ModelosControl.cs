@@ -1,5 +1,10 @@
 namespace ControlPCIA;
 
+internal sealed record EstadoControlBasico(
+    bool Disponible,
+    string Modo,
+    string Mensaje);
+
 internal sealed record ResultadoPasoControl(
     int Numero,
     string Comando,

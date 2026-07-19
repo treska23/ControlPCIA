@@ -20,7 +20,7 @@ internal sealed record SolicitudOrden(
 internal sealed record EstadoInicioServidor(
     int Puerto,
     string CodigoEmparejado,
-    EstadoOllama Diagnostico);
+    EstadoControlBasico Diagnostico);
 
 internal static class ServidorMovil
 {
@@ -218,29 +218,23 @@ internal static class ServidorMovil
 
         app.MapGet(
             "/api/estado",
-            async (HttpContext contexto) =>
+            (HttpContext contexto) =>
             {
                 if (!seguridad.Autorizar(contexto))
                 {
                     return Results.Unauthorized();
                 }
 
-                EstadoOllama ollama =
-                    await ClienteOllama.DiagnosticarAsync(
-                        contexto.RequestAborted);
-
-                int recetas =
-                    await MemoriaRecetas.Predeterminada.ContarAsync(
-                        contexto.RequestAborted);
+                EstadoControlBasico estado =
+                    ControlBasico.Estado;
 
                 return Results.Ok(
                     new
                     {
-                        disponible = ollama.Disponible,
+                        disponible = estado.Disponible,
                         ocupado = exclusividad.CurrentCount == 0,
-                        recetasAprendidas = recetas,
-                        modelo = ollama.Modelo,
-                        mensaje = ollama.Mensaje,
+                        modelo = estado.Modo,
+                        mensaje = estado.Mensaje,
                         modoPrueba = soloTraducir,
                         wakeOnLan = InformacionWakeOnLan.ObtenerDestinos()
                     });
@@ -298,9 +292,8 @@ internal static class ServidorMovil
 
         app.MapFallback(() => Results.NotFound());
 
-        EstadoOllama diagnostico =
-            await ClienteOllama.DiagnosticarAsync(
-                cancellationToken);
+        EstadoControlBasico diagnostico =
+            ControlBasico.Estado;
 
         MostrarInicio(
             puerto,
@@ -350,9 +343,8 @@ internal static class ServidorMovil
             Task<ResultadoControl>>? traducirAsync = null)
     {
         controlarAsync ??= static (instruccion, conversacion, cancelacion) =>
-            ControlWindows.ControlarAsync(
+            ControlBasico.ControlarAsync(
                 instruccion,
-                contextoConversacion: conversacion,
                 cancellationToken: cancelacion);
 
         if (!soloTraducir)
@@ -364,9 +356,8 @@ internal static class ServidorMovil
         }
 
         traducirAsync ??= static (instruccion, conversacion, cancelacion) =>
-            ControlWindows.ControlarAsync(
+            ControlBasico.ControlarAsync(
                 instruccion,
-                contextoConversacion: conversacion,
                 cancellationToken: cancelacion,
                 soloTraducir: true);
 
@@ -481,7 +472,7 @@ internal static class ServidorMovil
     private static void MostrarInicio(
         int puerto,
         string codigo,
-        EstadoOllama diagnostico,
+        EstadoControlBasico diagnostico,
         bool soloTraducir)
     {
         Console.WriteLine();
@@ -493,7 +484,7 @@ internal static class ServidorMovil
         {
             Console.WriteLine();
             Console.WriteLine(
-                "MODO DE PRUEBA: la IA traducirá las órdenes, "
+                "MODO DE PRUEBA: ControlPCIA preparará las órdenes básicas, "
                 + "pero no se ejecutará ningún comando.");
         }
 
@@ -785,7 +776,7 @@ internal static class ServidorMovil
           "id": "/",
           "name": "ControlPCIA",
           "short_name": "ControlPCIA",
-          "description": "Control por voz de un PC Windows mediante una IA local.",
+          "description": "Control básico por voz de un PC Windows.",
           "lang": "es-ES",
           "dir": "ltr",
           "start_url": "/?source=pwa",
@@ -1021,7 +1012,7 @@ internal static class ServidorMovil
                   <button id="mic" type="button" aria-label="Dictar orden">🎙 Dictar</button>
                   <button id="send" class="primary" type="submit">Enviar a la IA</button>
                 </div>
-                <p class="hint">También puedes usar el micrófono del teclado del móvil. La voz solo escribe el texto; la IA local propone los comandos y ControlPCIA los valida y ejecuta en el PC.</p>
+                <p class="hint">También puedes usar el micrófono del teclado del móvil. Por ahora ControlPCIA sólo abre una aplicación cada vez o indica qué aplicaciones están abiertas.</p>
                 <p id="controlState" class="state" role="status"></p>
               </form>
               <div id="result" aria-live="polite"></div>
@@ -1099,7 +1090,7 @@ internal static class ServidorMovil
               if (!text) return;
               send.disabled = true;
               mic.disabled = true;
-              setState(controlState, 'La IA local está interpretando la orden…');
+              setState(controlState, 'ControlPCIA está comprobando la orden básica…');
               try {
                 const context = conversation.slice(-12);
                 const data = await request('/api/orden', {
