@@ -27,10 +27,12 @@ Ollama, Llama y Qwen no participan en este flujo.
 1. Encender el ordenador por voz mediante Wake-on-LAN desde la APK.
 2. Abrir una aplicación instalada, una aplicación por petición.
 3. Consultar qué aplicaciones tienen una ventana abierta.
-4. Dictar o escribir la petición desde la APK.
-5. Descubrir y emparejar el PC en la red local.
-6. Mantener el agente oculto e iniciado con Windows.
-7. Usar la PWA como respaldo y descargar la APK desde el agente.
+4. Abrir una página en el navegador predeterminado.
+5. Buscar en Internet, Google, Bing o YouTube.
+6. Dictar o escribir la petición desde la APK.
+7. Descubrir y emparejar el PC en la red local.
+8. Mantener el agente oculto e iniciado con Windows.
+9. Usar la PWA como respaldo y descargar la APK desde el agente.
 
 ## Semántica de apertura
 
@@ -49,16 +51,26 @@ El repositorio mantiene el traductor local, memoria, control de ventanas,
 validación avanzada y sus pruebas. No se han borrado. Permanecen desconectados
 del servidor y de `Program.cs` hasta que se decida retomarlos individualmente.
 
+## Semántica web
+
+ControlPCIA entrega una única URL `http` o `https` mediante `Start-Process`.
+Windows decide qué navegador abrir. No se inspecciona la ventana ni se verifica
+la página después. Un error de PowerShell se devuelve al móvil.
+
+Los sitios conocidos y dominios se abren directamente. Las búsquedas generales
+utilizan Google y las peticiones «busca … en YouTube» utilizan los resultados
+de YouTube. Los esquemas locales como `file:` nunca se abren.
+
 ## Evidencias actuales
 
-- **250/250 pruebas Release correctas**.
+- **265/265 pruebas Release correctas**.
 - APK congelada: versión **1.5.5**, código **15**.
 - SHA-256 de la APK:
   `F7EEA61ED2E2E0EB4D89C3AA33296B13D0B9522806407CA9239BD5D1CEF96198`.
 - Agente instalado en:
   `%LOCALAPPDATA%\ControlPCIA\App`.
 - SHA-256 de la DLL instalada:
-  `5A6FF7BD586C6D0ED039AFE51F65E4CAED212A5D8146AD67A6C144D7F00F8AF6`.
+  `CB4B8EF99AD9A74ADE8FF94143B08490772EACF5E129FF024C6297E3264FCE3E`.
 - La DLL instalada coincide byte por byte con la publicación Release.
 - La APK servida por el agente coincide byte por byte con el artefacto 1.5.5.
 - Agente residente activo en `0.0.0.0:5187`.
@@ -78,6 +90,11 @@ del servidor y de `Program.cs` hasta que se decida retomarlos individualmente.
 - `abre el explorador de Windows`: AppID exacto
   `Microsoft.Windows.Explorer`; el comparador ya no acepta coincidencias
   parciales producidas por palabras de dos letras como `do` en Click to Do.
+- `abre YouTube`: un único comando con `https://www.youtube.com/`.
+- `busca vídeos de batería en YouTube`: un único comando con la búsqueda de
+  YouTube codificada.
+- `busca ControlPCIA por internet`: un único comando con la búsqueda de Google
+  codificada.
 
 ## Alcance cerrado de esta versión
 

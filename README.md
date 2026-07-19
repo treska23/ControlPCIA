@@ -7,6 +7,7 @@ que ya están comprobadas:
 - Encender el PC por voz mediante Wake-on-LAN.
 - Abrir una aplicación instalada, una cada vez.
 - Consultar qué aplicaciones tienen una ventana abierta.
+- Abrir páginas y realizar búsquedas en el navegador predeterminado.
 
 La aplicación Android existente se mantiene sin cambios. El agente de Windows
 se ejecuta en segundo plano, recibe las peticiones de la APK y utiliza
@@ -38,6 +39,30 @@ Después de enviarlo:
 
 La versión estable admite una sola aplicación por petición. Una orden como
 `abre la calculadora y el bloc de notas` se rechaza sin ejecutar nada.
+
+### Abrir páginas y buscar en Internet
+
+Ejemplos admitidos:
+
+```text
+abre YouTube
+abre la página de Wikipedia
+entra en youtube.com
+abre https://openai.com/research/
+busca baterías electrónicas por internet
+busca vídeos drumless en YouTube
+```
+
+ControlPCIA construye una URL `http` o `https` y la entrega a Windows mediante
+un único `Start-Process`. Windows utiliza el navegador predeterminado.
+
+- Los nombres conocidos, como YouTube, se abren directamente.
+- Los dominios y URL se abren directamente.
+- Una página desconocida solicitada expresamente se busca en Google.
+- Las búsquedas normales usan Google.
+- «Busca … en YouTube» abre los resultados de YouTube.
+- No se aceptan esquemas locales como `file:`.
+- No se inspecciona ni se comprueba posteriormente el navegador.
 
 ### Consultar aplicaciones abiertas
 
@@ -172,8 +197,8 @@ ControlPCIA.exe "qué programas tengo abiertos"
 - Sólo se procesa una petición cada vez.
 - La APK usa HTTP exclusivamente dentro de la red local de confianza.
 - El endpoint móvil no acepta PowerShell arbitrario: el controlador estable
-  construye únicamente los comandos necesarios para abrir una aplicación o
-  consultar ventanas abiertas.
+  construye únicamente los comandos necesarios para abrir una aplicación,
+  consultar ventanas abiertas o entregar una URL web al navegador.
 - Wake-on-LAN se ejecuta localmente en el teléfono.
 
 ## Alcance deliberadamente no incluido
@@ -198,17 +223,20 @@ dotnet test tests\ControlPCIA.Tests\ControlPCIA.Tests.csproj `
   --configuration Release
 ```
 
-La batería actual contiene **250 pruebas**. Cubre el controlador básico,
+La batería actual contiene **265 pruebas**. Cubre el controlador básico,
 inventario de aplicaciones, errores de PowerShell, Wake-on-LAN, reconocimiento
 de la orden de encendido, gesto de voz, cancelación, emparejado, sesiones,
 red privada, servidor, validador y el código experimental conservado. Incluye
 una regresión específica para impedir que «Explorador de Windows» vuelva a
-resolverse como Click to Do.
+resolverse como Click to Do, además de páginas, dominios, búsquedas normales y
+búsquedas en YouTube.
 
 ## Componentes
 
 - `ControlBasico.cs`: interpreta y ejecuta únicamente las dos funciones
-  estables del PC.
+  locales estables del PC y deriva las peticiones web.
+- `ControlWebBasico.cs`: crea URL seguras y las entrega al navegador
+  predeterminado sin inspeccionarlo.
 - `InventarioAplicaciones.cs`: obtiene aplicaciones reales con
   `Get-StartApps`.
 - `EjecutorPowerShell.cs`: ejecuta el comando y devuelve stdout, stderr y el

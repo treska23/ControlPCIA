@@ -1012,7 +1012,7 @@ internal static class ServidorMovil
                   <button id="mic" type="button" aria-label="Dictar orden">🎙 Dictar</button>
                   <button id="send" class="primary" type="submit">Enviar a la IA</button>
                 </div>
-                <p class="hint">También puedes usar el micrófono del teclado del móvil. Por ahora ControlPCIA sólo abre una aplicación cada vez o indica qué aplicaciones están abiertas.</p>
+                <p class="hint">También puedes usar el micrófono del teclado del móvil. ControlPCIA abre una aplicación o página, busca en Internet o indica qué aplicaciones están abiertas.</p>
                 <p id="controlState" class="state" role="status"></p>
               </form>
               <div id="result" aria-live="polite"></div>

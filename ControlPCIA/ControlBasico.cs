@@ -9,13 +9,16 @@ internal enum TipoPeticionBasica
 {
     NoCompatible,
     AbrirAplicacion,
-    ConsultarAplicacionesAbiertas
+    ConsultarAplicacionesAbiertas,
+    AbrirPaginaWeb,
+    BuscarEnInternet
 }
 
 internal sealed record PeticionBasica(
     TipoPeticionBasica Tipo,
     string Objetivo = "",
-    string Motivo = "");
+    string Motivo = "",
+    string Descripcion = "");
 
 internal sealed record DependenciasControlBasico(
     Func<
@@ -29,14 +32,14 @@ internal sealed record DependenciasControlBasico(
         EjecutarAsync);
 
 /// <summary>
-/// Primer núcleo estable de ControlPCIA. No consulta a un modelo y sólo
-/// admite una acción por petición: abrir una aplicación instalada o enumerar
-/// las aplicaciones que tienen una ventana abierta.
+/// Núcleo estable de ControlPCIA. No consulta a un modelo y admite una acción
+/// por petición: abrir una aplicación, consultar las aplicaciones abiertas,
+/// abrir una página o buscar en Internet.
 /// </summary>
 internal static class ControlBasico
 {
     private const string MensajeCapacidades =
-        "Por ahora sólo puedo abrir una aplicación instalada o decirte qué aplicaciones están abiertas.";
+        "Por ahora puedo abrir una aplicación o página web, buscar en Internet o decirte qué aplicaciones están abiertas.";
 
     private static readonly IReadOnlyDictionary<string, string>
         AliasAplicaciones =
@@ -69,7 +72,7 @@ internal static class ControlBasico
         new(
             true,
             "control-basico",
-            "Control básico preparado: abrir una aplicación o consultar las aplicaciones abiertas.");
+            "Control básico preparado: abrir una aplicación o página web, buscar en Internet o consultar las aplicaciones abiertas.");
 
     public static Task<ResultadoControl> ControlarAsync(
         string instruccion,
@@ -115,6 +118,14 @@ internal static class ControlBasico
                     dependencias,
                     cancellationToken),
 
+            TipoPeticionBasica.AbrirPaginaWeb
+                or TipoPeticionBasica.BuscarEnInternet =>
+                await ControlWebBasico.EjecutarAsync(
+                    peticion,
+                    soloTraducir,
+                    dependencias,
+                    cancellationToken),
+
             _ =>
                 NoCompatible(
                     peticion.Motivo)
@@ -142,6 +153,14 @@ internal static class ControlBasico
             return new PeticionBasica(
                 TipoPeticionBasica
                     .ConsultarAplicacionesAbiertas);
+        }
+
+        PeticionBasica? peticionWeb =
+            ControlWebBasico.Interpretar(texto);
+
+        if (peticionWeb is not null)
+        {
+            return peticionWeb;
         }
 
         Match verbo = VerboAbrir.Match(texto);
@@ -562,7 +581,7 @@ internal static class ControlBasico
             : string.Empty;
     }
 
-    private static string Normalizar(
+    internal static string Normalizar(
         string texto)
     {
         string descompuesto = (texto ?? string.Empty)
