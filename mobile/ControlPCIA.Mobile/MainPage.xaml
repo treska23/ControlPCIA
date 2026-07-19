@@ -392,7 +392,7 @@
                                     FontSize="20"
                                     FontAttributes="Bold" />
                                 <Label
-                                    Text="Mueve el dedo por el panel. Un toque hace clic izquierdo."
+                                    Text="Un dedo mueve y hace clic. Dos dedos hacen clic derecho o desplazan la rueda al deslizar."
                                     TextColor="#9CB4CE"
                                     FontSize="13" />
                             </VerticalStackLayout>
@@ -406,7 +406,7 @@
                                 StrokeShape="RoundRectangle 18"
                                 AutomationProperties.IsInAccessibleTree="True"
                                 SemanticProperties.Description="Panel táctil remoto"
-                                SemanticProperties.Hint="Desliza para mover el puntero o toca para hacer clic izquierdo">
+                                SemanticProperties.Hint="Un dedo mueve y hace clic izquierdo. Dos dedos hacen clic derecho o desplazan la rueda">
                                 <Grid>
                                     <Label
                                         Text="DESLIZA PARA MOVER"
@@ -434,35 +434,6 @@
                                     </Border>
                                 </Grid>
                             </Border>
-
-                            <Grid
-                                ColumnDefinitions="*,*,*,*"
-                                ColumnSpacing="7">
-                                <Button
-                                    Grid.Column="0"
-                                    Text="Clic"
-                                    Style="{StaticResource SecondaryButton}"
-                                    Clicked="OnRemoteMouseClicked"
-                                    CommandParameter="left-click" />
-                                <Button
-                                    Grid.Column="1"
-                                    Text="Derecho"
-                                    Style="{StaticResource SecondaryButton}"
-                                    Clicked="OnRemoteMouseClicked"
-                                    CommandParameter="right-click" />
-                                <Button
-                                    Grid.Column="2"
-                                    Text="Rueda ↑"
-                                    Style="{StaticResource SecondaryButton}"
-                                    Clicked="OnRemoteMouseClicked"
-                                    CommandParameter="wheel-up" />
-                                <Button
-                                    Grid.Column="3"
-                                    Text="Rueda ↓"
-                                    Style="{StaticResource SecondaryButton}"
-                                    Clicked="OnRemoteMouseClicked"
-                                    CommandParameter="wheel-down" />
-                            </Grid>
 
                             <Button
                                 x:Name="RemoteDragButton"
@@ -501,15 +472,22 @@
                                 <Button Grid.Row="0" Grid.Column="0" Text="Esc" Style="{StaticResource SecondaryButton}" CommandParameter="esc" Clicked="OnRemoteKeyClicked" />
                                 <Button Grid.Row="0" Grid.Column="1" Text="Tab" Style="{StaticResource SecondaryButton}" CommandParameter="tab" Clicked="OnRemoteKeyClicked" />
                                 <Button Grid.Row="0" Grid.Column="2" Text="Intro" Style="{StaticResource SecondaryButton}" CommandParameter="enter" Clicked="OnRemoteKeyClicked" />
-                                <Button Grid.Row="0" Grid.Column="3" Text="⌫" Style="{StaticResource SecondaryButton}" CommandParameter="backspace" Clicked="OnRemoteKeyClicked" />
+                                <Button
+                                    x:Name="RemoteBackspaceButton"
+                                    Grid.Row="0"
+                                    Grid.Column="3"
+                                    Text="⌫"
+                                    Style="{StaticResource SecondaryButton}"
+                                    SemanticProperties.Description="Borrar hacia atrás"
+                                    SemanticProperties.Hint="Mantén pulsado para seguir borrando" />
                                 <Button Grid.Row="1" Grid.Column="0" Text="←" Style="{StaticResource SecondaryButton}" CommandParameter="left" Clicked="OnRemoteKeyClicked" />
                                 <Button Grid.Row="1" Grid.Column="1" Text="↑" Style="{StaticResource SecondaryButton}" CommandParameter="up" Clicked="OnRemoteKeyClicked" />
                                 <Button Grid.Row="1" Grid.Column="2" Text="↓" Style="{StaticResource SecondaryButton}" CommandParameter="down" Clicked="OnRemoteKeyClicked" />
                                 <Button Grid.Row="1" Grid.Column="3" Text="→" Style="{StaticResource SecondaryButton}" CommandParameter="right" Clicked="OnRemoteKeyClicked" />
-                                <Button Grid.Row="2" Grid.Column="0" Text="Ctrl+C" Style="{StaticResource SecondaryButton}" CommandParameter="ctrl+c" Clicked="OnRemoteKeyClicked" />
-                                <Button Grid.Row="2" Grid.Column="1" Text="Ctrl+V" Style="{StaticResource SecondaryButton}" CommandParameter="ctrl+v" Clicked="OnRemoteKeyClicked" />
-                                <Button Grid.Row="2" Grid.Column="2" Text="Ctrl+A" Style="{StaticResource SecondaryButton}" CommandParameter="ctrl+a" Clicked="OnRemoteKeyClicked" />
-                                <Button Grid.Row="2" Grid.Column="3" Text="Ctrl+Z" Style="{StaticResource SecondaryButton}" CommandParameter="ctrl+z" Clicked="OnRemoteKeyClicked" />
+                                <Button Grid.Row="2" Grid.Column="0" Text="Copiar" Style="{StaticResource SecondaryButton}" CommandParameter="ctrl+c" Clicked="OnRemoteKeyClicked" />
+                                <Button Grid.Row="2" Grid.Column="1" Text="Pegar" Style="{StaticResource SecondaryButton}" CommandParameter="ctrl+v" Clicked="OnRemoteKeyClicked" />
+                                <Button Grid.Row="2" Grid.Column="2" Text="Selec. todo" Style="{StaticResource SecondaryButton}" CommandParameter="ctrl+a" Clicked="OnRemoteKeyClicked" />
+                                <Button Grid.Row="2" Grid.Column="3" Text="Deshacer" Style="{StaticResource SecondaryButton}" CommandParameter="ctrl+z" Clicked="OnRemoteKeyClicked" />
                             </Grid>
 
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">

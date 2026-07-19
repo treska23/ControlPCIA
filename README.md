@@ -228,13 +228,17 @@ apagado del equipo permitan el encendido remoto.
 ### Ratón y teclado remotos
 
 La APK incluye un panel plegable «Ratón y teclado». El panel táctil mueve el
-puntero de forma relativa; un toque hace clic izquierdo. También ofrece clic
-derecho, rueda, arrastre con el botón izquierdo mantenido y liberación segura
-al abandonar la pantalla.
+puntero de forma relativa. Tocar y soltar un dedo hace clic izquierdo; tocar y
+soltar dos dedos hace clic derecho; arrastrar dos dedos desplaza la rueda
+inmediatamente. No hay botones separados para los clics ni para la rueda. Se
+mantiene un único botón para dejar pulsado el clic izquierdo durante un
+arrastre, con liberación segura al abandonar la pantalla.
 
 El teclado de Android permite enviar texto a la ventana activa del PC. Hay
-botones para Escape, Tab, Intro, retroceso, cursores y los atajos habituales,
-además de un campo para combinaciones como `Ctrl+Shift+S`.
+botones para Escape, Tab, Intro, retroceso, cursores y acciones claramente
+rotuladas como Copiar, Pegar, Seleccionar todo y Deshacer, además de un campo
+para combinaciones como `Ctrl+Shift+S`. Mantener pulsado el retroceso borra de
+forma continua hasta levantar el dedo.
 
 Estas acciones se envían directamente a dos rutas privadas del agente:
 `/api/entrada/raton` y `/api/entrada/teclado`. Exigen el mismo token de sesión
@@ -243,7 +247,7 @@ el traductor de órdenes de voz.
 
 ## Aplicación Android
 
-La APK estable es la versión **1.6.0** (código 16). Incluye:
+La APK estable es la versión **1.6.1** (código 17). Incluye:
 
 - Descubrimiento automático del PC en la red local.
 - Dirección manual como alternativa.
@@ -255,8 +259,10 @@ La APK estable es la versión **1.6.0** (código 16). Incluye:
 - Cancelación de una escucha sin enviar la orden ni cerrar la aplicación.
 - Envío de órdenes escritas.
 - Encendido por Wake-on-LAN desde el mismo control de voz.
-- Ratón táctil, rueda, clics y arrastre remoto.
-- Escritura, teclas especiales y atajos de teclado remotos.
+- Ratón táctil con clic izquierdo mediante un toque, clic derecho mediante un
+  toque de dos dedos y rueda mediante arrastre de dos dedos.
+- Arrastre con clic izquierdo mantenido y liberación segura.
+- Escritura, teclas especiales, retroceso continuo y atajos de teclado remotos.
 
 La APK se conserva como artefacto firmado en:
 
@@ -267,7 +273,7 @@ mobile\ControlPCIA.Mobile\artifacts\release\com.treska.controlpcia-Signed.apk
 SHA-256:
 
 ```text
-9DDA4597FF4FE49754E8E63A9E7E4AC0959F749ECBFB48507E4172533C1E3C21
+2817F602A8B1B1731A4FF48700B636ECE43DA03DCB425FF6E486FAB733C62E31
 ```
 
 El agente residente permite descargar exactamente ese archivo desde:
@@ -370,7 +376,7 @@ dotnet test tests\ControlPCIA.Tests\ControlPCIA.Tests.csproj `
   --configuration Release
 ```
 
-La batería actual contiene **398 pruebas**. Cubre el controlador básico,
+La batería actual contiene **404 pruebas**. Cubre el controlador básico,
 inventario de aplicaciones, errores de PowerShell, Wake-on-LAN, reconocimiento
 de la orden de encendido, gesto de voz, cancelación, emparejado, sesiones,
 red privada, servidor, validador y el código experimental conservado. Incluye
@@ -380,8 +386,9 @@ búsquedas en YouTube. Las pruebas nuevas cubren la traducción y validación de
 órdenes compuestas, traductor local de una llamada, memoria, conversación,
 pantallas, ventanas y multimedia sin aplicar cambios reales al escritorio ni a
 la reproducción. Las pruebas de entrada remota validan ratón, texto Unicode,
-saltos de línea, teclas, modificadores, atajos y peticiones inválidas sin
-inyectar eventos reales durante la batería automatizada.
+saltos de línea, teclas, modificadores, atajos, peticiones inválidas y la
+diferencia entre tocar dos dedos para hacer clic derecho y arrastrarlos para
+desplazar la rueda, sin inyectar eventos reales durante la batería automatizada.
 
 ## Componentes
 
@@ -409,4 +416,4 @@ inyectar eventos reales durante la batería automatizada.
 - `InformacionWakeOnLan.cs`: entrega a la APK los datos de red necesarios.
 - `GestorInicioWindows.cs`: inicio oculto para el usuario actual.
 - `AgenteBandeja.cs`: icono y controles del agente residente.
-- `mobile/ControlPCIA.Mobile`: aplicación Android estable en la versión 1.6.0.
+- `mobile/ControlPCIA.Mobile`: aplicación Android estable en la versión 1.6.1.

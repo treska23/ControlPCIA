@@ -65,14 +65,16 @@ public partial class MainPage : ContentPage
     private readonly object _bloqueoMovimientoRaton = new();
     private double _movimientoRatonPendienteX;
     private double _movimientoRatonPendienteY;
+    private int _ruedaRatonPendiente;
     private int _enviandoMovimientoRaton;
-    private float _ultimaPosicionRatonX;
-    private float _ultimaPosicionRatonY;
-    private float _recorridoRaton;
-    private long _inicioToqueRaton;
     private bool _arrastreRemotoActivo;
+    private EscuchaTeclaRepetida? _escuchaRetrocesoRemoto;
+    private Android.Views.View? _vistaRetrocesoRemotoNativa;
+    private CancellationTokenSource? _repeticionRetrocesoRemoto;
     private readonly GestorGestoVoz _gestorGestoVoz =
         new(RecorridoCarrilVozDp);
+    private readonly GestorTrackpadRemoto _gestorTrackpadRemoto =
+        new();
 
     public MainPage()
     {
@@ -82,6 +84,8 @@ public partial class MainPage : ContentPage
             OnVoiceGestureHandlerChanged;
         RemoteTouchpad.HandlerChanged +=
             OnRemoteTouchpadHandlerChanged;
+        RemoteBackspaceButton.HandlerChanged +=
+            OnRemoteBackspaceHandlerChanged;
     }
 
     protected override async void OnAppearing()
@@ -136,6 +140,7 @@ public partial class MainPage : ContentPage
 
     protected override async void OnDisappearing()
     {
+        DetenerRepeticionRetrocesoRemoto();
         await LiberarArrastreRemotoAsync();
         base.OnDisappearing();
     }
@@ -247,6 +252,7 @@ public partial class MainPage : ContentPage
     private async void OnForgetClicked(object? sender, EventArgs e)
     {
         await CancelarEscuchaAsync(mostrarMensaje: false);
+        DetenerRepeticionRetrocesoRemoto();
         await LiberarArrastreRemotoAsync();
         _api.Olvidar();
         _wake.Olvidar();
@@ -290,59 +296,59 @@ public partial class MainPage : ContentPage
     }
 
     private void ProcesarToquePanelRemoto(
-        FasePanelTactil fase,
+        FaseGestoTrackpad fase,
+        int dedos,
         float x,
         float y,
         long tiempo)
     {
-        switch (fase)
+        double densidad =
+            Math.Max(
+                DeviceDisplay.Current
+                    .MainDisplayInfo.Density,
+                1);
+        ResultadoGestoTrackpad resultado =
+            _gestorTrackpadRemoto.Procesar(
+                fase,
+                dedos,
+                x / densidad,
+                y / densidad,
+                tiempo);
+
+        if (Math.Abs(resultado.DeltaX) >= 0.01
+            || Math.Abs(resultado.DeltaY) >= 0.01
+            || resultado.Rueda != 0)
         {
-            case FasePanelTactil.Pulsado:
-                _ultimaPosicionRatonX = x;
-                _ultimaPosicionRatonY = y;
-                _recorridoRaton = 0;
-                _inicioToqueRaton = tiempo;
-                break;
+            AcumularEntradaRaton(
+                resultado.DeltaX,
+                resultado.DeltaY,
+                resultado.Rueda);
+        }
 
-            case FasePanelTactil.Movido:
-                float deltaX =
-                    x - _ultimaPosicionRatonX;
-                float deltaY =
-                    y - _ultimaPosicionRatonY;
-                _ultimaPosicionRatonX = x;
-                _ultimaPosicionRatonY = y;
-                _recorridoRaton +=
-                    Math.Abs(deltaX)
-                    + Math.Abs(deltaY);
-                AcumularMovimientoRaton(
-                    deltaX * 1.35,
-                    deltaY * 1.35);
-                break;
-
-            case FasePanelTactil.Soltado:
-                if (_recorridoRaton < 18
-                    && tiempo - _inicioToqueRaton < 550)
-                {
-                    _ = EnviarRatonRemotoAsync(
-                        "left-click");
-                }
-
-                break;
-
-            case FasePanelTactil.Cancelado:
-                _recorridoRaton = 0;
-                break;
+        if (resultado.Accion
+            == AccionGestoTrackpad.ClicIzquierdo)
+        {
+            _ = EnviarRatonRemotoAsync(
+                "left-click");
+        }
+        else if (resultado.Accion
+                 == AccionGestoTrackpad.ClicDerecho)
+        {
+            _ = EnviarRatonRemotoAsync(
+                "right-click");
         }
     }
 
-    private void AcumularMovimientoRaton(
+    private void AcumularEntradaRaton(
         double deltaX,
-        double deltaY)
+        double deltaY,
+        int rueda)
     {
         lock (_bloqueoMovimientoRaton)
         {
             _movimientoRatonPendienteX += deltaX;
             _movimientoRatonPendienteY += deltaY;
+            _ruedaRatonPendiente += rueda;
         }
 
         if (Interlocked.CompareExchange(
@@ -363,6 +369,7 @@ public partial class MainPage : ContentPage
                 await Task.Delay(18);
                 int x;
                 int y;
+                int rueda;
 
                 lock (_bloqueoMovimientoRaton)
                 {
@@ -372,17 +379,32 @@ public partial class MainPage : ContentPage
                         _movimientoRatonPendienteY);
                     _movimientoRatonPendienteX -= x;
                     _movimientoRatonPendienteY -= y;
+                    rueda = Math.Clamp(
+                        _ruedaRatonPendiente,
+                        -2_400,
+                        2_400);
+                    _ruedaRatonPendiente -= rueda;
                 }
 
-                if (x == 0 && y == 0)
+                if (x == 0 && y == 0 && rueda == 0)
                 {
                     break;
                 }
 
-                await _api.EnviarRatonAsync(
-                    "move",
-                    Math.Clamp(x, -5000, 5000),
-                    Math.Clamp(y, -5000, 5000));
+                if (x != 0 || y != 0)
+                {
+                    await _api.EnviarRatonAsync(
+                        "move",
+                        Math.Clamp(x, -5000, 5000),
+                        Math.Clamp(y, -5000, 5000));
+                }
+
+                if (rueda != 0)
+                {
+                    await _api.EnviarRatonAsync(
+                        "wheel",
+                        rueda: rueda);
+                }
             }
         }
         catch (Exception ex)
@@ -408,7 +430,8 @@ public partial class MainPage : ContentPage
                     >= 0.5
                     || Math.Abs(
                         _movimientoRatonPendienteY)
-                    >= 0.5;
+                    >= 0.5
+                    || _ruedaRatonPendiente != 0;
             }
 
             if (quedanMovimientos
@@ -432,35 +455,6 @@ public partial class MainPage : ContentPage
             RemoteControlPanel.IsVisible
                 ? "Cerrar ratón y teclado"
                 : "Abrir ratón y teclado";
-    }
-
-    private async void OnRemoteMouseClicked(
-        object? sender,
-        EventArgs e)
-    {
-        if (sender is not Button boton
-            || boton.CommandParameter is not string accion)
-        {
-            return;
-        }
-
-        if (accion == "wheel-up")
-        {
-            await EnviarRatonRemotoAsync(
-                "wheel",
-                rueda: 120);
-            return;
-        }
-
-        if (accion == "wheel-down")
-        {
-            await EnviarRatonRemotoAsync(
-                "wheel",
-                rueda: -120);
-            return;
-        }
-
-        await EnviarRatonRemotoAsync(accion);
     }
 
     private async void OnRemoteDragClicked(
@@ -663,6 +657,117 @@ public partial class MainPage : ContentPage
                 error: true);
             return false;
         }
+    }
+
+    private void OnRemoteBackspaceHandlerChanged(
+        object? sender,
+        EventArgs e)
+    {
+        if (_vistaRetrocesoRemotoNativa is not null)
+        {
+            _vistaRetrocesoRemotoNativa
+                .SetOnTouchListener(null);
+            _vistaRetrocesoRemotoNativa = null;
+        }
+
+        if (RemoteBackspaceButton.Handler?.PlatformView
+            is not Android.Views.View vista)
+        {
+            return;
+        }
+
+        _escuchaRetrocesoRemoto ??=
+            new EscuchaTeclaRepetida(
+                ProcesarPulsacionRetrocesoRemoto);
+        _vistaRetrocesoRemotoNativa = vista;
+        vista.Clickable = true;
+        vista.SetOnTouchListener(
+            _escuchaRetrocesoRemoto);
+    }
+
+    private void ProcesarPulsacionRetrocesoRemoto(
+        bool pulsado)
+    {
+        if (pulsado)
+        {
+            IniciarRepeticionRetrocesoRemoto();
+        }
+        else
+        {
+            DetenerRepeticionRetrocesoRemoto();
+        }
+    }
+
+    private void IniciarRepeticionRetrocesoRemoto()
+    {
+        DetenerRepeticionRetrocesoRemoto();
+        _repeticionRetrocesoRemoto =
+            new CancellationTokenSource();
+        _ = RepetirRetrocesoRemotoAsync(
+            _repeticionRetrocesoRemoto.Token);
+    }
+
+    private async Task RepetirRetrocesoRemotoAsync(
+        CancellationToken cancellationToken)
+    {
+        bool primera = true;
+
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await _api.EnviarTeclaAsync(
+                    "backspace",
+                    cancellationToken:
+                        cancellationToken);
+
+                if (primera)
+                {
+                    primera = false;
+                    await MainThread
+                        .InvokeOnMainThreadAsync(
+                            () => MostrarMensaje(
+                                RemoteStatusLabel,
+                                "Borrando mientras mantengas pulsado.",
+                                correcto: true));
+                    await Task.Delay(
+                        350,
+                        cancellationToken);
+                }
+                else
+                {
+                    await Task.Delay(
+                        70,
+                        cancellationToken);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            await MainThread.InvokeOnMainThreadAsync(
+                () => MostrarMensaje(
+                    RemoteStatusLabel,
+                    MensajeAmigable(ex),
+                    error: true));
+        }
+    }
+
+    private void DetenerRepeticionRetrocesoRemoto()
+    {
+        CancellationTokenSource? repeticion =
+            _repeticionRetrocesoRemoto;
+        _repeticionRetrocesoRemoto = null;
+
+        if (repeticion is null)
+        {
+            return;
+        }
+
+        repeticion.Cancel();
+        repeticion.Dispose();
     }
 
     private void OnVoiceGestureHandlerChanged(
