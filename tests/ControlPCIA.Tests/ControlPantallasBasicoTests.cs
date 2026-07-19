@@ -31,6 +31,10 @@ public sealed class ControlPantallasBasicoTests
             "frequency 1 144"
         },
         {
+            "pon la escala del monitor 3 al 150 por ciento",
+            "scale 3 150"
+        },
+        {
             "desactiva la pantalla 3",
             "disable 3"
         },

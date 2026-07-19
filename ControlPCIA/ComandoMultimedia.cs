@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Windows.Media;
 using Windows.Media.Control;
@@ -20,7 +22,9 @@ internal enum AccionComandoMultimedia
     Desplazar,
     Aleatorio,
     Repeticion,
-    Velocidad
+    Velocidad,
+    PantallaCompleta,
+    SalirPantallaCompleta
 }
 
 internal sealed record OpcionesComandoMultimedia(
@@ -31,8 +35,8 @@ internal sealed record OpcionesComandoMultimedia(
 
 /// <summary>
 /// Controla sesiones multimedia publicadas por las aplicaciones en el
-/// transporte multimedia global de Windows. No simula teclas ni inspecciona
-/// el contenido de ninguna ventana.
+/// transporte multimedia global de Windows. Para la pantalla completa del
+/// vídeo envía únicamente F o Escape al navegador mediante SendInput.
 /// </summary>
 internal static class ComandoMultimedia
 {
@@ -52,6 +56,16 @@ internal static class ComandoMultimedia
 
         try
         {
+            if (opciones!.Accion
+                is AccionComandoMultimedia.PantallaCompleta
+                or AccionComandoMultimedia.SalirPantallaCompleta)
+            {
+                return await EjecutarPantallaCompletaAsync(
+                    opciones,
+                    salida,
+                    error);
+            }
+
             GlobalSystemMediaTransportControlsSessionManager manager =
                 await GlobalSystemMediaTransportControlsSessionManager
                     .RequestAsync();
@@ -173,7 +187,7 @@ internal static class ComandoMultimedia
         if (argumentos.Count == 0)
         {
             error =
-                "Uso: ControlPCIA.exe media list|status|play|pause|toggle|stop|next|previous|forward|rewind|seek|shuffle|repeat|rate [--app aplicación].";
+                "Uso: ControlPCIA.exe media list|status|play|pause|toggle|stop|next|previous|forward|rewind|seek|shuffle|repeat|rate|fullscreen|exit-fullscreen [--app aplicación].";
             return false;
         }
 
@@ -235,6 +249,10 @@ internal static class ComandoMultimedia
             "shuffle" => AccionComandoMultimedia.Aleatorio,
             "repeat" => AccionComandoMultimedia.Repeticion,
             "rate" => AccionComandoMultimedia.Velocidad,
+            "fullscreen" =>
+                AccionComandoMultimedia.PantallaCompleta,
+            "exit-fullscreen" =>
+                AccionComandoMultimedia.SalirPantallaCompleta,
             _ => null
         };
 
@@ -312,6 +330,17 @@ internal static class ComandoMultimedia
                 break;
         }
 
+        if (tipo is AccionComandoMultimedia.PantallaCompleta
+                or AccionComandoMultimedia.SalirPantallaCompleta
+            && aplicacion.Length > 0
+            && !EsNombreNavegador(
+                Normalizar(aplicacion)))
+        {
+            error =
+                "La pantalla completa sólo admite --app browser o un navegador conocido.";
+            return false;
+        }
+
         opciones = new OpcionesComandoMultimedia(
             tipo.Value,
             aplicacion,
@@ -319,6 +348,267 @@ internal static class ComandoMultimedia
             modo);
         error = string.Empty;
         return true;
+    }
+
+    private static async Task<int> EjecutarPantallaCompletaAsync(
+        OpcionesComandoMultimedia opciones,
+        TextWriter salida,
+        TextWriter error)
+    {
+        string aplicacion =
+            Normalizar(opciones.Aplicacion);
+
+        if (aplicacion.Length > 0
+            && !EsNombreNavegador(aplicacion))
+        {
+            await error.WriteLineAsync(
+                JsonSerializer.Serialize(
+                    new
+                    {
+                        correcto = false,
+                        detalle =
+                            "La pantalla completa mediante F está disponible únicamente para navegadores."
+                    }));
+            return 4;
+        }
+
+        nint ventana =
+            BuscarVentanaNavegador(
+                aplicacion);
+
+        if (ventana == nint.Zero)
+        {
+            await error.WriteLineAsync(
+                JsonSerializer.Serialize(
+                    new
+                    {
+                        correcto = false,
+                        detalle =
+                            "No se encontró una ventana de navegador abierta."
+                    }));
+            return 4;
+        }
+
+        if (!ActivarVentana(ventana))
+        {
+            await error.WriteLineAsync(
+                JsonSerializer.Serialize(
+                    new
+                    {
+                        correcto = false,
+                        detalle =
+                            "Windows no permitió activar la ventana del navegador."
+                    }));
+            return 4;
+        }
+
+        await Task.Delay(120);
+        ushort tecla =
+            opciones.Accion
+            == AccionComandoMultimedia.PantallaCompleta
+                ? VkF
+                : VkEscape;
+        bool enviado =
+            EnviarTecla(tecla);
+        TextWriter destino =
+            enviado ? salida : error;
+        await destino.WriteLineAsync(
+            JsonSerializer.Serialize(
+                new
+                {
+                    correcto = enviado,
+                    detalle = enviado
+                        ? opciones.Accion
+                          == AccionComandoMultimedia
+                              .PantallaCompleta
+                            ? "Se envió al navegador la orden de poner el vídeo en pantalla completa."
+                            : "Se envió al navegador la orden de salir de la pantalla completa."
+                        : "Windows no aceptó el envío de la tecla al navegador."
+                }));
+        return enviado ? 0 : 4;
+    }
+
+    private static nint BuscarVentanaNavegador(
+        string aplicacion)
+    {
+        nint primerPlano =
+            GetForegroundWindow();
+
+        if (EsVentanaNavegador(
+                primerPlano,
+                aplicacion))
+        {
+            return primerPlano;
+        }
+
+        foreach (string proceso in ObtenerProcesosNavegador(
+                     aplicacion))
+        {
+            foreach (Process candidato in
+                     Process.GetProcessesByName(proceso))
+            {
+                using (candidato)
+                {
+                    if (candidato.MainWindowHandle
+                        != nint.Zero)
+                    {
+                        return candidato.MainWindowHandle;
+                    }
+                }
+            }
+        }
+
+        return nint.Zero;
+    }
+
+    private static bool EsVentanaNavegador(
+        nint ventana,
+        string aplicacion)
+    {
+        if (ventana == nint.Zero)
+        {
+            return false;
+        }
+
+        GetWindowThreadProcessId(
+            ventana,
+            out uint idProceso);
+
+        try
+        {
+            using Process proceso =
+                Process.GetProcessById(
+                    checked((int)idProceso));
+            string nombre =
+                Normalizar(proceso.ProcessName);
+            return ObtenerProcesosNavegador(
+                    aplicacion)
+                .Contains(
+                    nombre,
+                    StringComparer.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static IReadOnlyList<string>
+        ObtenerProcesosNavegador(
+            string aplicacion)
+    {
+        if (aplicacion is "edge" or "microsoftedge")
+        {
+            return ["msedge"];
+        }
+
+        if (aplicacion is "googlechrome")
+        {
+            return ["chrome"];
+        }
+
+        if (aplicacion.Length > 0
+            && aplicacion != "browser")
+        {
+            return [aplicacion];
+        }
+
+        return
+        [
+            "msedge",
+            "chrome",
+            "firefox",
+            "brave",
+            "opera",
+            "opera_gx",
+            "vivaldi"
+        ];
+    }
+
+    private static bool ActivarVentana(
+        nint ventana)
+    {
+        if (IsIconic(ventana))
+        {
+            ShowWindowAsync(
+                ventana,
+                SwRestore);
+        }
+
+        nint primerPlano =
+            GetForegroundWindow();
+        uint hiloActual =
+            GetCurrentThreadId();
+        uint hiloPrimerPlano =
+            primerPlano == nint.Zero
+                ? 0
+                : GetWindowThreadProcessId(
+                    primerPlano,
+                    out _);
+        bool adjunto = false;
+
+        try
+        {
+            if (hiloPrimerPlano != 0
+                && hiloPrimerPlano != hiloActual)
+            {
+                adjunto =
+                    AttachThreadInput(
+                        hiloActual,
+                        hiloPrimerPlano,
+                        true);
+            }
+
+            BringWindowToTop(ventana);
+            return SetForegroundWindow(ventana)
+                   || GetForegroundWindow() == ventana;
+        }
+        finally
+        {
+            if (adjunto)
+            {
+                AttachThreadInput(
+                    hiloActual,
+                    hiloPrimerPlano,
+                    false);
+            }
+        }
+    }
+
+    private static bool EnviarTecla(
+        ushort tecla)
+    {
+        Input[] entradas =
+        [
+            new()
+            {
+                Tipo = InputKeyboard,
+                Datos = new InputUnion
+                {
+                    Teclado = new KeyboardInput
+                    {
+                        TeclaVirtual = tecla
+                    }
+                }
+            },
+            new()
+            {
+                Tipo = InputKeyboard,
+                Datos = new InputUnion
+                {
+                    Teclado = new KeyboardInput
+                    {
+                        TeclaVirtual = tecla,
+                        Banderas = KeyEventKeyUp
+                    }
+                }
+            }
+        ];
+        return SendInput(
+                   checked((uint)entradas.Length),
+                   entradas,
+                   Marshal.SizeOf<Input>())
+               == entradas.Length;
     }
 
     private static async Task<bool> EjecutarAccionAsync(
@@ -443,6 +733,23 @@ internal static class ComandoMultimedia
             .Any(origen.Contains);
     }
 
+    private static bool EsNombreNavegador(
+        string nombre)
+    {
+        return nombre is
+            "browser"
+            or "edge"
+            or "microsoftedge"
+            or "msedge"
+            or "googlechrome"
+            or "chrome"
+            or "firefox"
+            or "brave"
+            or "opera"
+            or "opera_gx"
+            or "vivaldi";
+    }
+
     private static async Task<object> CrearResumenAsync(
         GlobalSystemMediaTransportControlsSession sesion)
     {
@@ -507,6 +814,106 @@ internal static class ComandoMultimedia
             }
         };
     }
+
+    private const uint InputKeyboard = 1;
+    private const uint KeyEventKeyUp = 0x0002;
+    private const ushort VkF = 0x46;
+    private const ushort VkEscape = 0x1B;
+    private const int SwRestore = 9;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Input
+    {
+        public uint Tipo;
+        public InputUnion Datos;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    private struct InputUnion
+    {
+        [FieldOffset(0)]
+        public MouseInput Raton;
+
+        [FieldOffset(0)]
+        public KeyboardInput Teclado;
+
+        [FieldOffset(0)]
+        public HardwareInput Hardware;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MouseInput
+    {
+        public int X;
+        public int Y;
+        public uint Datos;
+        public uint Banderas;
+        public uint Tiempo;
+        public nuint InformacionExtra;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KeyboardInput
+    {
+        public ushort TeclaVirtual;
+        public ushort CodigoExploracion;
+        public uint Banderas;
+        public uint Tiempo;
+        public nuint InformacionExtra;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct HardwareInput
+    {
+        public uint Mensaje;
+        public ushort ParametroBajo;
+        public ushort ParametroAlto;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern uint SendInput(
+        uint cantidad,
+        [In] Input[] entradas,
+        int tamano);
+
+    [DllImport("user32.dll")]
+    private static extern nint GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(
+        nint ventana,
+        out uint procesoId);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(
+        nint ventana);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool BringWindowToTop(
+        nint ventana);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AttachThreadInput(
+        uint hiloOrigen,
+        uint hiloDestino,
+        [MarshalAs(UnmanagedType.Bool)] bool adjuntar);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShowWindowAsync(
+        nint ventana,
+        int comando);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsIconic(
+        nint ventana);
 
     private static string Normalizar(
         string texto)

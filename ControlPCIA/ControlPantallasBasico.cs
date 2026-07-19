@@ -25,6 +25,11 @@ internal static class ControlPantallasBasico
         RegexOptions.CultureInvariant
         | RegexOptions.Compiled);
 
+    private static readonly Regex EscalaNumerica = new(
+        @"\b(?<escala>100|125|150|175|200|225|250|300|350|400|450|500)\s*(?:%|por\s+ciento)\b",
+        RegexOptions.CultureInvariant
+        | RegexOptions.Compiled);
+
     private static readonly Regex PosicionNumerica = new(
         @"\bx\s*(?<x>-?\d+)\s*(?:,|y)?\s*y\s*(?<y>-?\d+)\b",
         RegexOptions.CultureInvariant
@@ -104,6 +109,23 @@ internal static class ControlPantallasBasico
             return Crear(
                 "topology external",
                 "usar únicamente la pantalla externa");
+        }
+
+        Match escala =
+            EscalaNumerica.Match(texto);
+
+        if (escala.Success
+            && Regex.IsMatch(
+                texto,
+                @"\b(?:escala|escalado|tamano)\b",
+                RegexOptions.CultureInvariant))
+        {
+            string selector = ObtenerSelector(texto);
+            string porcentaje =
+                escala.Groups["escala"].Value;
+            return Crear(
+                $"scale {selector} {porcentaje}",
+                $"poner la escala de la pantalla {DescribirSelector(selector)} al {porcentaje}%");
         }
 
         Match resolucion =
@@ -361,7 +383,7 @@ internal static class ControlPantallasBasico
     {
         return Regex.IsMatch(
             texto,
-            @"\b(?:pantallas?|monitor(?:es)?|escritorio|resolucion(?:es)?|definicion|frecuencia|refresco|hercios|hz|orientacion)\b",
+            @"\b(?:pantallas?|monitor(?:es)?|escritorio|resolucion(?:es)?|definicion|frecuencia|refresco|hercios|hz|orientacion|escala|escalado)\b",
             RegexOptions.CultureInvariant);
     }
 
@@ -571,7 +593,19 @@ internal static class ControlPantallasBasico
                     mensaje.Append(" a ");
                     mensaje.Append(
                         pantalla.GetProperty("Frecuencia").GetInt32());
-                    mensaje.Append(" Hz, posición ");
+                    mensaje.Append(" Hz");
+                    if (pantalla.TryGetProperty(
+                            "Escala",
+                            out JsonElement escala)
+                        && escala.ValueKind
+                        == JsonValueKind.Number)
+                    {
+                        mensaje.Append(", escala ");
+                        mensaje.Append(
+                            escala.GetInt32());
+                        mensaje.Append('%');
+                    }
+                    mensaje.Append(", posición ");
                     mensaje.Append(
                         pantalla.GetProperty("X").GetInt32());
                     mensaje.Append(',');

@@ -29,17 +29,6 @@ internal static class ControlMultimediaBasico
             return null;
         }
 
-        if (Regex.IsMatch(
-                texto,
-                @"\b(?:pantalla\s+completa|modo\s+pantalla\s+completa|fullscreen)\b",
-                RegexOptions.CultureInvariant))
-        {
-            return new PeticionBasica(
-                TipoPeticionBasica.NoCompatible,
-                Motivo:
-                    "Puedo controlar la reproducción publicada por Windows, pero esa API no permite poner el contenido del navegador en pantalla completa. No simularé una tecla ni afirmaré que se hizo.");
-        }
-
         string aplicacion =
             ObtenerAplicacion(texto);
         string argumentoAplicacion =
@@ -54,6 +43,34 @@ internal static class ControlMultimediaBasico
                 : aplicacion == "browser"
                     ? "el navegador"
                     : aplicacion;
+
+        if (Regex.IsMatch(
+                texto,
+                @"\b(?:pantalla\s+completa|modo\s+pantalla\s+completa|fullscreen)\b",
+                RegexOptions.CultureInvariant))
+        {
+            bool salir =
+                Regex.IsMatch(
+                    texto,
+                    @"\b(?:sal|salir|quita|quitar|desactiva|desactivar|cierra|cerrar)\b",
+                    RegexOptions.CultureInvariant);
+            string navegador =
+                aplicacion.Length == 0
+                    ? "browser"
+                    : aplicacion;
+            string argumentoNavegador =
+                " --app "
+                + EscaparLiteralPowerShell(
+                    navegador);
+            return Crear(
+                (salir
+                    ? "exit-fullscreen"
+                    : "fullscreen")
+                + argumentoNavegador,
+                salir
+                    ? $"salir de la pantalla completa en {descripcionAplicacion}"
+                    : $"poner el vídeo en pantalla completa en {descripcionAplicacion}");
+        }
 
         if (Regex.IsMatch(
                 texto,

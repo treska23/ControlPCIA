@@ -1,6 +1,9 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Windows.Win32;
+using Windows.Win32.Devices.Display;
+using Windows.Win32.Foundation;
 
 namespace ControlPCIA;
 
@@ -11,6 +14,7 @@ internal enum AccionComandoPantalla
     EstablecerPrincipal,
     CambiarResolucion,
     CambiarFrecuencia,
+    CambiarEscala,
     Activar,
     Desactivar,
     CambiarTopologia,
@@ -54,7 +58,8 @@ internal sealed record OpcionesComandoPantalla(
     TopologiaPantallas? Topologia = null,
     OrientacionPantalla? Orientacion = null,
     PosicionRelativaPantalla? PosicionRelativa = null,
-    string PantallaReferencia = "");
+    string PantallaReferencia = "",
+    int? Escala = null);
 
 internal sealed record PantallaWindows(
     int Numero,
@@ -68,7 +73,8 @@ internal sealed record PantallaWindows(
     int Ancho,
     int Alto,
     int Frecuencia,
-    int Orientacion);
+    int Orientacion,
+    int? Escala);
 
 internal sealed record ModoPantalla(
     int Ancho,
@@ -160,7 +166,7 @@ internal static class ComandoPantallas
         if (argumentos.Count == 0)
         {
             error =
-                "Uso: ControlPCIA.exe display list|modes|primary|resolution|frequency|enable|disable|topology|orientation|position|place.";
+                "Uso: ControlPCIA.exe display list|modes|primary|resolution|frequency|scale|enable|disable|topology|orientation|position|place.";
             return false;
         }
 
@@ -259,6 +265,25 @@ internal static class ComandoPantallas
                     AccionComandoPantalla.CambiarFrecuencia,
                     argumentos[1],
                     Frecuencia: frecuencia);
+                error = string.Empty;
+                return true;
+
+            case "scale":
+                if (argumentos.Count != 3
+                    || !TryEnteroPositivo(
+                        argumentos[2],
+                        out int escala)
+                    || !EscalasDpi.Contains(escala))
+                {
+                    error =
+                        "Uso: display scale <pantalla> <porcentaje>.";
+                    return false;
+                }
+
+                opciones = new OpcionesComandoPantalla(
+                    AccionComandoPantalla.CambiarEscala,
+                    argumentos[1],
+                    Escala: escala);
                 error = string.Empty;
                 return true;
 
@@ -484,6 +509,11 @@ internal static class ComandoPantallas
                     modo,
                     opciones.Frecuencia!.Value);
 
+            case AccionComandoPantalla.CambiarEscala:
+                return CambiarEscala(
+                    pantalla,
+                    opciones.Escala!.Value);
+
             case AccionComandoPantalla.CambiarOrientacion:
                 return CambiarOrientacion(
                     pantalla,
@@ -600,6 +630,152 @@ internal static class ComandoPantallas
             "Windows aceptó la nueva frecuencia de la pantalla.");
     }
 
+    private static ResultadoOperacion CambiarEscala(
+        PantallaWindows pantalla,
+        int porcentaje)
+    {
+        int indiceEscala =
+            Array.IndexOf(
+                EscalasDpi,
+                porcentaje);
+
+        if (indiceEscala < 0)
+        {
+            return Incorrecto(
+                "La escala debe ser 100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450 o 500 por ciento.");
+        }
+
+        if (!TryObtenerOrigenDisplayConfig(
+                pantalla.Dispositivo,
+                out DISPLAYCONFIG_PATH_SOURCE_INFO origen,
+                out int codigoOrigen))
+        {
+            return ResultadoCodigoWindows(
+                codigoOrigen,
+                false,
+                $"Windows no pudo localizar la pantalla {pantalla.Numero} para cambiar su escala.");
+        }
+
+        DisplayConfigSourceDpiScaleGet consulta =
+            new()
+            {
+                Header = new DisplayConfigDeviceInfoHeaderDpi
+                {
+                    Type = DisplayConfigDeviceInfoGetDpiScale,
+                    Size = checked((uint)Marshal.SizeOf<
+                        DisplayConfigSourceDpiScaleGet>()),
+                    AdapterId = origen.adapterId,
+                    Id = origen.id
+                }
+            };
+        int codigoConsulta =
+            DisplayConfigGetDeviceInfoDpi(
+                ref consulta);
+
+        if (codigoConsulta != 0)
+        {
+            return ResultadoCodigoWindows(
+                codigoConsulta,
+                false,
+                $"Windows no pudo consultar las escalas admitidas por la pantalla {pantalla.Numero}.");
+        }
+
+        int indiceRecomendado =
+            -consulta.MinScaleRel;
+        int valorRelativo =
+            indiceEscala
+            - indiceRecomendado;
+
+        if (valorRelativo < consulta.MinScaleRel
+            || valorRelativo > consulta.MaxScaleRel)
+        {
+            int minimo =
+                EscalaDesdeIndiceRelativo(
+                    indiceRecomendado,
+                    consulta.MinScaleRel);
+            int maximo =
+                EscalaDesdeIndiceRelativo(
+                    indiceRecomendado,
+                    consulta.MaxScaleRel);
+            return Incorrecto(
+                $"La pantalla {pantalla.Numero} admite una escala entre {minimo}% y {maximo}%.");
+        }
+
+        DisplayConfigSourceDpiScaleSet cambio =
+            new()
+            {
+                Header = new DisplayConfigDeviceInfoHeaderDpi
+                {
+                    Type = DisplayConfigDeviceInfoSetDpiScale,
+                    Size = checked((uint)Marshal.SizeOf<
+                        DisplayConfigSourceDpiScaleSet>()),
+                    AdapterId = origen.adapterId,
+                    Id = origen.id
+                },
+                ScaleRel = valorRelativo
+            };
+        int codigoCambio =
+            DisplayConfigSetDeviceInfoDpi(
+                ref cambio);
+        return ResultadoCodigoWindows(
+            codigoCambio,
+            codigoCambio == 0,
+            codigoCambio == 0
+                ? $"Windows aceptó la escala del {porcentaje}% para la pantalla {pantalla.Numero}."
+                : $"Windows rechazó la escala del {porcentaje}% para la pantalla {pantalla.Numero}.");
+    }
+
+    private static int? ObtenerEscalaActual(
+        string dispositivo)
+    {
+        if (!TryObtenerOrigenDisplayConfig(
+                dispositivo,
+                out DISPLAYCONFIG_PATH_SOURCE_INFO origen,
+                out _))
+        {
+            return null;
+        }
+
+        DisplayConfigSourceDpiScaleGet consulta =
+            new()
+            {
+                Header = new DisplayConfigDeviceInfoHeaderDpi
+                {
+                    Type = DisplayConfigDeviceInfoGetDpiScale,
+                    Size = checked((uint)Marshal.SizeOf<
+                        DisplayConfigSourceDpiScaleGet>()),
+                    AdapterId = origen.adapterId,
+                    Id = origen.id
+                }
+            };
+
+        if (DisplayConfigGetDeviceInfoDpi(
+                ref consulta) != 0)
+        {
+            return null;
+        }
+
+        int indice =
+            -consulta.MinScaleRel
+            + consulta.CurScaleRel;
+        return indice >= 0
+               && indice < EscalasDpi.Length
+            ? EscalasDpi[indice]
+            : null;
+    }
+
+    private static int EscalaDesdeIndiceRelativo(
+        int indiceRecomendado,
+        int relativo)
+    {
+        int indice =
+            Math.Clamp(
+                indiceRecomendado + relativo,
+                0,
+                EscalasDpi.Length - 1);
+        return EscalasDpi[indice];
+    }
+
     private static ResultadoOperacion CambiarOrientacion(
         PantallaWindows pantalla,
         DevMode modo,
@@ -646,61 +822,277 @@ internal static class ComandoPantallas
                 $"La pantalla {objetivo.Numero} ya es la principal.");
         }
 
-        var cambios = new List<(PantallaWindows Pantalla, DevMode Modo)>();
+        const QUERY_DISPLAY_CONFIG_FLAGS banderasConsulta =
+            QUERY_DISPLAY_CONFIG_FLAGS.QDC_ONLY_ACTIVE_PATHS;
+        DISPLAYCONFIG_PATH_INFO[] rutas = [];
+        DISPLAYCONFIG_MODE_INFO[] modos = [];
+        uint cantidadRutas = 0;
+        uint cantidadModos = 0;
+        WIN32_ERROR codigoConsulta =
+            WIN32_ERROR.ERROR_INSUFFICIENT_BUFFER;
 
-        foreach (PantallaWindows pantalla in pantallas.Where(
-                     candidata => candidata.Activa))
+        for (int intento = 0;
+             intento < 3
+             && codigoConsulta
+             == WIN32_ERROR.ERROR_INSUFFICIENT_BUFFER;
+             intento++)
         {
-            if (!TryObtenerModo(
-                    pantalla.Dispositivo,
-                    EnumCurrentSettings,
-                    out DevMode modo))
+            WIN32_ERROR codigoTamano =
+                PInvoke.GetDisplayConfigBufferSizes(
+                    banderasConsulta,
+                    out cantidadRutas,
+                    out cantidadModos);
+
+            if (codigoTamano != WIN32_ERROR.ERROR_SUCCESS)
             {
-                return Incorrecto(
-                    $"No se pudo leer la posición de la pantalla {pantalla.Numero}.");
-            }
-
-            modo.DmPositionX -= objetivo.X;
-            modo.DmPositionY -= objetivo.Y;
-            modo.DmFields = DmPosition;
-            cambios.Add((pantalla, modo));
-        }
-
-        foreach ((PantallaWindows pantalla, DevMode modoInicial) in cambios)
-        {
-            DevMode modo = modoInicial;
-            uint banderas =
-                CdsUpdateRegistry
-                | CdsNoReset
-                | (pantalla.Numero == objetivo.Numero
-                    ? CdsSetPrimary
-                    : 0);
-            int codigo = ChangeDisplaySettingsEx(
-                pantalla.Dispositivo,
-                ref modo,
-                nint.Zero,
-                banderas,
-                nint.Zero);
-
-            if (!CodigoAceptado(codigo))
-            {
-                return ResultadoCambioPantalla(
-                    codigo,
+                return ResultadoCodigoWindows(
+                    unchecked((int)(uint)codigoTamano),
                     false,
-                    $"Windows rechazó la posición necesaria para convertir la pantalla {objetivo.Numero} en principal.");
+                    "Windows no pudo calcular la configuración activa de las pantallas.");
+            }
+
+            rutas =
+                new DISPLAYCONFIG_PATH_INFO[cantidadRutas];
+            modos =
+                new DISPLAYCONFIG_MODE_INFO[cantidadModos];
+            codigoConsulta =
+                PInvoke.QueryDisplayConfig(
+                    banderasConsulta,
+                    ref cantidadRutas,
+                    rutas,
+                    ref cantidadModos,
+                    modos);
+        }
+
+        if (codigoConsulta != WIN32_ERROR.ERROR_SUCCESS)
+        {
+            return ResultadoCodigoWindows(
+                unchecked((int)(uint)codigoConsulta),
+                false,
+                "Windows no pudo leer la configuración activa de las pantallas.");
+        }
+
+        Array.Resize(
+            ref rutas,
+            checked((int)cantidadRutas));
+        Array.Resize(
+            ref modos,
+            checked((int)cantidadModos));
+
+        int indiceObjetivo = -1;
+
+        for (int indice = 0;
+             indice < rutas.Length;
+             indice++)
+        {
+            string? dispositivo =
+                ObtenerNombreDispositivoGdi(
+                    rutas[indice].sourceInfo);
+
+            if (string.Equals(
+                    dispositivo,
+                    objetivo.Dispositivo,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                indiceObjetivo = indice;
+                break;
             }
         }
 
-        int aplicar = ChangeDisplaySettingsEx(
-            null,
-            nint.Zero,
-            nint.Zero,
-            0,
-            nint.Zero);
-        return ResultadoCambioPantalla(
-            aplicar,
-            CodigoAceptado(aplicar),
-            $"Windows aceptó la pantalla {objetivo.Numero} como principal.");
+        if (indiceObjetivo < 0)
+        {
+            return Incorrecto(
+                $"Windows no encontró la pantalla {objetivo.Numero} dentro de la topología activa.");
+        }
+
+        uint indiceModoObjetivo =
+            rutas[indiceObjetivo].sourceInfo.modeInfoIdx;
+
+        if (indiceModoObjetivo >= modos.Length
+            || modos[indiceModoObjetivo].infoType
+            != DISPLAYCONFIG_MODE_INFO_TYPE
+                .DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE)
+        {
+            return Incorrecto(
+                $"Windows no devolvió una posición válida para la pantalla {objetivo.Numero}.");
+        }
+
+        int desplazamientoX =
+            modos[indiceModoObjetivo]
+                .sourceMode
+                .position
+                .x;
+        int desplazamientoY =
+            modos[indiceModoObjetivo]
+                .sourceMode
+                .position
+                .y;
+
+        for (int indice = 0;
+             indice < modos.Length;
+             indice++)
+        {
+            if (modos[indice].infoType
+                != DISPLAYCONFIG_MODE_INFO_TYPE
+                    .DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE)
+            {
+                continue;
+            }
+
+            modos[indice].sourceMode.position.x -=
+                desplazamientoX;
+            modos[indice].sourceMode.position.y -=
+                desplazamientoY;
+        }
+
+        if (indiceObjetivo != 0)
+        {
+            DISPLAYCONFIG_PATH_INFO rutaObjetivo =
+                rutas[indiceObjetivo];
+            Array.Copy(
+                rutas,
+                0,
+                rutas,
+                1,
+                indiceObjetivo);
+            rutas[0] = rutaObjetivo;
+        }
+
+        const SET_DISPLAY_CONFIG_FLAGS banderasAplicacion =
+            SET_DISPLAY_CONFIG_FLAGS.SDC_APPLY
+            | SET_DISPLAY_CONFIG_FLAGS.SDC_ALLOW_CHANGES
+            | SET_DISPLAY_CONFIG_FLAGS
+                .SDC_USE_SUPPLIED_DISPLAY_CONFIG
+            | SET_DISPLAY_CONFIG_FLAGS.SDC_SAVE_TO_DATABASE;
+        int codigoAplicacion =
+            PInvoke.SetDisplayConfig(
+                rutas,
+                modos,
+                banderasAplicacion);
+
+        if (codigoAplicacion != 0)
+        {
+            return ResultadoCodigoWindows(
+                codigoAplicacion,
+                false,
+                $"Windows rechazó convertir la pantalla {objetivo.Numero} en principal.");
+        }
+
+        PantallaWindows? resultado =
+            ObtenerPantallas()
+                .FirstOrDefault(
+                    pantalla =>
+                        pantalla.Dispositivo.Equals(
+                            objetivo.Dispositivo,
+                            StringComparison.OrdinalIgnoreCase));
+
+        if (resultado?.Principal != true)
+        {
+            return Incorrecto(
+                $"Windows aceptó la configuración, pero la pantalla {objetivo.Numero} no quedó marcada como principal.");
+        }
+
+        return Correcto(
+            $"La pantalla {objetivo.Numero} es ahora la principal.");
+    }
+
+    private static string? ObtenerNombreDispositivoGdi(
+        DISPLAYCONFIG_PATH_SOURCE_INFO origen)
+    {
+        DISPLAYCONFIG_SOURCE_DEVICE_NAME nombre =
+            default;
+        nombre.header.type =
+            DISPLAYCONFIG_DEVICE_INFO_TYPE
+                .DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+        nombre.header.size =
+            checked((uint)Marshal.SizeOf<
+                DISPLAYCONFIG_SOURCE_DEVICE_NAME>());
+        nombre.header.adapterId = origen.adapterId;
+        nombre.header.id = origen.id;
+        int codigo =
+            PInvoke.DisplayConfigGetDeviceInfo(
+                ref nombre.header);
+        return codigo == 0
+            ? nombre.viewGdiDeviceName.ToString()
+            : null;
+    }
+
+    private static bool TryObtenerOrigenDisplayConfig(
+        string dispositivo,
+        out DISPLAYCONFIG_PATH_SOURCE_INFO origen,
+        out int codigo)
+    {
+        const QUERY_DISPLAY_CONFIG_FLAGS banderas =
+            QUERY_DISPLAY_CONFIG_FLAGS.QDC_ONLY_ACTIVE_PATHS;
+        origen = default;
+        codigo = 0;
+
+        for (int intento = 0;
+             intento < 3;
+             intento++)
+        {
+            WIN32_ERROR codigoTamano =
+                PInvoke.GetDisplayConfigBufferSizes(
+                    banderas,
+                    out uint cantidadRutas,
+                    out uint cantidadModos);
+
+            if (codigoTamano != WIN32_ERROR.ERROR_SUCCESS)
+            {
+                codigo =
+                    unchecked((int)(uint)codigoTamano);
+                return false;
+            }
+
+            var rutas =
+                new DISPLAYCONFIG_PATH_INFO[cantidadRutas];
+            var modos =
+                new DISPLAYCONFIG_MODE_INFO[cantidadModos];
+            WIN32_ERROR codigoConsulta =
+                PInvoke.QueryDisplayConfig(
+                    banderas,
+                    ref cantidadRutas,
+                    rutas,
+                    ref cantidadModos,
+                    modos);
+
+            if (codigoConsulta
+                == WIN32_ERROR.ERROR_INSUFFICIENT_BUFFER)
+            {
+                continue;
+            }
+
+            if (codigoConsulta != WIN32_ERROR.ERROR_SUCCESS)
+            {
+                codigo =
+                    unchecked((int)(uint)codigoConsulta);
+                return false;
+            }
+
+            for (int indice = 0;
+                 indice < cantidadRutas;
+                 indice++)
+            {
+                if (string.Equals(
+                        ObtenerNombreDispositivoGdi(
+                            rutas[indice].sourceInfo),
+                        dispositivo,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    origen =
+                        rutas[indice].sourceInfo;
+                    return true;
+                }
+            }
+
+            codigo = 1168;
+            return false;
+        }
+
+        codigo =
+            unchecked((int)(uint)
+                WIN32_ERROR.ERROR_INSUFFICIENT_BUFFER);
+        return false;
     }
 
     private static ResultadoOperacion Desactivar(
@@ -933,7 +1325,11 @@ internal static class ComandoPantallas
                     modo.DmPelsWidth,
                     modo.DmPelsHeight,
                     modo.DmDisplayFrequency,
-                    modo.DmDisplayOrientation));
+                    modo.DmDisplayOrientation,
+                    activa
+                        ? ObtenerEscalaActual(
+                            adaptador.DeviceName)
+                        : null));
         }
 
         return pantallas;
@@ -1284,6 +1680,50 @@ internal static class ComandoPantallas
         bool Correcto,
         object Contenido);
 
+    private static readonly int[] EscalasDpi =
+    [
+        100,
+        125,
+        150,
+        175,
+        200,
+        225,
+        250,
+        300,
+        350,
+        400,
+        450,
+        500
+    ];
+
+    private const int DisplayConfigDeviceInfoGetDpiScale = -3;
+    private const int DisplayConfigDeviceInfoSetDpiScale = -4;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DisplayConfigDeviceInfoHeaderDpi
+    {
+        public int Type;
+        public uint Size;
+        public LUID AdapterId;
+        public uint Id;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DisplayConfigSourceDpiScaleGet
+    {
+        public DisplayConfigDeviceInfoHeaderDpi Header;
+        public int MinScaleRel;
+        public int CurScaleRel;
+        public int MaxScaleRel;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DisplayConfigSourceDpiScaleSet
+    {
+        public DisplayConfigDeviceInfoHeaderDpi Header;
+        public int ScaleRel;
+    }
+
     [StructLayout(
         LayoutKind.Sequential,
         CharSet = CharSet.Unicode)]
@@ -1407,4 +1847,16 @@ internal static class ComandoPantallas
         uint numModeInfoArrayElements,
         nint modeInfoArray,
         uint flags);
+
+    [DllImport(
+        "user32.dll",
+        EntryPoint = "DisplayConfigGetDeviceInfo")]
+    private static extern int DisplayConfigGetDeviceInfoDpi(
+        ref DisplayConfigSourceDpiScaleGet requestPacket);
+
+    [DllImport(
+        "user32.dll",
+        EntryPoint = "DisplayConfigSetDeviceInfo")]
+    private static extern int DisplayConfigSetDeviceInfoDpi(
+        ref DisplayConfigSourceDpiScaleSet setPacket);
 }

@@ -24,6 +24,8 @@ public sealed class ComandoMultimediaTests
     [InlineData("repeat", "list")]
     [InlineData("repeat", "off")]
     [InlineData("rate", "1.5")]
+    [InlineData("fullscreen", "--app", "browser")]
+    [InlineData("exit-fullscreen", "--app", "edge")]
     public void Analiza_comandos_multimedia_validos(
         params string[] argumentos)
     {
@@ -39,13 +41,13 @@ public sealed class ComandoMultimediaTests
 
     [Theory]
     [InlineData()]
-    [InlineData("fullscreen")]
     [InlineData("seek")]
     [InlineData("seek", "mañana")]
     [InlineData("shuffle", "quizas")]
     [InlineData("repeat", "forever")]
     [InlineData("rate", "0")]
     [InlineData("pause", "--app")]
+    [InlineData("fullscreen", "--app", "spotify")]
     public void Rechaza_comandos_multimedia_invalidos(
         params string[] argumentos)
     {

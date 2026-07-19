@@ -67,12 +67,18 @@ de YouTube. Los esquemas locales como `file:` nunca se abren.
 ## Semántica de pantallas
 
 El agente incorpora `ControlPCIA.exe display`, que usa
-`EnumDisplayDevices`, `EnumDisplaySettings`, `ChangeDisplaySettingsEx` y
-`SetDisplayConfig`. No abre la interfaz de Configuración ni simula entrada.
+`EnumDisplayDevices`, `EnumDisplaySettings`, `ChangeDisplaySettingsEx`,
+`QueryDisplayConfig`, `SetDisplayConfig` y `DisplayConfigSetDeviceInfo`. No
+abre la interfaz de Configuración ni simula entrada.
 
 Admite consulta de pantallas y modos; pantalla principal; resolución;
-frecuencia; activación y desactivación; topología extendida, duplicada,
-interna o externa; orientación; coordenadas y colocación relativa.
+frecuencia; escala por monitor; activación y desactivación; topología
+extendida, duplicada, interna o externa; orientación; coordenadas y colocación
+relativa.
+
+La selección de pantalla principal se ha validado en la topología real de tres
+monitores: cualquier pantalla activa puede pasar a `(0,0)` de forma atómica y
+la consulta posterior confirma cuál quedó como principal.
 
 ## Semántica multimedia
 
@@ -83,19 +89,19 @@ aceptó o rechazó la orden.
 
 Admite play, pausa, alternancia, stop, anterior, siguiente, avance, retroceso,
 posición, velocidad, aleatorio y repetición. Puede elegir Spotify, un navegador
-o la sesión multimedia actual. La pantalla completa interna del vídeo no está
-disponible en esta API y se rechaza sin simular teclas.
+o la sesión multimedia actual. Para la pantalla completa interna del vídeo,
+activa el navegador y envía únicamente `F`; para salir envía `Escape`.
 
 ## Evidencias actuales
 
-- **349/349 pruebas Release correctas**.
+- **355/355 pruebas Release correctas**.
 - APK congelada: versión **1.5.5**, código **15**.
 - SHA-256 de la APK:
   `F7EEA61ED2E2E0EB4D89C3AA33296B13D0B9522806407CA9239BD5D1CEF96198`.
 - Agente instalado en:
   `%LOCALAPPDATA%\ControlPCIA\App`.
 - SHA-256 de la DLL instalada:
-  `21FAFA81EE4E8BBBE6DFFDDA75A95B6F11907D296FF6B4C720896E2C256514E1`.
+  `201601D81EAB9F919EB1751588B214386F4174C3104F77236E352A79754E7EF3`.
 - La DLL instalada coincide byte por byte con la publicación Release.
 - La APK servida por el agente coincide byte por byte con el artefacto 1.5.5.
 - Agente residente activo en `0.0.0.0:5187`.

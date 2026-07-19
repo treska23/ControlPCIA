@@ -49,6 +49,14 @@ public sealed class ControlMultimediaBasicoTests
         {
             "qué canción se está reproduciendo en Spotify",
             "status --app 'spotify'"
+        },
+        {
+            "pon el vídeo de internet en pantalla completa",
+            "fullscreen --app 'browser'"
+        },
+        {
+            "sal de la pantalla completa del vídeo de YouTube",
+            "exit-fullscreen --app 'browser'"
         }
     };
 
@@ -65,22 +73,6 @@ public sealed class ControlMultimediaBasicoTests
             TipoPeticionBasica.ControlarMultimedia,
             resultado.Tipo);
         Assert.Equal(argumentos, resultado.Objetivo);
-    }
-
-    [Fact]
-    public void Pantalla_completa_no_finge_una_accion()
-    {
-        PeticionBasica resultado =
-            ControlBasico.Interpretar(
-                "pon el vídeo de internet en pantalla completa");
-
-        Assert.Equal(
-            TipoPeticionBasica.NoCompatible,
-            resultado.Tipo);
-        Assert.Contains(
-            "no permite",
-            resultado.Motivo,
-            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

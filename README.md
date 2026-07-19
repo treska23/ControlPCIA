@@ -91,6 +91,7 @@ dime qué resoluciones soporta el monitor 2
 pon la pantalla 2 como principal
 cambia la resolución del monitor 2 a 1920 por 1080
 pon la pantalla principal en 4K a 60 Hz
+pon la escala del monitor 3 al 150 por ciento
 desactiva la pantalla 3
 activa el monitor 2
 duplica las pantallas
@@ -107,7 +108,7 @@ Permite:
 
 - listar pantallas activas e inactivas y sus modos compatibles;
 - elegir la pantalla principal;
-- cambiar resolución y frecuencia;
+- cambiar resolución, frecuencia y escala por monitor;
 - activar o desactivar una salida;
 - extender, duplicar, usar sólo la pantalla interna o sólo la externa;
 - cambiar orientación;
@@ -134,6 +135,8 @@ retrocede la reproducción 15 segundos
 qué canción se está reproduciendo en Spotify
 activa el modo aleatorio en Spotify
 repite esta canción
+pon el vídeo de YouTube en pantalla completa
+sal de la pantalla completa del vídeo
 ```
 
 `ControlPCIA.exe media` usa el transporte multimedia global de Windows. Puede
@@ -143,9 +146,11 @@ Las operaciones disponibles dependen de lo que esa aplicación publique:
 reproducir, pausar, alternar, detener, anterior, siguiente, avanzar,
 retroceder, cambiar posición, velocidad, aleatorio y repetición.
 
-Poner el vídeo interno de un navegador en pantalla completa no está expuesto
-por esa API. ControlPCIA devuelve este límite claramente: no simula F11 ni otra
-tecla y no afirma que la acción se haya realizado.
+Para poner el vídeo interno de un navegador en pantalla completa,
+`ControlPCIA.exe media fullscreen --app browser` activa una ventana del
+navegador y envía la tecla `F` mediante la API `SendInput` de Windows. Para
+salir envía `Escape`. Esta excepción está limitada a esos dos comandos: no
+expone escritura de teclas arbitrarias.
 
 ### Encender el PC por voz
 
