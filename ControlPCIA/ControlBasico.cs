@@ -12,6 +12,7 @@ internal enum TipoPeticionBasica
     ConsultarAplicacionesAbiertas,
     AbrirPaginaWeb,
     BuscarEnInternet,
+    GestionarVentanas,
     GestionarPantallas,
     ControlarMultimedia
 }
@@ -36,13 +37,13 @@ internal sealed record DependenciasControlBasico(
 /// <summary>
 /// Núcleo estable de ControlPCIA. No consulta a un modelo y admite una acción
 /// por petición: abrir una aplicación, consultar las aplicaciones abiertas,
-/// abrir una página, buscar en Internet, configurar pantallas o controlar una
-/// sesión multimedia.
+/// abrir una página, buscar en Internet, controlar ventanas, configurar
+/// pantallas o controlar una sesión multimedia.
 /// </summary>
 internal static class ControlBasico
 {
     private const string MensajeCapacidades =
-        "Puedo abrir una aplicación o página web, buscar en Internet, decirte qué aplicaciones están abiertas, configurar las pantallas y controlar la reproducción multimedia.";
+        "Puedo abrir una aplicación o página web, buscar en Internet, decirte qué aplicaciones están abiertas, controlar sus ventanas, configurar las pantallas y controlar la reproducción multimedia.";
 
     private static readonly IReadOnlyDictionary<string, string>
         AliasAplicaciones =
@@ -136,6 +137,13 @@ internal static class ControlBasico
                     dependencias,
                     cancellationToken),
 
+            TipoPeticionBasica.GestionarVentanas =>
+                await ControlVentanasBasico.EjecutarAsync(
+                    peticion,
+                    soloTraducir,
+                    dependencias,
+                    cancellationToken),
+
             TipoPeticionBasica.ControlarMultimedia =>
                 await ControlMultimediaBasico.EjecutarAsync(
                     peticion,
@@ -186,6 +194,14 @@ internal static class ControlBasico
         if (peticionPantallas is not null)
         {
             return peticionPantallas;
+        }
+
+        PeticionBasica? peticionVentanas =
+            ControlVentanasBasico.Interpretar(texto);
+
+        if (peticionVentanas is not null)
+        {
+            return peticionVentanas;
         }
 
         PeticionBasica? peticionWeb =

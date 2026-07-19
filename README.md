@@ -9,6 +9,7 @@ que ya están comprobadas:
 - Consultar qué aplicaciones tienen una ventana abierta.
 - Abrir páginas y realizar búsquedas en el navegador predeterminado.
 - Consultar y cambiar la configuración de las pantallas.
+- Traer, maximizar, minimizar, restaurar, colocar o cerrar ventanas superiores.
 - Consultar y controlar sesiones de reproducción multimedia.
 
 La aplicación Android existente se mantiene sin cambios. El agente de Windows
@@ -81,6 +82,28 @@ La respuesta procede directamente de `Get-Process`, filtrando los procesos con
 una ventana superior visible. No se utilizan capturas, OCR, ratón, teclado
 simulado ni reconocimiento gráfico.
 
+### Controlar ventanas
+
+Ejemplos admitidos:
+
+```text
+trae Microsoft Edge al frente
+maximiza Visual Studio
+minimiza Cubase
+restaura la calculadora
+coloca Edge en x 0 y 20 ancho 1920 alto 1060
+cierra el bloc de notas
+```
+
+`ControlPCIA.exe window` busca ventanas superiores por el título o el nombre
+del proceso y utiliza las API Win32. Puede consultar, activar, maximizar,
+minimizar, restaurar, mover, redimensionar y solicitar un cierre normal. No
+inspecciona el contenido interno, no usa OCR, ratón, teclado ni UI Automation.
+
+Al cerrar, la aplicación conserva la oportunidad de mostrar su aviso de trabajo
+sin guardar. Si la ventana sigue abierta, ControlPCIA devuelve esa situación al
+móvil en vez de afirmar que se ha cerrado.
+
 ### Configurar pantallas
 
 Ejemplos admitidos:
@@ -89,6 +112,7 @@ Ejemplos admitidos:
 qué pantallas tengo conectadas
 dime qué resoluciones soporta el monitor 2
 pon la pantalla 2 como principal
+quiero que la pantalla número tres sea la principal
 cambia la resolución del monitor 2 a 1920 por 1080
 pon la pantalla principal en 4K a 60 Hz
 pon la escala del monitor 3 al 150 por ciento
@@ -99,6 +123,7 @@ extiende el escritorio entre los monitores
 usa solo la pantalla del PC
 pon solo la segunda pantalla
 gira el monitor 2 en vertical
+gira el monitor número tres 270 grados
 coloca la pantalla 2 a la derecha de la pantalla 1
 ```
 
@@ -273,7 +298,10 @@ ControlPCIA.exe "qué programas tengo abiertos"
 - El endpoint móvil no acepta PowerShell arbitrario: el controlador estable
   construye únicamente los comandos necesarios para abrir una aplicación,
   consultar ventanas abiertas, entregar una URL web al navegador, configurar
-  pantallas o controlar sesiones multimedia de Windows.
+  ventanas superiores y pantallas o controlar sesiones multimedia de Windows.
+- La validación de comandos sólo prohíbe tres clases destructivas: eliminar,
+  mover o cortar, y formatear, limpiar o reinicializar unidades. Abrir y crear
+  no están prohibidos.
 - Wake-on-LAN se ejecuta localmente en el teléfono.
 
 ## Alcance deliberadamente no incluido
@@ -285,9 +313,7 @@ Estas funciones no forman parte de la versión estable actual:
 - Control interno de Cubase u otras aplicaciones.
 - Conversación para resolver acciones complejas.
 - Aprendizaje automático de nuevos comandos.
-- Manipulación de ventanas o archivos desde el móvil.
-- Pantalla completa interna de un vídeo del navegador, porque la API
-  multimedia de Windows no la expone.
+- Apertura y creación general de archivos desde el móvil.
 
 El código experimental anterior se conserva en el repositorio para poder
 retomarlo en el futuro, pero no está conectado al servidor ni a la consola
@@ -300,15 +326,15 @@ dotnet test tests\ControlPCIA.Tests\ControlPCIA.Tests.csproj `
   --configuration Release
 ```
 
-La batería actual contiene **349 pruebas**. Cubre el controlador básico,
+La batería actual contiene **369 pruebas**. Cubre el controlador básico,
 inventario de aplicaciones, errores de PowerShell, Wake-on-LAN, reconocimiento
 de la orden de encendido, gesto de voz, cancelación, emparejado, sesiones,
 red privada, servidor, validador y el código experimental conservado. Incluye
 una regresión específica para impedir que «Explorador de Windows» vuelva a
 resolverse como Click to Do, además de páginas, dominios, búsquedas normales y
 búsquedas en YouTube. Las pruebas nuevas cubren la traducción y validación de
-órdenes de pantallas y multimedia sin aplicar cambios reales al escritorio ni
-a la reproducción.
+órdenes de pantallas, ventanas y multimedia sin aplicar cambios reales al
+escritorio ni a la reproducción.
 
 ## Componentes
 
@@ -317,6 +343,8 @@ a la reproducción.
   predeterminado sin inspeccionarlo.
 - `ControlPantallasBasico.cs`: traduce lenguaje natural de pantallas.
 - `ComandoPantallas.cs`: consulta y configura pantallas mediante Win32.
+- `ControlVentanasBasico.cs`: traduce lenguaje natural de ventanas superiores.
+- `ComandoVentanas.cs`: consulta y controla ventanas superiores mediante Win32.
 - `ControlMultimediaBasico.cs`: traduce las órdenes de reproducción.
 - `ComandoMultimedia.cs`: usa las sesiones multimedia globales de Windows.
 - `InventarioAplicaciones.cs`: obtiene aplicaciones reales con

@@ -30,6 +30,19 @@ if (args.Length > 0
 
 if (args.Length > 0
     && args[0].Equals(
+        "window",
+        StringComparison.OrdinalIgnoreCase))
+{
+    Environment.ExitCode =
+        await ComandoVentanas.EjecutarAsync(
+            args.Skip(1).ToArray(),
+            Console.Out,
+            Console.Error);
+    return;
+}
+
+if (args.Length > 0
+    && args[0].Equals(
         "media",
         StringComparison.OrdinalIgnoreCase))
 {

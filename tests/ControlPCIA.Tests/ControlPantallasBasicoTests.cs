@@ -19,6 +19,14 @@ public sealed class ControlPantallasBasicoTests
             "primary 2"
         },
         {
+            "quiero que la pantalla número tres sea la principal",
+            "primary 3"
+        },
+        {
+            "usa el monitor dos como principal",
+            "primary 2"
+        },
+        {
             "cambia la resolución del monitor 2 a 1920 por 1080",
             "resolution 2 1920 1080"
         },
@@ -35,12 +43,20 @@ public sealed class ControlPantallasBasicoTests
             "scale 3 150"
         },
         {
+            "cambia el zoom de la pantalla número uno al 125%",
+            "scale 1 125"
+        },
+        {
             "desactiva la pantalla 3",
             "disable 3"
         },
         {
             "vuelve a activar el monitor 2",
             "enable 2"
+        },
+        {
+            "reactiva la pantalla cuatro",
+            "enable 4"
         },
         {
             "duplica las pantallas",
@@ -59,12 +75,20 @@ public sealed class ControlPantallasBasicoTests
             "topology external"
         },
         {
+            "usa únicamente el proyector",
+            "topology external"
+        },
+        {
             "gira el monitor 2 en vertical",
             "orientation 2 portrait"
         },
         {
             "pon la pantalla 1 horizontal invertida",
             "orientation 1 landscape-flipped"
+        },
+        {
+            "gira el monitor número tres 270 grados",
+            "orientation 3 portrait-flipped"
         },
         {
             "coloca la pantalla 2 en x -1920 y 0",

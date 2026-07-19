@@ -4,9 +4,10 @@
 
 ## Decisión de producto
 
-La aplicación queda terminada, por ahora, únicamente con las funciones que ya
-han demostrado un comportamiento estable. No se borra el trabajo experimental,
-pero tampoco se ejecuta desde la APK ni desde el flujo principal.
+La aplicación mantiene activas todas las funciones que ya han demostrado un
+comportamiento estable mientras se incorporan las siguientes capacidades de
+forma incremental. El trabajo experimental no se borra, pero tampoco se conecta
+a la APK hasta que su comportamiento esté validado.
 
 Flujo activo:
 
@@ -36,6 +37,8 @@ Ollama, Llama y Qwen no participan en este flujo.
 10. Consultar y configurar pantallas mediante las API de Windows.
 11. Controlar la reproducción de una sesión multimedia actual, de Spotify o
     de un navegador.
+12. Consultar, traer, maximizar, minimizar, restaurar, colocar y cerrar ventanas
+    superiores mediante las API de Windows.
 
 ## Semántica de apertura
 
@@ -50,9 +53,9 @@ Sólo comunica:
 
 ## Funciones conservadas pero inactivas
 
-El repositorio mantiene el traductor local, memoria, control de ventanas,
-validación avanzada y sus pruebas. No se han borrado. Permanecen desconectados
-del servidor y de `Program.cs` hasta que se decida retomarlos individualmente.
+El repositorio mantiene el traductor local, memoria y validación avanzada con
+sus pruebas. No se han borrado. Permanecen desconectados del servidor hasta que
+se decida retomarlos individualmente.
 
 ## Semántica web
 
@@ -80,6 +83,17 @@ La selección de pantalla principal se ha validado en la topología real de tres
 monitores: cualquier pantalla activa puede pasar a `(0,0)` de forma atómica y
 la consulta posterior confirma cuál quedó como principal.
 
+## Semántica de ventanas
+
+El agente incorpora `ControlPCIA.exe window`. Consulta ventanas superiores por
+título o proceso y puede traerlas al frente, maximizar, minimizar, restaurar,
+mover, redimensionar y solicitar su cierre normal mediante Win32. No inspecciona
+su contenido y no utiliza OCR, ratón, teclado ni UI Automation.
+
+Después de un cierre espera la respuesta de la aplicación. Si la ventana sigue
+abierta —por ejemplo, porque hay trabajo sin guardar— devuelve el error real al
+móvil en vez de asegurar que la tarea se completó.
+
 ## Semántica multimedia
 
 El agente incorpora `ControlPCIA.exe media`, basado en
@@ -94,14 +108,14 @@ activa el navegador y envía únicamente `F`; para salir envía `Escape`.
 
 ## Evidencias actuales
 
-- **355/355 pruebas Release correctas**.
+- **369/369 pruebas Release correctas**.
 - APK congelada: versión **1.5.5**, código **15**.
 - SHA-256 de la APK:
   `F7EEA61ED2E2E0EB4D89C3AA33296B13D0B9522806407CA9239BD5D1CEF96198`.
 - Agente instalado en:
   `%LOCALAPPDATA%\ControlPCIA\App`.
 - SHA-256 de la DLL instalada:
-  `201601D81EAB9F919EB1751588B214386F4174C3104F77236E352A79754E7EF3`.
+  `4E2B3B92F70F7678C93A605C80698C2BB3CC72559DFE72F45935B27ED88A585A`.
 - La DLL instalada coincide byte por byte con la publicación Release.
 - La APK servida por el agente coincide byte por byte con el artefacto 1.5.5.
 - Agente residente activo en `0.0.0.0:5187`.
@@ -132,23 +146,27 @@ activa el navegador y envía únicamente `F`; para salir envía `Escape`.
 - Traducciones de pantalla principal, resolución, frecuencia, orientación,
   posición, topología y desactivación: un único comando y sin ejecución en la
   validación.
+- Consulta Win32 real de ventanas de Edge: correcta, incluyendo estado,
+  coordenadas y ventana en primer plano.
+- Traducciones de primer plano, maximizado, minimizado, restauración, posición
+  y cierre de ventanas: un único comando y sin ejecución en la validación.
 - Consulta multimedia real: Windows publica correctamente la sesión de Edge,
   con metadatos, estado, posición y capacidades de control.
 - Traducción de «pausa el vídeo que estoy viendo por internet»: una llamada a
   la sesión multimedia del navegador, sin ejecutar durante la validación.
 
-## Alcance cerrado de esta versión
+## Siguientes capacidades
 
-No quedan tareas obligatorias dentro del alcance estable descrito. Las
-siguientes capacidades pertenecen a versiones futuras y deberán incorporarse
-de una en una, sin modificar lo que ya funciona:
+Las siguientes capacidades siguen pendientes y deberán incorporarse sin
+modificar lo que ya funciona:
 
 - lenguaje natural general con o sin IA;
 - multitareas;
 - control interno de aplicaciones;
 - aprendizaje de comandos;
 - conversaciones complejas;
-- operaciones sobre archivos y otras configuraciones todavía no incorporadas;
+- apertura y creación de archivos y otras configuraciones todavía no
+  incorporadas;
 - acceso fuera de la red local;
 - instalador firmado para distribución pública.
 

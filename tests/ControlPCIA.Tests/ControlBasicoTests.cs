@@ -54,7 +54,6 @@ public sealed class ControlBasicoTests
 
     [Theory]
     [InlineData("abre Cubase y la calculadora")]
-    [InlineData("cierra Cubase")]
     [InlineData("suma dos más cinco")]
     [InlineData("crea un proyecto nuevo")]
     public void Rechaza_lo_que_aun_no_pertenece_al_nucleo(

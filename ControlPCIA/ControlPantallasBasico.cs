@@ -26,7 +26,7 @@ internal static class ControlPantallasBasico
         | RegexOptions.Compiled);
 
     private static readonly Regex EscalaNumerica = new(
-        @"\b(?<escala>100|125|150|175|200|225|250|300|350|400|450|500)\s*(?:%|por\s+ciento)\b",
+        @"\b(?<escala>100|125|150|175|200|225|250|300|350|400|450|500)\s*(?:%|por\s+ciento)(?=\s|$)",
         RegexOptions.CultureInvariant
         | RegexOptions.Compiled);
 
@@ -73,7 +73,7 @@ internal static class ControlPantallasBasico
 
         if (Regex.IsMatch(
                 texto,
-                @"\b(?:duplica|duplicar|duplicadas?|clona|clonar|espejo)\b",
+                @"\b(?:duplica|duplicar|duplicadas?|clona|clonar|replica|replicar|espejo)\b",
                 RegexOptions.CultureInvariant))
         {
             return Crear(
@@ -83,7 +83,7 @@ internal static class ControlPantallasBasico
 
         if (Regex.IsMatch(
                 texto,
-                @"\b(?:extiende|extender|extendidas?)\b",
+                @"\b(?:extiende|extender|extendidas?|modo\s+extendido)\b",
                 RegexOptions.CultureInvariant))
         {
             return Crear(
@@ -93,7 +93,7 @@ internal static class ControlPantallasBasico
 
         if (Regex.IsMatch(
                 texto,
-                @"\bsolo\b.*\b(?:pantalla\s+del\s+pc|pantalla\s+interna|monitor\s+interno|portatil)\b",
+                @"\b(?:solo|unicamente)\b.*\b(?:pantalla\s+del\s+pc|pantalla\s+interna|monitor\s+interno|portatil)\b",
                 RegexOptions.CultureInvariant))
         {
             return Crear(
@@ -103,7 +103,7 @@ internal static class ControlPantallasBasico
 
         if (Regex.IsMatch(
                 texto,
-                @"\bsolo\b.*\b(?:segunda\s+pantalla|pantalla\s+externa|monitor\s+externo|proyector)\b",
+                @"\b(?:solo|unicamente)\b.*\b(?:segunda\s+pantalla|pantalla\s+externa|monitor\s+externo|proyector|televisor)\b",
                 RegexOptions.CultureInvariant))
         {
             return Crear(
@@ -117,7 +117,7 @@ internal static class ControlPantallasBasico
         if (escala.Success
             && Regex.IsMatch(
                 texto,
-                @"\b(?:escala|escalado|tamano)\b",
+                @"\b(?:escala|escalado|tamano|zoom)\b",
                 RegexOptions.CultureInvariant))
         {
             string selector = ObtenerSelector(texto);
@@ -184,7 +184,7 @@ internal static class ControlPantallasBasico
                 RegexOptions.CultureInvariant)
             && Regex.IsMatch(
                 texto,
-                @"\b(?:pon|poner|haz|hacer|elige|elegir|establece|establecer|configura|cambiar|cambia)\b",
+                @"\b(?:pon|poner|haz|hacer|elige|elegir|establece|establecer|configura|cambiar|cambia|convierte|convertir|usa|usar|quiero|sea)\b",
                 RegexOptions.CultureInvariant))
         {
             string selector =
@@ -205,7 +205,7 @@ internal static class ControlPantallasBasico
 
         if (Regex.IsMatch(
                 texto,
-                @"\b(?:desactiva|desactivar|desconecta|desconectar|inhabilita|inhabilitar|apaga|apagar)\b",
+                @"\b(?:desactiva|desactivar|desconecta|desconectar|deshabilita|deshabilitar|inhabilita|inhabilitar|apaga|apagar)\b",
                 RegexOptions.CultureInvariant))
         {
             string selector = ObtenerSelector(texto);
@@ -216,7 +216,7 @@ internal static class ControlPantallasBasico
 
         if (Regex.IsMatch(
                 texto,
-                @"\b(?:activa|activar|conecta|conectar|habilita|habilitar|enciende|encender)\b",
+                @"\b(?:activa|activar|reactiva|reactivar|conecta|conectar|habilita|habilitar|enciende|encender)\b",
                 RegexOptions.CultureInvariant))
         {
             string selector = ObtenerSelector(texto);
@@ -233,6 +233,21 @@ internal static class ControlPantallasBasico
             string selector = ObtenerSelector(texto);
             string orientacion =
                 Regex.IsMatch(
+                    texto,
+                    @"\b(?:270|doscientos\s+setenta)\s*grados?\b",
+                    RegexOptions.CultureInvariant)
+                    ? "portrait-flipped"
+                    : Regex.IsMatch(
+                        texto,
+                        @"\b(?:180|ciento\s+ochenta)\s*grados?\b",
+                        RegexOptions.CultureInvariant)
+                        ? "landscape-flipped"
+                        : Regex.IsMatch(
+                            texto,
+                            @"\b(?:90|noventa)\s*grados?\b",
+                            RegexOptions.CultureInvariant)
+                            ? "portrait"
+                            : Regex.IsMatch(
                     texto,
                     @"\bvertical\b.*\b(?:invertida|invertido|al\s+reves)\b|\b(?:invertida|invertido|al\s+reves)\b.*\bvertical\b",
                     RegexOptions.CultureInvariant)
@@ -383,7 +398,7 @@ internal static class ControlPantallasBasico
     {
         return Regex.IsMatch(
             texto,
-            @"\b(?:pantallas?|monitor(?:es)?|escritorio|resolucion(?:es)?|definicion|frecuencia|refresco|hercios|hz|orientacion|escala|escalado)\b",
+            @"\b(?:pantallas?|monitor(?:es)?|escritorio|proyector|televisor|resolucion(?:es)?|definicion|frecuencia|refresco|hercios|hz|orientacion|escala|escalado|zoom)\b",
             RegexOptions.CultureInvariant);
     }
 
@@ -392,7 +407,7 @@ internal static class ControlPantallasBasico
     {
         return Regex.IsMatch(
             texto,
-            @"\b(?:pon|poner|haz|hacer|elige|elegir|establece|establecer|configura|configurar|cambia|cambiar|desactiva|desactivar|activa|activar|conecta|conectar|desconecta|desconectar|apaga|apagar|enciende|encender|duplica|duplicar|extiende|extender|coloca|colocar|mueve|mover|gira|girar)\b",
+            @"\b(?:pon|poner|haz|hacer|elige|elegir|establece|establecer|configura|configurar|cambia|cambiar|convierte|convertir|usa|usar|quiero|sea|desactiva|desactivar|deshabilita|deshabilitar|activa|activar|reactiva|reactivar|conecta|conectar|desconecta|desconectar|apaga|apagar|enciende|encender|duplica|duplicar|clona|clonar|replica|replicar|extiende|extender|coloca|colocar|mueve|mover|gira|girar)\b",
             RegexOptions.CultureInvariant);
     }
 
@@ -410,7 +425,7 @@ internal static class ControlPantallasBasico
 
         Match ordinal = Regex.Match(
             texto,
-            @"\b(?:pantalla|monitor)\s+(?<ordinal>uno|una|primera|primero|dos|segunda|segundo|tres|tercera|tercero|cuatro|cuarta|cuarto)\b|\b(?<ordinal2>primera|primer|segunda|segundo|tercera|tercer|cuarta|cuarto)\s+(?:pantalla|monitor)\b",
+            @"\b(?:pantalla|monitor)\s+(?:numero\s+)?(?<ordinal>uno|una|primera|primero|dos|segunda|segundo|tres|tercera|tercero|cuatro|cuarta|cuarto)\b|\b(?<ordinal2>primera|primer|segunda|segundo|tercera|tercer|cuarta|cuarto)\s+(?:pantalla|monitor)\b",
             RegexOptions.CultureInvariant);
 
         if (ordinal.Success)
