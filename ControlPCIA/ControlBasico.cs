@@ -35,10 +35,9 @@ internal sealed record DependenciasControlBasico(
         EjecutarAsync);
 
 /// <summary>
-/// Núcleo estable de ControlPCIA. No consulta a un modelo y admite una acción
-/// por petición: abrir una aplicación, consultar las aplicaciones abiertas,
-/// abrir una página, buscar en Internet, controlar ventanas, configurar
-/// pantallas o controlar una sesión multimedia.
+/// Núcleo estable de ControlPCIA. No consulta a un modelo. Traduce primero
+/// todas las acciones reconocidas de una petición y después las ejecuta en
+/// orden: aplicaciones, consultas, web, ventanas, pantallas y multimedia.
 /// </summary>
 internal static class ControlBasico
 {
@@ -68,6 +67,12 @@ internal static class ControlBasico
 
     private static readonly Regex PrefijoPermitido = new(
         @"^(?:por favor[\s,]*|quiero\s+|quiero\s+que\s+|puedes\s+|podrias\s+|podrías\s+|necesito\s+|me\s+)*$",
+        RegexOptions.IgnoreCase
+        | RegexOptions.CultureInvariant
+        | RegexOptions.Compiled);
+
+    private static readonly Regex SeparadorAcciones = new(
+        @"\s*(?:;|\b(?:y\s+)?(?:después|despues|luego|a\s+continuación|a\s+continuacion)\b)\s*|\s+y\s+(?=(?:abre(?:me)?|abrir|inicia|arranca|ejecuta|lanza|busca|buscar|entra|visita|ve|pon|poner|haz|elige|establece|configura|cambia|convierte|usa|desactiva|deshabilita|activa|reactiva|conecta|desconecta|apaga|enciende|duplica|clona|replica|extiende|coloca|mueve|gira|pausa|para|reanuda|reproduce|maximiza|minimiza|restaura|trae|lleva|cierra|sal|dime|muestra|consulta)\b)",
         RegexOptions.IgnoreCase
         | RegexOptions.CultureInvariant
         | RegexOptions.Compiled);
@@ -104,8 +109,91 @@ internal static class ControlBasico
             DependenciasControlBasico dependencias,
             CancellationToken cancellationToken = default)
     {
-        PeticionBasica peticion =
-            Interpretar(instruccion);
+        IReadOnlyList<string> acciones =
+            DividirAcciones(instruccion);
+
+        if (acciones.Count <= 1)
+        {
+            return await EjecutarPeticionAsync(
+                Interpretar(instruccion),
+                soloTraducir,
+                dependencias,
+                cancellationToken);
+        }
+
+        var preparadas =
+            new List<ResultadoControl>(acciones.Count);
+
+        for (int indice = 0; indice < acciones.Count; indice++)
+        {
+            ResultadoControl preparacion =
+                await EjecutarPeticionAsync(
+                    Interpretar(acciones[indice]),
+                    true,
+                    dependencias,
+                    cancellationToken);
+
+            if (preparacion.Estado
+                != "prueba_sin_ejecucion")
+            {
+                return Error(
+                    preparacion.Estado,
+                    $"No he ejecutado ninguna acción. No puedo preparar la acción {indice + 1} («{acciones[indice]}»): {preparacion.Mensaje}");
+            }
+
+            preparadas.Add(preparacion);
+        }
+
+        if (soloTraducir)
+        {
+            return Combinar(
+                preparadas,
+                false,
+                "prueba_sin_ejecucion",
+                $"He preparado {preparadas.Count} acciones en orden; el modo de prueba no las ejecuta.");
+        }
+
+        var resultados =
+            new List<ResultadoControl>(acciones.Count);
+
+        for (int indice = 0; indice < acciones.Count; indice++)
+        {
+            ResultadoControl resultado =
+                await EjecutarPeticionAsync(
+                    Interpretar(acciones[indice]),
+                    false,
+                    dependencias,
+                    cancellationToken);
+            resultados.Add(resultado);
+
+            if (!resultado.Completado)
+            {
+                return Combinar(
+                    resultados,
+                    false,
+                    resultado.Estado,
+                    $"La acción {indice + 1} no se ha completado: {resultado.Mensaje} No he ejecutado las acciones posteriores.");
+            }
+        }
+
+        return Combinar(
+            resultados,
+            true,
+            "completado",
+            string.Join(
+                Environment.NewLine,
+                resultados.Select(
+                    (resultado, indice) =>
+                        $"{indice + 1}. {resultado.Mensaje}")));
+    }
+
+    private static async Task<ResultadoControl>
+        EjecutarPeticionAsync(
+            PeticionBasica peticion,
+            bool soloTraducir,
+            DependenciasControlBasico dependencias,
+            CancellationToken cancellationToken)
+    {
 
         return peticion.Tipo switch
         {
@@ -155,6 +243,63 @@ internal static class ControlBasico
                 NoCompatible(
                     peticion.Motivo)
         };
+    }
+
+    internal static IReadOnlyList<string> DividirAcciones(
+        string instruccion)
+    {
+        string texto =
+            (instruccion ?? string.Empty).Trim();
+
+        if (texto.Length == 0)
+        {
+            return [string.Empty];
+        }
+
+        string[] partes =
+            SeparadorAcciones.Split(texto);
+
+        if (partes.Length <= 1)
+        {
+            return [texto];
+        }
+
+        string[] acciones = partes
+            .Select(parte => parte.Trim(' ', ',', '.'))
+            .Where(parte => parte.Length > 0)
+            .ToArray();
+        return acciones.Length > 0
+            ? acciones
+            : [texto];
+    }
+
+    private static ResultadoControl Combinar(
+        IReadOnlyList<ResultadoControl> resultados,
+        bool completado,
+        string estado,
+        string mensaje)
+    {
+        var pasos =
+            new List<ResultadoPasoControl>();
+
+        foreach (ResultadoControl resultado in resultados)
+        {
+            foreach (ResultadoPasoControl paso in resultado.Pasos)
+            {
+                pasos.Add(
+                    paso with
+                    {
+                        Numero = pasos.Count + 1
+                    });
+            }
+        }
+
+        return new ResultadoControl(
+            completado,
+            estado,
+            mensaje,
+            pasos,
+            resultados.Any(resultado => resultado.Aprendido));
     }
 
     internal static PeticionBasica Interpretar(

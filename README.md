@@ -5,7 +5,7 @@ funciones de un PC Windows. La versión actual conserva únicamente capacidades
 que ya están comprobadas:
 
 - Encender el PC por voz mediante Wake-on-LAN.
-- Abrir una aplicación instalada, una cada vez.
+- Abrir aplicaciones instaladas.
 - Consultar qué aplicaciones tienen una ventana abierta.
 - Abrir páginas y realizar búsquedas en el navegador predeterminado.
 - Consultar y cambiar la configuración de las pantallas.
@@ -41,8 +41,17 @@ Después de enviarlo:
 - No inspecciona la pantalla, no busca la ventana y no comprueba posteriormente
   si la aplicación está abierta.
 
-La versión estable admite una sola aplicación por petición. Una orden como
-`abre la calculadora y el bloc de notas` se rechaza sin ejecutar nada.
+Una petición puede contener varias acciones claras, por ejemplo:
+
+```text
+abre la calculadora y luego abre YouTube
+pon la pantalla 3 como principal y cambia su resolución a 1920 por 1080
+```
+
+ControlPCIA prepara primero todas las acciones. Si alguna no se puede traducir,
+no ejecuta ninguna. Después las ejecuta en orden y se detiene en el primer error
+real de Windows. No divide expresiones que sólo contienen una conjunción, como
+`busca rock y metal en YouTube`.
 
 ### Abrir páginas y buscar en Internet
 
@@ -326,15 +335,15 @@ dotnet test tests\ControlPCIA.Tests\ControlPCIA.Tests.csproj `
   --configuration Release
 ```
 
-La batería actual contiene **369 pruebas**. Cubre el controlador básico,
+La batería actual contiene **374 pruebas**. Cubre el controlador básico,
 inventario de aplicaciones, errores de PowerShell, Wake-on-LAN, reconocimiento
 de la orden de encendido, gesto de voz, cancelación, emparejado, sesiones,
 red privada, servidor, validador y el código experimental conservado. Incluye
 una regresión específica para impedir que «Explorador de Windows» vuelva a
 resolverse como Click to Do, además de páginas, dominios, búsquedas normales y
 búsquedas en YouTube. Las pruebas nuevas cubren la traducción y validación de
-órdenes de pantallas, ventanas y multimedia sin aplicar cambios reales al
-escritorio ni a la reproducción.
+órdenes compuestas, pantallas, ventanas y multimedia sin aplicar cambios reales
+al escritorio ni a la reproducción.
 
 ## Componentes
 

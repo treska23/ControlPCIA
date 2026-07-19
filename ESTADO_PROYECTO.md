@@ -16,7 +16,7 @@ APK Android 1.5.5
 → red local y emparejado
 → agente residente de Windows
 → ControlBasico
-→ un comando PowerShell conocido
+→ uno o varios comandos conocidos, validados antes de ejecutar
 → stdout, stderr y código de salida
 → respuesta al móvil
 ```
@@ -26,7 +26,7 @@ Ollama, Llama y Qwen no participan en este flujo.
 ## Funciones activas
 
 1. Encender el ordenador por voz mediante Wake-on-LAN desde la APK.
-2. Abrir una aplicación instalada, una aplicación por petición.
+2. Abrir aplicaciones instaladas.
 3. Consultar qué aplicaciones tienen una ventana abierta.
 4. Abrir una página en el navegador predeterminado.
 5. Buscar en Internet, Google, Bing o YouTube.
@@ -39,6 +39,8 @@ Ollama, Llama y Qwen no participan en este flujo.
     de un navegador.
 12. Consultar, traer, maximizar, minimizar, restaurar, colocar y cerrar ventanas
     superiores mediante las API de Windows.
+13. Traducir primero una orden compuesta, ejecutar sus acciones en orden y
+    detenerse ante el primer error.
 
 ## Semántica de apertura
 
@@ -108,14 +110,14 @@ activa el navegador y envía únicamente `F`; para salir envía `Escape`.
 
 ## Evidencias actuales
 
-- **369/369 pruebas Release correctas**.
+- **374/374 pruebas Release correctas**.
 - APK congelada: versión **1.5.5**, código **15**.
 - SHA-256 de la APK:
   `F7EEA61ED2E2E0EB4D89C3AA33296B13D0B9522806407CA9239BD5D1CEF96198`.
 - Agente instalado en:
   `%LOCALAPPDATA%\ControlPCIA\App`.
 - SHA-256 de la DLL instalada:
-  `4E2B3B92F70F7678C93A605C80698C2BB3CC72559DFE72F45935B27ED88A585A`.
+  `CF166F014F162C7F748CBF407556705FF825C4451A1BD214836542FBF13303E1`.
 - La DLL instalada coincide byte por byte con la publicación Release.
 - La APK servida por el agente coincide byte por byte con el artefacto 1.5.5.
 - Agente residente activo en `0.0.0.0:5187`.
@@ -150,6 +152,8 @@ activa el navegador y envía únicamente `F`; para salir envía `Escape`.
   coordenadas y ventana en primer plano.
 - Traducciones de primer plano, maximizado, minimizado, restauración, posición
   y cierre de ventanas: un único comando y sin ejecución en la validación.
+- Traducción de órdenes compuestas: prepara todos los comandos antes de
+  ejecutar, conserva el orden y no divide términos de búsqueda unidos por «y».
 - Consulta multimedia real: Windows publica correctamente la sesión de Edge,
   con metadatos, estado, posición y capacidades de control.
 - Traducción de «pausa el vídeo que estoy viendo por internet»: una llamada a
@@ -161,7 +165,6 @@ Las siguientes capacidades siguen pendientes y deberán incorporarse sin
 modificar lo que ya funciona:
 
 - lenguaje natural general con o sin IA;
-- multitareas;
 - control interno de aplicaciones;
 - aprendizaje de comandos;
 - conversaciones complejas;

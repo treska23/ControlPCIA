@@ -92,6 +92,22 @@ internal static class InventarioAplicaciones
         _cacheHasta = default;
     }
 
+    internal static async Task PrecalentarAsync(
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await ObtenerAplicacionesAsync(
+                cancellationToken);
+        }
+        catch (Exception ex) when (
+            ex is not OperationCanceledException)
+        {
+            // La primera petición puede volver a intentarlo y devolverá el
+            // error real al móvil si Windows sigue sin ofrecer el inventario.
+        }
+    }
+
     internal static async Task<IReadOnlyList<AplicacionInstalada>>
         ObtenerAplicacionesAsync(
             CancellationToken cancellationToken)

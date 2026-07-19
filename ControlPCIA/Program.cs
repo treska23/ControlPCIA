@@ -117,6 +117,8 @@ if (args.Length == 0
             "--solo-traducir",
             StringComparison.OrdinalIgnoreCase));
     using var bandeja = new AgenteBandeja(cancelacion, oculto);
+    _ = InventarioAplicaciones.PrecalentarAsync(
+        cancelacion.Token);
 
     try
     {
