@@ -33,6 +33,9 @@ Ollama, Llama y Qwen no participan en este flujo.
 7. Descubrir y emparejar el PC en la red local.
 8. Mantener el agente oculto e iniciado con Windows.
 9. Usar la PWA como respaldo y descargar la APK desde el agente.
+10. Consultar y configurar pantallas mediante las API de Windows.
+11. Controlar la reproducción de una sesión multimedia actual, de Spotify o
+    de un navegador.
 
 ## Semántica de apertura
 
@@ -61,16 +64,38 @@ Los sitios conocidos y dominios se abren directamente. Las búsquedas generales
 utilizan Google y las peticiones «busca … en YouTube» utilizan los resultados
 de YouTube. Los esquemas locales como `file:` nunca se abren.
 
+## Semántica de pantallas
+
+El agente incorpora `ControlPCIA.exe display`, que usa
+`EnumDisplayDevices`, `EnumDisplaySettings`, `ChangeDisplaySettingsEx` y
+`SetDisplayConfig`. No abre la interfaz de Configuración ni simula entrada.
+
+Admite consulta de pantallas y modos; pantalla principal; resolución;
+frecuencia; activación y desactivación; topología extendida, duplicada,
+interna o externa; orientación; coordenadas y colocación relativa.
+
+## Semántica multimedia
+
+El agente incorpora `ControlPCIA.exe media`, basado en
+`GlobalSystemMediaTransportControlsSessionManager`. Controla sólo las sesiones
+que una aplicación haya publicado en Windows y devuelve si esa aplicación
+aceptó o rechazó la orden.
+
+Admite play, pausa, alternancia, stop, anterior, siguiente, avance, retroceso,
+posición, velocidad, aleatorio y repetición. Puede elegir Spotify, un navegador
+o la sesión multimedia actual. La pantalla completa interna del vídeo no está
+disponible en esta API y se rechaza sin simular teclas.
+
 ## Evidencias actuales
 
-- **265/265 pruebas Release correctas**.
+- **349/349 pruebas Release correctas**.
 - APK congelada: versión **1.5.5**, código **15**.
 - SHA-256 de la APK:
   `F7EEA61ED2E2E0EB4D89C3AA33296B13D0B9522806407CA9239BD5D1CEF96198`.
 - Agente instalado en:
   `%LOCALAPPDATA%\ControlPCIA\App`.
 - SHA-256 de la DLL instalada:
-  `CB4B8EF99AD9A74ADE8FF94143B08490772EACF5E129FF024C6297E3264FCE3E`.
+  `21FAFA81EE4E8BBBE6DFFDDA75A95B6F11907D296FF6B4C720896E2C256514E1`.
 - La DLL instalada coincide byte por byte con la publicación Release.
 - La APK servida por el agente coincide byte por byte con el artefacto 1.5.5.
 - Agente residente activo en `0.0.0.0:5187`.
@@ -95,6 +120,16 @@ de YouTube. Los esquemas locales como `file:` nunca se abren.
   YouTube codificada.
 - `busca ControlPCIA por internet`: un único comando con la búsqueda de Google
   codificada.
+- Consulta Win32 real: tres pantallas activas de 3840x2160 a 60 Hz y una salida
+  inactiva, sin aplicar ningún cambio.
+- Consulta real de modos compatibles de la pantalla principal: correcta.
+- Traducciones de pantalla principal, resolución, frecuencia, orientación,
+  posición, topología y desactivación: un único comando y sin ejecución en la
+  validación.
+- Consulta multimedia real: Windows publica correctamente la sesión de Edge,
+  con metadatos, estado, posición y capacidades de control.
+- Traducción de «pausa el vídeo que estoy viendo por internet»: una llamada a
+  la sesión multimedia del navegador, sin ejecutar durante la validación.
 
 ## Alcance cerrado de esta versión
 
@@ -107,7 +142,7 @@ de una en una, sin modificar lo que ya funciona:
 - control interno de aplicaciones;
 - aprendizaje de comandos;
 - conversaciones complejas;
-- operaciones sobre archivos o configuración;
+- operaciones sobre archivos y otras configuraciones todavía no incorporadas;
 - acceso fuera de la red local;
 - instalador firmado para distribución pública.
 

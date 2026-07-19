@@ -8,10 +8,13 @@ que ya están comprobadas:
 - Abrir una aplicación instalada, una cada vez.
 - Consultar qué aplicaciones tienen una ventana abierta.
 - Abrir páginas y realizar búsquedas en el navegador predeterminado.
+- Consultar y cambiar la configuración de las pantallas.
+- Consultar y controlar sesiones de reproducción multimedia.
 
 La aplicación Android existente se mantiene sin cambios. El agente de Windows
 se ejecuta en segundo plano, recibe las peticiones de la APK y utiliza
-PowerShell para las dos funciones del PC.
+PowerShell y comandos propios para las funciones del PC. Los comandos de
+pantallas y multimedia usan directamente las API oficiales de Windows.
 
 ## Funcionamiento actual
 
@@ -77,6 +80,72 @@ qué ventanas tengo abiertas
 La respuesta procede directamente de `Get-Process`, filtrando los procesos con
 una ventana superior visible. No se utilizan capturas, OCR, ratón, teclado
 simulado ni reconocimiento gráfico.
+
+### Configurar pantallas
+
+Ejemplos admitidos:
+
+```text
+qué pantallas tengo conectadas
+dime qué resoluciones soporta el monitor 2
+pon la pantalla 2 como principal
+cambia la resolución del monitor 2 a 1920 por 1080
+pon la pantalla principal en 4K a 60 Hz
+desactiva la pantalla 3
+activa el monitor 2
+duplica las pantallas
+extiende el escritorio entre los monitores
+usa solo la pantalla del PC
+pon solo la segunda pantalla
+gira el monitor 2 en vertical
+coloca la pantalla 2 a la derecha de la pantalla 1
+```
+
+El comando de consola subyacente es `ControlPCIA.exe display`. Usa las API
+Win32 de visualización, sin abrir Configuración y sin simular ratón o teclado.
+Permite:
+
+- listar pantallas activas e inactivas y sus modos compatibles;
+- elegir la pantalla principal;
+- cambiar resolución y frecuencia;
+- activar o desactivar una salida;
+- extender, duplicar, usar sólo la pantalla interna o sólo la externa;
+- cambiar orientación;
+- cambiar coordenadas o colocar una pantalla a la izquierda, derecha, encima o
+  debajo de otra.
+
+Windows valida los modos anunciados por el controlador antes de aplicarlos. El
+resultado que vuelve al móvil es la aceptación o el error devuelto por la API,
+sin reconocimiento gráfico posterior.
+
+### Controlar reproducción
+
+Ejemplos admitidos:
+
+```text
+pausa la reproducción
+para el vídeo que estoy viendo por internet
+haz play en Spotify
+reanuda el vídeo de YouTube
+pon la siguiente canción en Spotify
+vuelve a la canción anterior
+adelanta el vídeo de internet 30 segundos
+retrocede la reproducción 15 segundos
+qué canción se está reproduciendo en Spotify
+activa el modo aleatorio en Spotify
+repite esta canción
+```
+
+`ControlPCIA.exe media` usa el transporte multimedia global de Windows. Puede
+seleccionar la sesión que Windows considera actual, una sesión de Spotify, la
+de un navegador concreto o la sesión publicada por otra aplicación conocida.
+Las operaciones disponibles dependen de lo que esa aplicación publique:
+reproducir, pausar, alternar, detener, anterior, siguiente, avanzar,
+retroceder, cambiar posición, velocidad, aleatorio y repetición.
+
+Poner el vídeo interno de un navegador en pantalla completa no está expuesto
+por esa API. ControlPCIA devuelve este límite claramente: no simula F11 ni otra
+tecla y no afirma que la acción se haya realizado.
 
 ### Encender el PC por voz
 
@@ -198,7 +267,8 @@ ControlPCIA.exe "qué programas tengo abiertos"
 - La APK usa HTTP exclusivamente dentro de la red local de confianza.
 - El endpoint móvil no acepta PowerShell arbitrario: el controlador estable
   construye únicamente los comandos necesarios para abrir una aplicación,
-  consultar ventanas abiertas o entregar una URL web al navegador.
+  consultar ventanas abiertas, entregar una URL web al navegador, configurar
+  pantallas o controlar sesiones multimedia de Windows.
 - Wake-on-LAN se ejecuta localmente en el teléfono.
 
 ## Alcance deliberadamente no incluido
@@ -210,7 +280,9 @@ Estas funciones no forman parte de la versión estable actual:
 - Control interno de Cubase u otras aplicaciones.
 - Conversación para resolver acciones complejas.
 - Aprendizaje automático de nuevos comandos.
-- Manipulación de ventanas, archivos o configuración desde el móvil.
+- Manipulación de ventanas o archivos desde el móvil.
+- Pantalla completa interna de un vídeo del navegador, porque la API
+  multimedia de Windows no la expone.
 
 El código experimental anterior se conserva en el repositorio para poder
 retomarlo en el futuro, pero no está conectado al servidor ni a la consola
@@ -223,20 +295,25 @@ dotnet test tests\ControlPCIA.Tests\ControlPCIA.Tests.csproj `
   --configuration Release
 ```
 
-La batería actual contiene **265 pruebas**. Cubre el controlador básico,
+La batería actual contiene **349 pruebas**. Cubre el controlador básico,
 inventario de aplicaciones, errores de PowerShell, Wake-on-LAN, reconocimiento
 de la orden de encendido, gesto de voz, cancelación, emparejado, sesiones,
 red privada, servidor, validador y el código experimental conservado. Incluye
 una regresión específica para impedir que «Explorador de Windows» vuelva a
 resolverse como Click to Do, además de páginas, dominios, búsquedas normales y
-búsquedas en YouTube.
+búsquedas en YouTube. Las pruebas nuevas cubren la traducción y validación de
+órdenes de pantallas y multimedia sin aplicar cambios reales al escritorio ni
+a la reproducción.
 
 ## Componentes
 
-- `ControlBasico.cs`: interpreta y ejecuta únicamente las dos funciones
-  locales estables del PC y deriva las peticiones web.
+- `ControlBasico.cs`: dirige las funciones estables del PC.
 - `ControlWebBasico.cs`: crea URL seguras y las entrega al navegador
   predeterminado sin inspeccionarlo.
+- `ControlPantallasBasico.cs`: traduce lenguaje natural de pantallas.
+- `ComandoPantallas.cs`: consulta y configura pantallas mediante Win32.
+- `ControlMultimediaBasico.cs`: traduce las órdenes de reproducción.
+- `ComandoMultimedia.cs`: usa las sesiones multimedia globales de Windows.
 - `InventarioAplicaciones.cs`: obtiene aplicaciones reales con
   `Get-StartApps`.
 - `EjecutorPowerShell.cs`: ejecuta el comando y devuelve stdout, stderr y el

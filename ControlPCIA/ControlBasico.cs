@@ -11,7 +11,9 @@ internal enum TipoPeticionBasica
     AbrirAplicacion,
     ConsultarAplicacionesAbiertas,
     AbrirPaginaWeb,
-    BuscarEnInternet
+    BuscarEnInternet,
+    GestionarPantallas,
+    ControlarMultimedia
 }
 
 internal sealed record PeticionBasica(
@@ -34,12 +36,13 @@ internal sealed record DependenciasControlBasico(
 /// <summary>
 /// Núcleo estable de ControlPCIA. No consulta a un modelo y admite una acción
 /// por petición: abrir una aplicación, consultar las aplicaciones abiertas,
-/// abrir una página o buscar en Internet.
+/// abrir una página, buscar en Internet, configurar pantallas o controlar una
+/// sesión multimedia.
 /// </summary>
 internal static class ControlBasico
 {
     private const string MensajeCapacidades =
-        "Por ahora puedo abrir una aplicación o página web, buscar en Internet o decirte qué aplicaciones están abiertas.";
+        "Puedo abrir una aplicación o página web, buscar en Internet, decirte qué aplicaciones están abiertas, configurar las pantallas y controlar la reproducción multimedia.";
 
     private static readonly IReadOnlyDictionary<string, string>
         AliasAplicaciones =
@@ -72,7 +75,7 @@ internal static class ControlBasico
         new(
             true,
             "control-basico",
-            "Control básico preparado: abrir una aplicación o página web, buscar en Internet o consultar las aplicaciones abiertas.");
+            "Control básico preparado: aplicaciones, web, consultas, pantallas y reproducción multimedia.");
 
     public static Task<ResultadoControl> ControlarAsync(
         string instruccion,
@@ -126,6 +129,20 @@ internal static class ControlBasico
                     dependencias,
                     cancellationToken),
 
+            TipoPeticionBasica.GestionarPantallas =>
+                await ControlPantallasBasico.EjecutarAsync(
+                    peticion,
+                    soloTraducir,
+                    dependencias,
+                    cancellationToken),
+
+            TipoPeticionBasica.ControlarMultimedia =>
+                await ControlMultimediaBasico.EjecutarAsync(
+                    peticion,
+                    soloTraducir,
+                    dependencias,
+                    cancellationToken),
+
             _ =>
                 NoCompatible(
                     peticion.Motivo)
@@ -153,6 +170,22 @@ internal static class ControlBasico
             return new PeticionBasica(
                 TipoPeticionBasica
                     .ConsultarAplicacionesAbiertas);
+        }
+
+        PeticionBasica? peticionMultimedia =
+            ControlMultimediaBasico.Interpretar(texto);
+
+        if (peticionMultimedia is not null)
+        {
+            return peticionMultimedia;
+        }
+
+        PeticionBasica? peticionPantallas =
+            ControlPantallasBasico.Interpretar(texto);
+
+        if (peticionPantallas is not null)
+        {
+            return peticionPantallas;
         }
 
         PeticionBasica? peticionWeb =
