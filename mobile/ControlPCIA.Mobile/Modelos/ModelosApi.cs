@@ -14,6 +14,7 @@ public sealed record EstadoPc(
     string? Modelo,
     string? Mensaje,
     bool ModoPrueba,
+    bool EntradaRemota,
     IReadOnlyList<DestinoWakeOnLan>? WakeOnLan);
 
 public sealed record DestinoWakeOnLan(
@@ -40,3 +41,7 @@ public sealed record ResultadoOrden(
     string? Mensaje,
     IReadOnlyList<PasoOrden>? Pasos,
     bool Aprendido);
+
+public sealed record ResultadoEntradaRemotaMovil(
+    bool Correcto,
+    string? Detalle);

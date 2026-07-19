@@ -60,6 +60,17 @@ public partial class MainPage : ContentPage
     private float _inicioGestoVozRawY;
     private EscuchaToqueVoz? _escuchaToqueVoz;
     private Android.Views.View? _vistaVozNativa;
+    private EscuchaPanelTactil? _escuchaPanelTactil;
+    private Android.Views.View? _vistaPanelTactilNativa;
+    private readonly object _bloqueoMovimientoRaton = new();
+    private double _movimientoRatonPendienteX;
+    private double _movimientoRatonPendienteY;
+    private int _enviandoMovimientoRaton;
+    private float _ultimaPosicionRatonX;
+    private float _ultimaPosicionRatonY;
+    private float _recorridoRaton;
+    private long _inicioToqueRaton;
+    private bool _arrastreRemotoActivo;
     private readonly GestorGestoVoz _gestorGestoVoz =
         new(RecorridoCarrilVozDp);
 
@@ -69,6 +80,8 @@ public partial class MainPage : ContentPage
         _wake.Cargar();
         VoiceGestureSurface.HandlerChanged +=
             OnVoiceGestureHandlerChanged;
+        RemoteTouchpad.HandlerChanged +=
+            OnRemoteTouchpadHandlerChanged;
     }
 
     protected override async void OnAppearing()
@@ -119,6 +132,12 @@ public partial class MainPage : ContentPage
                     : MensajeAmigable(ex),
                 error: !_wake.EstaConfigurado);
         }
+    }
+
+    protected override async void OnDisappearing()
+    {
+        await LiberarArrastreRemotoAsync();
+        base.OnDisappearing();
     }
 
     private async void OnSearchClicked(object? sender, EventArgs e)
@@ -228,6 +247,7 @@ public partial class MainPage : ContentPage
     private async void OnForgetClicked(object? sender, EventArgs e)
     {
         await CancelarEscuchaAsync(mostrarMensaje: false);
+        await LiberarArrastreRemotoAsync();
         _api.Olvidar();
         _wake.Olvidar();
         _ordenPendienteConfirmacion = null;
@@ -242,6 +262,407 @@ public partial class MainPage : ContentPage
         MostrarMensaje(
             ConnectionStatusLabel,
             "Busca el PC o escribe su direccion para conectarlo de nuevo.");
+    }
+
+    private void OnRemoteTouchpadHandlerChanged(
+        object? sender,
+        EventArgs e)
+    {
+        if (_vistaPanelTactilNativa is not null)
+        {
+            _vistaPanelTactilNativa.SetOnTouchListener(null);
+            _vistaPanelTactilNativa = null;
+        }
+
+        if (RemoteTouchpad.Handler?.PlatformView
+            is not Android.Views.View vista)
+        {
+            return;
+        }
+
+        _escuchaPanelTactil ??=
+            new EscuchaPanelTactil(
+                ProcesarToquePanelRemoto);
+        _vistaPanelTactilNativa = vista;
+        vista.Clickable = true;
+        vista.SetOnTouchListener(
+            _escuchaPanelTactil);
+    }
+
+    private void ProcesarToquePanelRemoto(
+        FasePanelTactil fase,
+        float x,
+        float y,
+        long tiempo)
+    {
+        switch (fase)
+        {
+            case FasePanelTactil.Pulsado:
+                _ultimaPosicionRatonX = x;
+                _ultimaPosicionRatonY = y;
+                _recorridoRaton = 0;
+                _inicioToqueRaton = tiempo;
+                break;
+
+            case FasePanelTactil.Movido:
+                float deltaX =
+                    x - _ultimaPosicionRatonX;
+                float deltaY =
+                    y - _ultimaPosicionRatonY;
+                _ultimaPosicionRatonX = x;
+                _ultimaPosicionRatonY = y;
+                _recorridoRaton +=
+                    Math.Abs(deltaX)
+                    + Math.Abs(deltaY);
+                AcumularMovimientoRaton(
+                    deltaX * 1.35,
+                    deltaY * 1.35);
+                break;
+
+            case FasePanelTactil.Soltado:
+                if (_recorridoRaton < 18
+                    && tiempo - _inicioToqueRaton < 550)
+                {
+                    _ = EnviarRatonRemotoAsync(
+                        "left-click");
+                }
+
+                break;
+
+            case FasePanelTactil.Cancelado:
+                _recorridoRaton = 0;
+                break;
+        }
+    }
+
+    private void AcumularMovimientoRaton(
+        double deltaX,
+        double deltaY)
+    {
+        lock (_bloqueoMovimientoRaton)
+        {
+            _movimientoRatonPendienteX += deltaX;
+            _movimientoRatonPendienteY += deltaY;
+        }
+
+        if (Interlocked.CompareExchange(
+                ref _enviandoMovimientoRaton,
+                1,
+                0) == 0)
+        {
+            _ = EnviarMovimientosRatonAsync();
+        }
+    }
+
+    private async Task EnviarMovimientosRatonAsync()
+    {
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(18);
+                int x;
+                int y;
+
+                lock (_bloqueoMovimientoRaton)
+                {
+                    x = (int)Math.Round(
+                        _movimientoRatonPendienteX);
+                    y = (int)Math.Round(
+                        _movimientoRatonPendienteY);
+                    _movimientoRatonPendienteX -= x;
+                    _movimientoRatonPendienteY -= y;
+                }
+
+                if (x == 0 && y == 0)
+                {
+                    break;
+                }
+
+                await _api.EnviarRatonAsync(
+                    "move",
+                    Math.Clamp(x, -5000, 5000),
+                    Math.Clamp(y, -5000, 5000));
+            }
+        }
+        catch (Exception ex)
+        {
+            await MainThread.InvokeOnMainThreadAsync(
+                () => MostrarMensaje(
+                    RemoteStatusLabel,
+                    MensajeAmigable(ex),
+                    error: true));
+        }
+        finally
+        {
+            Interlocked.Exchange(
+                ref _enviandoMovimientoRaton,
+                0);
+            bool quedanMovimientos;
+
+            lock (_bloqueoMovimientoRaton)
+            {
+                quedanMovimientos =
+                    Math.Abs(
+                        _movimientoRatonPendienteX)
+                    >= 0.5
+                    || Math.Abs(
+                        _movimientoRatonPendienteY)
+                    >= 0.5;
+            }
+
+            if (quedanMovimientos
+                && Interlocked.CompareExchange(
+                    ref _enviandoMovimientoRaton,
+                    1,
+                    0) == 0)
+            {
+                _ = EnviarMovimientosRatonAsync();
+            }
+        }
+    }
+
+    private void OnRemoteToggleClicked(
+        object? sender,
+        EventArgs e)
+    {
+        RemoteControlPanel.IsVisible =
+            !RemoteControlPanel.IsVisible;
+        RemoteToggleButton.Text =
+            RemoteControlPanel.IsVisible
+                ? "Cerrar ratón y teclado"
+                : "Abrir ratón y teclado";
+    }
+
+    private async void OnRemoteMouseClicked(
+        object? sender,
+        EventArgs e)
+    {
+        if (sender is not Button boton
+            || boton.CommandParameter is not string accion)
+        {
+            return;
+        }
+
+        if (accion == "wheel-up")
+        {
+            await EnviarRatonRemotoAsync(
+                "wheel",
+                rueda: 120);
+            return;
+        }
+
+        if (accion == "wheel-down")
+        {
+            await EnviarRatonRemotoAsync(
+                "wheel",
+                rueda: -120);
+            return;
+        }
+
+        await EnviarRatonRemotoAsync(accion);
+    }
+
+    private async void OnRemoteDragClicked(
+        object? sender,
+        EventArgs e)
+    {
+        try
+        {
+            string accion =
+                _arrastreRemotoActivo
+                    ? "left-up"
+                    : "left-down";
+            await _api.EnviarRatonAsync(
+                accion);
+            _arrastreRemotoActivo =
+                !_arrastreRemotoActivo;
+            RemoteDragButton.Text =
+                _arrastreRemotoActivo
+                    ? "Soltar clic y terminar arrastre"
+                    : "Mantener clic para arrastrar";
+            RemoteDragButton.BackgroundColor =
+                _arrastreRemotoActivo
+                    ? ColorVerde
+                    : ColorSecundario;
+            MostrarMensaje(
+                RemoteStatusLabel,
+                _arrastreRemotoActivo
+                    ? "Botón izquierdo mantenido. Mueve el dedo para arrastrar."
+                    : "Arrastre terminado.",
+                correcto: true);
+        }
+        catch (Exception ex)
+        {
+            MostrarMensaje(
+                RemoteStatusLabel,
+                MensajeAmigable(ex),
+                error: true);
+        }
+    }
+
+    private async Task LiberarArrastreRemotoAsync()
+    {
+        if (!_arrastreRemotoActivo
+            || !_api.EstaConfigurada)
+        {
+            _arrastreRemotoActivo = false;
+            return;
+        }
+
+        try
+        {
+            await _api.EnviarRatonAsync(
+                "left-up");
+        }
+        catch
+        {
+        }
+        finally
+        {
+            _arrastreRemotoActivo = false;
+        }
+    }
+
+    private async Task EnviarRatonRemotoAsync(
+        string accion,
+        int rueda = 0)
+    {
+        try
+        {
+            await _api.EnviarRatonAsync(
+                accion,
+                rueda: rueda);
+            MostrarMensaje(
+                RemoteStatusLabel,
+                "Entrada de ratón enviada.",
+                correcto: true);
+        }
+        catch (Exception ex)
+        {
+            MostrarMensaje(
+                RemoteStatusLabel,
+                MensajeAmigable(ex),
+                error: true);
+        }
+    }
+
+    private async void OnRemoteTextClicked(
+        object? sender,
+        EventArgs e)
+    {
+        string texto =
+            RemoteTextEditor.Text
+            ?? string.Empty;
+
+        if (texto.Length == 0)
+        {
+            MostrarMensaje(
+                RemoteStatusLabel,
+                "Escribe primero el texto que quieres enviar.",
+                error: true);
+            return;
+        }
+
+        try
+        {
+            await _api.EnviarTextoAsync(texto);
+            RemoteTextEditor.Text =
+                string.Empty;
+            MostrarMensaje(
+                RemoteStatusLabel,
+                "Texto enviado a la ventana activa.",
+                correcto: true);
+        }
+        catch (Exception ex)
+        {
+            MostrarMensaje(
+                RemoteStatusLabel,
+                MensajeAmigable(ex),
+                error: true);
+        }
+    }
+
+    private async void OnRemoteKeyClicked(
+        object? sender,
+        EventArgs e)
+    {
+        if (sender is not Button boton
+            || boton.CommandParameter is not string atajo)
+        {
+            return;
+        }
+
+        await EnviarAtajoRemotoAsync(atajo);
+    }
+
+    private async void OnRemoteShortcutClicked(
+        object? sender,
+        EventArgs e)
+    {
+        string atajo =
+            RemoteShortcutEntry.Text?.Trim()
+            ?? string.Empty;
+
+        if (atajo.Length == 0)
+        {
+            MostrarMensaje(
+                RemoteStatusLabel,
+                "Escribe un atajo, por ejemplo Ctrl+Shift+S.",
+                error: true);
+            return;
+        }
+
+        if (await EnviarAtajoRemotoAsync(atajo))
+        {
+            RemoteShortcutEntry.Text =
+                string.Empty;
+        }
+    }
+
+    private async Task<bool> EnviarAtajoRemotoAsync(
+        string atajo)
+    {
+        string[] partes = atajo
+            .Split(
+                '+',
+                StringSplitOptions.TrimEntries
+                | StringSplitOptions.RemoveEmptyEntries);
+
+        if (partes.Length == 0
+            || partes.Length > 5)
+        {
+            MostrarMensaje(
+                RemoteStatusLabel,
+                "El atajo no es válido.",
+                error: true);
+            return false;
+        }
+
+        string tecla =
+            partes[^1];
+        string[] modificadores =
+            partes[..^1];
+
+        try
+        {
+            await _api.EnviarTeclaAsync(
+                tecla,
+                modificadores);
+            MostrarMensaje(
+                RemoteStatusLabel,
+                $"Tecla {atajo} enviada.",
+                correcto: true);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            MostrarMensaje(
+                RemoteStatusLabel,
+                MensajeAmigable(ex),
+                error: true);
+            return false;
+        }
     }
 
     private void OnVoiceGestureHandlerChanged(

@@ -12,7 +12,7 @@ a la APK hasta que su comportamiento esté validado.
 Flujo activo:
 
 ```text
-APK Android 1.5.5
+APK Android 1.6.0
 → red local y emparejado
 → agente residente de Windows
 → AsistenteControl
@@ -50,6 +50,8 @@ valida y ejecuta comandos.
     decisión.
 16. Aprender comandos que terminaron correctamente y reutilizar coincidencias
     exactas sin volver a llamar al modelo.
+17. Usar un ratón táctil y un teclado remoto desde la APK mediante entrada
+    autenticada, independiente de la IA.
 
 ## Semántica de apertura
 
@@ -118,23 +120,39 @@ posición, velocidad, aleatorio y repetición. Puede elegir Spotify, un navegado
 o la sesión multimedia actual. Para la pantalla completa interna del vídeo,
 activa el navegador y envía únicamente `F`; para salir envía `Escape`.
 
+## Semántica de entrada remota
+
+La APK incorpora un panel táctil con movimiento relativo, clic izquierdo y
+derecho, rueda y arrastre, junto con escritura de texto, teclas especiales y
+atajos. El agente usa `SendInput` únicamente para estas acciones manuales.
+
+Las rutas `/api/entrada/raton` y `/api/entrada/teclado` requieren una sesión
+móvil emparejada y una conexión de red local. No forman parte del catálogo que
+Qwen puede proponer y no pasan por PowerShell ni por el traductor de voz.
+
 ## Evidencias actuales
 
-- **386/386 pruebas Release correctas**.
-- APK congelada: versión **1.5.5**, código **15**.
+- **398/398 pruebas Release correctas**.
+- APK instalada: versión **1.6.0**, código **16**, objetivo Android 36.
 - SHA-256 de la APK:
-  `F7EEA61ED2E2E0EB4D89C3AA33296B13D0B9522806407CA9239BD5D1CEF96198`.
+  `9DDA4597FF4FE49754E8E63A9E7E4AC0959F749ECBFB48507E4172533C1E3C21`.
 - Agente instalado en:
   `%LOCALAPPDATA%\ControlPCIA\App`.
 - SHA-256 de la DLL instalada:
-  `D3F0759EBBBBC26C4ABA5BDF6D715AE32ABE6C7E14C6CF488CB4B501CD513D3D`.
+  `7F60A11317BF468D040BEBD52C731E9CD138639D26AB2A59ADDAC18A3A93BF33`.
 - La DLL instalada coincide byte por byte con la publicación Release.
-- La APK servida por el agente coincide byte por byte con el artefacto 1.5.5.
+- La APK servida por el agente coincide byte por byte con el artefacto 1.6.0
+  instalado en el móvil.
 - Agente residente activo en `0.0.0.0:5187`.
 - Inicio con Windows registrado con `--servidor --oculto`.
 - Página principal: HTTP 200.
 - Descarga `/app-android.apk`: HTTP 200,
-  `application/vnd.android.package-archive`, 22.567.283 bytes.
+  `application/vnd.android.package-archive`, 22.918.413 bytes.
+- APK iniciada en el móvil conectado y proceso Android activo.
+- Las rutas de ratón y teclado rechazan con HTTP 401 cualquier petición sin
+  token.
+- La batería valida los eventos de entrada remota sin mover el puntero ni
+  escribir durante las pruebas.
 - Emparejado real del API: correcto.
 - `/api/estado`: `disponible: true`, modo `control-basico`,
   `modoPrueba: false`.
@@ -186,7 +204,6 @@ modificar lo que ya funciona:
 
 - control interno de aplicaciones;
 - más configuraciones todavía no incorporadas al núcleo inmediato;
-- ratón táctil y teclado virtual desde la APK;
 - acceso fuera de la red local;
 - instalador firmado para distribución pública.
 
@@ -194,7 +211,7 @@ modificar lo que ya funciona:
 
 Antes de añadir una capacidad:
 
-1. No modificar la APK 1.5.5 salvo petición expresa.
+1. No modificar la APK 1.6.0 salvo petición expresa.
 2. No retirar Wake-on-LAN ni ninguna función estable.
 3. Conservar el agente residente, emparejado e inicio con Windows.
 4. Añadir una sola capacidad.

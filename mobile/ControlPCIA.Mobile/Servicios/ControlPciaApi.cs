@@ -136,6 +136,57 @@ public sealed class ControlPciaApi
         return contenido!;
     }
 
+    public Task<ResultadoEntradaRemotaMovil> EnviarRatonAsync(
+        string accion,
+        int deltaX = 0,
+        int deltaY = 0,
+        int rueda = 0,
+        CancellationToken cancellationToken = default)
+    {
+        return EnviarEntradaAsync(
+            "/api/entrada/raton",
+            new
+            {
+                accion,
+                deltaX,
+                deltaY,
+                rueda
+            },
+            cancellationToken);
+    }
+
+    public Task<ResultadoEntradaRemotaMovil> EnviarTextoAsync(
+        string texto,
+        CancellationToken cancellationToken = default)
+    {
+        return EnviarEntradaAsync(
+            "/api/entrada/teclado",
+            new
+            {
+                texto,
+                tecla = (string?)null,
+                modificadores = Array.Empty<string>()
+            },
+            cancellationToken);
+    }
+
+    public Task<ResultadoEntradaRemotaMovil> EnviarTeclaAsync(
+        string tecla,
+        IReadOnlyList<string>? modificadores = null,
+        CancellationToken cancellationToken = default)
+    {
+        return EnviarEntradaAsync(
+            "/api/entrada/teclado",
+            new
+            {
+                texto = (string?)null,
+                tecla,
+                modificadores =
+                    modificadores ?? []
+            },
+            cancellationToken);
+    }
+
     public void Olvidar()
     {
         _direccion = null;
@@ -168,6 +219,56 @@ public sealed class ControlPciaApi
         }
 
         return contenido!;
+    }
+
+    private async Task<ResultadoEntradaRemotaMovil>
+        EnviarEntradaAsync(
+            string ruta,
+            object contenidoPeticion,
+            CancellationToken cancellationToken)
+    {
+        ComprobarConfiguracion();
+
+        using var peticion = new HttpRequestMessage(
+            HttpMethod.Post,
+            CrearUri(ruta))
+        {
+            Content = JsonContent.Create(
+                contenidoPeticion)
+        };
+        Autorizar(peticion);
+
+        using HttpResponseMessage respuesta =
+            await _http.SendAsync(
+                peticion,
+                cancellationToken);
+        ResultadoEntradaRemotaMovil? contenido =
+            await LeerAsync<ResultadoEntradaRemotaMovil>(
+                respuesta,
+                cancellationToken);
+
+        if (!respuesta.IsSuccessStatusCode)
+        {
+            if (!string.IsNullOrWhiteSpace(
+                    contenido?.Detalle))
+            {
+                throw new InvalidOperationException(
+                    contenido.Detalle);
+            }
+
+            await LanzarErrorAsync(
+                respuesta,
+                cancellationToken);
+        }
+
+        if (contenido is null || !contenido.Correcto)
+        {
+            throw new InvalidOperationException(
+                contenido?.Detalle
+                ?? "El PC no ha aceptado la entrada remota.");
+        }
+
+        return contenido;
     }
 
     private void ComprobarConfiguracion()

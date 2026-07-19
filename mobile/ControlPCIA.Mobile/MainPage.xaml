@@ -371,6 +371,170 @@
                                 FontSize="13" />
                         </VerticalStackLayout>
                     </VerticalStackLayout>
+
+                    <Button
+                        x:Name="RemoteToggleButton"
+                        Text="Abrir ratón y teclado"
+                        Style="{StaticResource SecondaryButton}"
+                        Clicked="OnRemoteToggleClicked" />
+
+                    <Border
+                        x:Name="RemoteControlPanel"
+                        BackgroundColor="#081421"
+                        Stroke="#2D4968"
+                        StrokeShape="RoundRectangle 18"
+                        Padding="14"
+                        IsVisible="False">
+                        <VerticalStackLayout Spacing="13">
+                            <VerticalStackLayout Spacing="3">
+                                <Label
+                                    Text="Control remoto"
+                                    FontSize="20"
+                                    FontAttributes="Bold" />
+                                <Label
+                                    Text="Mueve el dedo por el panel. Un toque hace clic izquierdo."
+                                    TextColor="#9CB4CE"
+                                    FontSize="13" />
+                            </VerticalStackLayout>
+
+                            <Border
+                                x:Name="RemoteTouchpad"
+                                HeightRequest="220"
+                                BackgroundColor="#10233A"
+                                Stroke="#3D5875"
+                                StrokeThickness="1"
+                                StrokeShape="RoundRectangle 18"
+                                AutomationProperties.IsInAccessibleTree="True"
+                                SemanticProperties.Description="Panel táctil remoto"
+                                SemanticProperties.Hint="Desliza para mover el puntero o toca para hacer clic izquierdo">
+                                <Grid>
+                                    <Label
+                                        Text="DESLIZA PARA MOVER"
+                                        TextColor="#58738F"
+                                        FontSize="12"
+                                        CharacterSpacing="2"
+                                        HorizontalOptions="Center"
+                                        VerticalOptions="Center" />
+                                    <Border
+                                        WidthRequest="44"
+                                        HeightRequest="44"
+                                        Padding="0"
+                                        BackgroundColor="#173557"
+                                        Stroke="#4A6C91"
+                                        StrokeShape="RoundRectangle 22"
+                                        HorizontalOptions="Center"
+                                        VerticalOptions="Center"
+                                        Opacity="0.65">
+                                        <Label
+                                            Text="⌁"
+                                            TextColor="#AFC2D8"
+                                            FontSize="25"
+                                            HorizontalTextAlignment="Center"
+                                            VerticalTextAlignment="Center" />
+                                    </Border>
+                                </Grid>
+                            </Border>
+
+                            <Grid
+                                ColumnDefinitions="*,*,*,*"
+                                ColumnSpacing="7">
+                                <Button
+                                    Grid.Column="0"
+                                    Text="Clic"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Clicked="OnRemoteMouseClicked"
+                                    CommandParameter="left-click" />
+                                <Button
+                                    Grid.Column="1"
+                                    Text="Derecho"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Clicked="OnRemoteMouseClicked"
+                                    CommandParameter="right-click" />
+                                <Button
+                                    Grid.Column="2"
+                                    Text="Rueda ↑"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Clicked="OnRemoteMouseClicked"
+                                    CommandParameter="wheel-up" />
+                                <Button
+                                    Grid.Column="3"
+                                    Text="Rueda ↓"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Clicked="OnRemoteMouseClicked"
+                                    CommandParameter="wheel-down" />
+                            </Grid>
+
+                            <Button
+                                x:Name="RemoteDragButton"
+                                Text="Mantener clic para arrastrar"
+                                Style="{StaticResource SecondaryButton}"
+                                Clicked="OnRemoteDragClicked" />
+
+                            <BoxView HeightRequest="1" Color="#203853" />
+
+                            <VerticalStackLayout Spacing="7">
+                                <Label
+                                    Text="Teclado"
+                                    FontAttributes="Bold"
+                                    FontSize="15" />
+                                <Border Style="{StaticResource FieldBorder}" Padding="10">
+                                    <Editor
+                                        x:Name="RemoteTextEditor"
+                                        AutoSize="TextChanges"
+                                        MinimumHeightRequest="80"
+                                        MaxLength="500"
+                                        Placeholder="Escribe el texto que quieres enviar a la ventana activa"
+                                        PlaceholderColor="#68819D"
+                                        TextColor="#E8F2FF" />
+                                </Border>
+                                <Button
+                                    Text="Escribir texto en el PC"
+                                    Style="{StaticResource PrimaryButton}"
+                                    Clicked="OnRemoteTextClicked" />
+                            </VerticalStackLayout>
+
+                            <Grid
+                                RowDefinitions="Auto,Auto,Auto"
+                                ColumnDefinitions="*,*,*,*"
+                                RowSpacing="7"
+                                ColumnSpacing="7">
+                                <Button Grid.Row="0" Grid.Column="0" Text="Esc" Style="{StaticResource SecondaryButton}" CommandParameter="esc" Clicked="OnRemoteKeyClicked" />
+                                <Button Grid.Row="0" Grid.Column="1" Text="Tab" Style="{StaticResource SecondaryButton}" CommandParameter="tab" Clicked="OnRemoteKeyClicked" />
+                                <Button Grid.Row="0" Grid.Column="2" Text="Intro" Style="{StaticResource SecondaryButton}" CommandParameter="enter" Clicked="OnRemoteKeyClicked" />
+                                <Button Grid.Row="0" Grid.Column="3" Text="⌫" Style="{StaticResource SecondaryButton}" CommandParameter="backspace" Clicked="OnRemoteKeyClicked" />
+                                <Button Grid.Row="1" Grid.Column="0" Text="←" Style="{StaticResource SecondaryButton}" CommandParameter="left" Clicked="OnRemoteKeyClicked" />
+                                <Button Grid.Row="1" Grid.Column="1" Text="↑" Style="{StaticResource SecondaryButton}" CommandParameter="up" Clicked="OnRemoteKeyClicked" />
+                                <Button Grid.Row="1" Grid.Column="2" Text="↓" Style="{StaticResource SecondaryButton}" CommandParameter="down" Clicked="OnRemoteKeyClicked" />
+                                <Button Grid.Row="1" Grid.Column="3" Text="→" Style="{StaticResource SecondaryButton}" CommandParameter="right" Clicked="OnRemoteKeyClicked" />
+                                <Button Grid.Row="2" Grid.Column="0" Text="Ctrl+C" Style="{StaticResource SecondaryButton}" CommandParameter="ctrl+c" Clicked="OnRemoteKeyClicked" />
+                                <Button Grid.Row="2" Grid.Column="1" Text="Ctrl+V" Style="{StaticResource SecondaryButton}" CommandParameter="ctrl+v" Clicked="OnRemoteKeyClicked" />
+                                <Button Grid.Row="2" Grid.Column="2" Text="Ctrl+A" Style="{StaticResource SecondaryButton}" CommandParameter="ctrl+a" Clicked="OnRemoteKeyClicked" />
+                                <Button Grid.Row="2" Grid.Column="3" Text="Ctrl+Z" Style="{StaticResource SecondaryButton}" CommandParameter="ctrl+z" Clicked="OnRemoteKeyClicked" />
+                            </Grid>
+
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <Border Style="{StaticResource FieldBorder}">
+                                    <Entry
+                                        x:Name="RemoteShortcutEntry"
+                                        Placeholder="Atajo: Ctrl+Shift+S"
+                                        PlaceholderColor="#68819D"
+                                        TextColor="#E8F2FF"
+                                        MaxLength="40" />
+                                </Border>
+                                <Button
+                                    Grid.Column="1"
+                                    Text="Enviar"
+                                    Style="{StaticResource SecondaryButton}"
+                                    Clicked="OnRemoteShortcutClicked" />
+                            </Grid>
+
+                            <Label
+                                x:Name="RemoteStatusLabel"
+                                Text="La entrada se enviará a la ventana que esté activa en el PC."
+                                TextColor="#7890AA"
+                                FontSize="12" />
+                        </VerticalStackLayout>
+                    </Border>
                 </VerticalStackLayout>
             </Border>
 

@@ -236,6 +236,7 @@ internal static class ServidorMovil
                         modelo = estado.Modo,
                         mensaje = estado.Mensaje,
                         modoPrueba = soloTraducir,
+                        entradaRemota = true,
                         wakeOnLan = InformacionWakeOnLan.ObtenerDestinos()
                     });
             });
@@ -288,6 +289,40 @@ internal static class ServidorMovil
                 {
                     exclusividad.Release();
                 }
+            });
+
+        app.MapPost(
+            "/api/entrada/raton",
+            (HttpContext contexto, SolicitudRatonRemoto solicitud) =>
+            {
+                if (!seguridad.Autorizar(contexto))
+                {
+                    return Results.Unauthorized();
+                }
+
+                ResultadoEntradaRemota resultado =
+                    EntradaRemota.ProcesarRaton(
+                        solicitud);
+                return resultado.Correcto
+                    ? Results.Ok(resultado)
+                    : Results.BadRequest(resultado);
+            });
+
+        app.MapPost(
+            "/api/entrada/teclado",
+            (HttpContext contexto, SolicitudTecladoRemoto solicitud) =>
+            {
+                if (!seguridad.Autorizar(contexto))
+                {
+                    return Results.Unauthorized();
+                }
+
+                ResultadoEntradaRemota resultado =
+                    EntradaRemota.ProcesarTeclado(
+                        solicitud);
+                return resultado.Correcto
+                    ? Results.Ok(resultado)
+                    : Results.BadRequest(resultado);
             });
 
         app.MapFallback(() => Results.NotFound());

@@ -11,11 +11,13 @@ que ya están comprobadas:
 - Consultar y cambiar la configuración de las pantallas.
 - Traer, maximizar, minimizar, restaurar, colocar o cerrar ventanas superiores.
 - Consultar y controlar sesiones de reproducción multimedia.
+- Usar el móvil como ratón táctil y teclado remoto del PC.
 
-La aplicación Android existente se mantiene sin cambios. El agente de Windows
-se ejecuta en segundo plano, recibe las peticiones de la APK y utiliza
-PowerShell y comandos propios para las funciones del PC. Los comandos de
-pantallas y multimedia usan directamente las API oficiales de Windows.
+El agente de Windows se ejecuta en segundo plano, recibe las peticiones de la
+APK y utiliza PowerShell y comandos propios para las funciones del PC. Los
+comandos de pantallas y multimedia usan directamente las API oficiales de
+Windows. El ratón y el teclado remotos son controles manuales autenticados y no
+se exponen a la IA.
 
 ## Funcionamiento actual
 
@@ -223,9 +225,25 @@ conectado correctamente al agente al menos una vez.
 Wake-on-LAN también requiere que la BIOS/UEFI, la tarjeta de red y el estado de
 apagado del equipo permitan el encendido remoto.
 
+### Ratón y teclado remotos
+
+La APK incluye un panel plegable «Ratón y teclado». El panel táctil mueve el
+puntero de forma relativa; un toque hace clic izquierdo. También ofrece clic
+derecho, rueda, arrastre con el botón izquierdo mantenido y liberación segura
+al abandonar la pantalla.
+
+El teclado de Android permite enviar texto a la ventana activa del PC. Hay
+botones para Escape, Tab, Intro, retroceso, cursores y los atajos habituales,
+además de un campo para combinaciones como `Ctrl+Shift+S`.
+
+Estas acciones se envían directamente a dos rutas privadas del agente:
+`/api/entrada/raton` y `/api/entrada/teclado`. Exigen el mismo token de sesión
+del emparejado, sólo aceptan la red local y nunca atraviesan Qwen, PowerShell ni
+el traductor de órdenes de voz.
+
 ## Aplicación Android
 
-La APK estable es la versión **1.5.5** (código 15). Incluye:
+La APK estable es la versión **1.6.0** (código 16). Incluye:
 
 - Descubrimiento automático del PC en la red local.
 - Dirección manual como alternativa.
@@ -237,6 +255,8 @@ La APK estable es la versión **1.5.5** (código 15). Incluye:
 - Cancelación de una escucha sin enviar la orden ni cerrar la aplicación.
 - Envío de órdenes escritas.
 - Encendido por Wake-on-LAN desde el mismo control de voz.
+- Ratón táctil, rueda, clics y arrastre remoto.
+- Escritura, teclas especiales y atajos de teclado remotos.
 
 La APK se conserva como artefacto firmado en:
 
@@ -247,7 +267,7 @@ mobile\ControlPCIA.Mobile\artifacts\release\com.treska.controlpcia-Signed.apk
 SHA-256:
 
 ```text
-F7EEA61ED2E2E0EB4D89C3AA33296B13D0B9522806407CA9239BD5D1CEF96198
+9DDA4597FF4FE49754E8E63A9E7E4AC0959F749ECBFB48507E4172533C1E3C21
 ```
 
 El agente residente permite descargar exactamente ese archivo desde:
@@ -339,7 +359,6 @@ ControlPCIA.exe "qué programas tengo abiertos"
 Estas funciones no forman parte de la versión estable actual:
 
 - Control interno de aplicaciones que no publiquen una interfaz de consola.
-- Ratón táctil y teclado virtual desde la APK.
 
 El traductor iterativo experimental anterior se conserva en el repositorio,
 pero no está conectado al servidor ni a la consola principal.
@@ -351,7 +370,7 @@ dotnet test tests\ControlPCIA.Tests\ControlPCIA.Tests.csproj `
   --configuration Release
 ```
 
-La batería actual contiene **386 pruebas**. Cubre el controlador básico,
+La batería actual contiene **398 pruebas**. Cubre el controlador básico,
 inventario de aplicaciones, errores de PowerShell, Wake-on-LAN, reconocimiento
 de la orden de encendido, gesto de voz, cancelación, emparejado, sesiones,
 red privada, servidor, validador y el código experimental conservado. Incluye
@@ -360,7 +379,9 @@ resolverse como Click to Do, además de páginas, dominios, búsquedas normales 
 búsquedas en YouTube. Las pruebas nuevas cubren la traducción y validación de
 órdenes compuestas, traductor local de una llamada, memoria, conversación,
 pantallas, ventanas y multimedia sin aplicar cambios reales al escritorio ni a
-la reproducción.
+la reproducción. Las pruebas de entrada remota validan ratón, texto Unicode,
+saltos de línea, teclas, modificadores, atajos y peticiones inválidas sin
+inyectar eventos reales durante la batería automatizada.
 
 ## Componentes
 
@@ -383,8 +404,9 @@ la reproducción.
 - `EjecutorPowerShell.cs`: ejecuta el comando y devuelve stdout, stderr y el
   código de salida.
 - `ServidorMovil.cs`: API privada, emparejado, PWA y descarga de la APK.
+- `EntradaRemota.cs`: valida e inyecta la entrada manual autenticada mediante
+  `SendInput`, fuera del flujo de la IA.
 - `InformacionWakeOnLan.cs`: entrega a la APK los datos de red necesarios.
 - `GestorInicioWindows.cs`: inicio oculto para el usuario actual.
 - `AgenteBandeja.cs`: icono y controles del agente residente.
-- `mobile/ControlPCIA.Mobile`: aplicación Android estable, congelada en la
-  versión 1.5.5.
+- `mobile/ControlPCIA.Mobile`: aplicación Android estable en la versión 1.6.0.
