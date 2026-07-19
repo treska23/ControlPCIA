@@ -226,7 +226,7 @@ internal static class ServidorMovil
                 }
 
                 EstadoControlBasico estado =
-                    ControlBasico.Estado;
+                    AsistenteControl.Estado;
 
                 return Results.Ok(
                     new
@@ -293,7 +293,7 @@ internal static class ServidorMovil
         app.MapFallback(() => Results.NotFound());
 
         EstadoControlBasico diagnostico =
-            ControlBasico.Estado;
+            AsistenteControl.Estado;
 
         MostrarInicio(
             puerto,
@@ -343,8 +343,9 @@ internal static class ServidorMovil
             Task<ResultadoControl>>? traducirAsync = null)
     {
         controlarAsync ??= static (instruccion, conversacion, cancelacion) =>
-            ControlBasico.ControlarAsync(
+            AsistenteControl.ControlarAsync(
                 instruccion,
+                conversacion,
                 cancellationToken: cancelacion);
 
         if (!soloTraducir)
@@ -356,8 +357,9 @@ internal static class ServidorMovil
         }
 
         traducirAsync ??= static (instruccion, conversacion, cancelacion) =>
-            ControlBasico.ControlarAsync(
+            AsistenteControl.ControlarAsync(
                 instruccion,
+                conversacion,
                 cancellationToken: cancelacion,
                 soloTraducir: true);
 

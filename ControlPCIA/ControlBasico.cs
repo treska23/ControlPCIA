@@ -10,6 +10,7 @@ internal enum TipoPeticionBasica
     NoCompatible,
     AbrirAplicacion,
     ConsultarAplicacionesAbiertas,
+    ConsultarNombreEquipo,
     AbrirPaginaWeb,
     BuscarEnInternet,
     GestionarVentanas,
@@ -210,6 +211,12 @@ internal static class ControlBasico
                     dependencias,
                     cancellationToken),
 
+            TipoPeticionBasica.ConsultarNombreEquipo =>
+                await ConsultarNombreEquipoAsync(
+                    soloTraducir,
+                    dependencias,
+                    cancellationToken),
+
             TipoPeticionBasica.AbrirPaginaWeb
                 or TipoPeticionBasica.BuscarEnInternet =>
                 await ControlWebBasico.EjecutarAsync(
@@ -323,6 +330,16 @@ internal static class ControlBasico
             return new PeticionBasica(
                 TipoPeticionBasica
                     .ConsultarAplicacionesAbiertas);
+        }
+
+        if (Regex.IsMatch(
+                normalizada,
+                @"\b(?:nombre|como\s+se\s+llama)\b.*\b(?:mi\s+)?(?:ordenador|computadora|pc|equipo|host)\b|\bhostname\b",
+                RegexOptions.CultureInvariant))
+        {
+            return new PeticionBasica(
+                TipoPeticionBasica
+                    .ConsultarNombreEquipo);
         }
 
         PeticionBasica? peticionMultimedia =
@@ -630,6 +647,63 @@ internal static class ControlBasico
             true,
             "respuesta",
             mensaje.ToString().TrimEnd(),
+            [paso],
+            false);
+    }
+
+    private static async Task<ResultadoControl>
+        ConsultarNombreEquipoAsync(
+            bool soloTraducir,
+            DependenciasControlBasico dependencias,
+            CancellationToken cancellationToken)
+    {
+        const string comando = "hostname";
+
+        if (soloTraducir)
+        {
+            return new ResultadoControl(
+                false,
+                "prueba_sin_ejecucion",
+                "Consultaría el nombre del equipo; el modo de prueba no ejecuta comandos.",
+                [
+                    new ResultadoPasoControl(
+                        1,
+                        comando,
+                        false,
+                        0,
+                        string.Empty,
+                        string.Empty)
+                ],
+                false);
+        }
+
+        ResultadoEjecucionPowerShell ejecucion =
+            await dependencias.EjecutarAsync(
+                comando,
+                cancellationToken);
+        ResultadoPasoControl paso =
+            CrearPaso(
+                1,
+                comando,
+                ejecucion);
+
+        if (!EsCorrecto(ejecucion))
+        {
+            return Error(
+                "consulta_fallida",
+                "No he podido consultar el nombre del equipo: "
+                + ObtenerError(ejecucion),
+                [paso]);
+        }
+
+        string nombre =
+            ejecucion.Salida.Trim();
+        return new ResultadoControl(
+            true,
+            "respuesta",
+            nombre.Length > 0
+                ? $"El equipo se llama {nombre}."
+                : "Windows no ha devuelto el nombre del equipo.",
             [paso],
             false);
     }

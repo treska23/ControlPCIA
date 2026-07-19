@@ -119,6 +119,8 @@ if (args.Length == 0
     using var bandeja = new AgenteBandeja(cancelacion, oculto);
     _ = InventarioAplicaciones.PrecalentarAsync(
         cancelacion.Token);
+    _ = TraductorLocalRapido.PrecalentarAsync(
+        cancelacion.Token);
 
     try
     {
@@ -142,7 +144,7 @@ if (args.Length == 0
 if (args[0].Equals("--diagnostico", StringComparison.OrdinalIgnoreCase))
 {
     EstadoControlBasico diagnostico =
-        ControlBasico.Estado;
+        AsistenteControl.Estado;
 
     Console.WriteLine(diagnostico.Mensaje);
     Environment.ExitCode = diagnostico.Disponible ? 0 : 1;
@@ -164,7 +166,7 @@ if (args[0].Equals(
     string peticion = string.Join(' ', args.Skip(1));
     long inicio = Environment.TickCount64;
     ResultadoControl traduccion =
-        await ControlBasico.ControlarAsync(
+        await AsistenteControl.ControlarAsync(
             peticion,
             soloTraducir: true);
     long duracion = Environment.TickCount64 - inicio;
@@ -180,9 +182,11 @@ if (args[0].Equals(
                 estado = traduccion.Estado,
                 comando = propuesta?.Comando,
                 permitido =
-                    propuesta is not null
-                    && !propuesta.Ejecutado
-                    && string.IsNullOrWhiteSpace(propuesta.Error),
+                    traduccion.Completado
+                    || (propuesta is not null
+                        && !propuesta.Ejecutado
+                        && string.IsNullOrWhiteSpace(
+                            propuesta.Error)),
                 motivo = traduccion.Mensaje,
                 ejecutado = false,
                 duracionMs = duracion,
@@ -193,9 +197,11 @@ if (args[0].Equals(
                 WriteIndented = true
             }));
     Environment.ExitCode =
-        propuesta is not null
-        && !propuesta.Ejecutado
-        && string.IsNullOrWhiteSpace(propuesta.Error)
+        traduccion.Completado
+        || (propuesta is not null
+            && !propuesta.Ejecutado
+            && string.IsNullOrWhiteSpace(
+                propuesta.Error))
             ? 0
             : 1;
     return;
@@ -252,7 +258,7 @@ if (string.IsNullOrWhiteSpace(orden))
 }
 
 ResultadoControl resultadoControl =
-    await ControlBasico.ControlarAsync(
+    await AsistenteControl.ControlarAsync(
         orden);
 
 Console.WriteLine();

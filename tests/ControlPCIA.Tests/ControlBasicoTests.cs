@@ -33,6 +33,11 @@ public sealed class ControlBasicoTests
             "dime qué aplicaciones hay en ejecución",
             "ConsultarAplicacionesAbiertas",
             ""
+        },
+        {
+            "dime el nombre de mi ordenador",
+            "ConsultarNombreEquipo",
+            ""
         }
     };
 
@@ -258,6 +263,34 @@ public sealed class ControlBasicoTests
         Assert.Contains("Cubase15", resultado.Mensaje);
         Assert.Contains("msedge", resultado.Mensaje);
         Assert.Single(resultado.Pasos);
+    }
+
+    [Fact]
+    public async Task Consulta_el_nombre_del_equipo_con_hostname()
+    {
+        DependenciasControlBasico dependencias =
+            CrearDependencias(
+                [],
+                (comando, _) =>
+                {
+                    Assert.Equal("hostname", comando);
+                    return Task.FromResult(
+                        Correcto("Bardo"));
+                });
+
+        ResultadoControl resultado =
+            await ControlBasico.ControlarConDependenciasAsync(
+                "cómo se llama mi PC",
+                false,
+                dependencias,
+                TestContext.Current.CancellationToken);
+
+        Assert.True(resultado.Completado);
+        Assert.Equal("respuesta", resultado.Estado);
+        Assert.Contains("Bardo", resultado.Mensaje);
+        Assert.Equal(
+            "hostname",
+            Assert.Single(resultado.Pasos).Comando);
     }
 
     [Fact]

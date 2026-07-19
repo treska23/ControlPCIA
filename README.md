@@ -19,6 +19,26 @@ pantallas y multimedia usan directamente las API oficiales de Windows.
 
 ## Funcionamiento actual
 
+### Traducción local y conversación
+
+ControlPCIA intenta primero el núcleo determinista, que responde en milisegundos
+a las funciones conocidas. Si no puede traducir una petición, realiza una sola
+llamada al modelo local gratuito `qwen3.5:9b` mediante Ollama.
+
+El modelo únicamente elige entre responder, preguntar o proponer un comando.
+Nunca ejecuta nada. ControlPCIA comprueba la sintaxis, la existencia de los
+comandos y las tres prohibiciones antes de iniciar PowerShell. No hay bucles de
+verificación gráfica ni un límite artificial de dos pasos.
+
+La APK envía las últimas intervenciones como contexto, por lo que el usuario
+puede aclarar una petición o responder una pregunta del asistente. Cuando un
+comando propuesto termina correctamente, se guarda localmente. La misma
+petición exacta reutiliza después esa traducción sin volver a consultar a Qwen;
+las coincidencias aproximadas sólo se entregan al modelo como referencias.
+
+El agente precarga en segundo plano tanto el inventario de aplicaciones como el
+modelo local al iniciar Windows.
+
 ### Abrir una aplicación
 
 Ejemplos admitidos:
@@ -262,8 +282,11 @@ Requisitos:
 
 - Windows 10 u 11.
 - .NET 10.
+- Ollama con el modelo gratuito `qwen3.5:9b` para las órdenes que no cubre el
+  núcleo inmediato.
 
-No se necesita Ollama ni descargar un modelo para esta versión estable.
+Sin Ollama siguen funcionando las rutas deterministas: Wake-on-LAN,
+aplicaciones, web, ventanas, pantallas y multimedia.
 
 ```powershell
 dotnet restore
@@ -304,10 +327,8 @@ ControlPCIA.exe "qué programas tengo abiertos"
 - Las sesiones usan tokens aleatorios; el PC conserva únicamente su hash.
 - Sólo se procesa una petición cada vez.
 - La APK usa HTTP exclusivamente dentro de la red local de confianza.
-- El endpoint móvil no acepta PowerShell arbitrario: el controlador estable
-  construye únicamente los comandos necesarios para abrir una aplicación,
-  consultar ventanas abiertas, entregar una URL web al navegador, configurar
-  ventanas superiores y pantallas o controlar sesiones multimedia de Windows.
+- El móvil no envía PowerShell arbitrario. Envía lenguaje natural; el núcleo o
+  Qwen proponen un comando y el agente lo analiza antes de ejecutarlo.
 - La validación de comandos sólo prohíbe tres clases destructivas: eliminar,
   mover o cortar, y formatear, limpiar o reinicializar unidades. Abrir y crear
   no están prohibidos.
@@ -317,16 +338,11 @@ ControlPCIA.exe "qué programas tengo abiertos"
 
 Estas funciones no forman parte de la versión estable actual:
 
-- Traducción general mediante Llama, Qwen u otro modelo.
-- Órdenes multitarea.
-- Control interno de Cubase u otras aplicaciones.
-- Conversación para resolver acciones complejas.
-- Aprendizaje automático de nuevos comandos.
-- Apertura y creación general de archivos desde el móvil.
+- Control interno de aplicaciones que no publiquen una interfaz de consola.
+- Ratón táctil y teclado virtual desde la APK.
 
-El código experimental anterior se conserva en el repositorio para poder
-retomarlo en el futuro, pero no está conectado al servidor ni a la consola
-principal.
+El traductor iterativo experimental anterior se conserva en el repositorio,
+pero no está conectado al servidor ni a la consola principal.
 
 ## Pruebas
 
@@ -335,19 +351,25 @@ dotnet test tests\ControlPCIA.Tests\ControlPCIA.Tests.csproj `
   --configuration Release
 ```
 
-La batería actual contiene **374 pruebas**. Cubre el controlador básico,
+La batería actual contiene **386 pruebas**. Cubre el controlador básico,
 inventario de aplicaciones, errores de PowerShell, Wake-on-LAN, reconocimiento
 de la orden de encendido, gesto de voz, cancelación, emparejado, sesiones,
 red privada, servidor, validador y el código experimental conservado. Incluye
 una regresión específica para impedir que «Explorador de Windows» vuelva a
 resolverse como Click to Do, además de páginas, dominios, búsquedas normales y
 búsquedas en YouTube. Las pruebas nuevas cubren la traducción y validación de
-órdenes compuestas, pantallas, ventanas y multimedia sin aplicar cambios reales
-al escritorio ni a la reproducción.
+órdenes compuestas, traductor local de una llamada, memoria, conversación,
+pantallas, ventanas y multimedia sin aplicar cambios reales al escritorio ni a
+la reproducción.
 
 ## Componentes
 
 - `ControlBasico.cs`: dirige las funciones estables del PC.
+- `AsistenteControl.cs`: prioriza el núcleo rápido y activa el traductor local
+  sólo como respaldo.
+- `TraductorLocalRapido.cs`: pide una traducción estructurada de una sola
+  llamada y entrega el comando al programa.
+- `MemoriaTraducciones.cs`: conserva traducciones que terminaron correctamente.
 - `ControlWebBasico.cs`: crea URL seguras y las entrega al navegador
   predeterminado sin inspeccionarlo.
 - `ControlPantallasBasico.cs`: traduce lenguaje natural de pantallas.

@@ -15,13 +15,16 @@ Flujo activo:
 APK Android 1.5.5
 → red local y emparejado
 → agente residente de Windows
-→ ControlBasico
+→ AsistenteControl
+→ ControlBasico inmediato o una llamada a qwen3.5:9b
 → uno o varios comandos conocidos, validados antes de ejecutar
 → stdout, stderr y código de salida
 → respuesta al móvil
 ```
 
-Ollama, Llama y Qwen no participan en este flujo.
+Qwen participa únicamente como traductor o interlocutor cuando el núcleo
+determinista no reconoce la petición. ControlPCIA sigue siendo el único que
+valida y ejecuta comandos.
 
 ## Funciones activas
 
@@ -41,6 +44,12 @@ Ollama, Llama y Qwen no participan en este flujo.
     superiores mediante las API de Windows.
 13. Traducir primero una orden compuesta, ejecutar sus acciones en orden y
     detenerse ante el primer error.
+14. Traducir órdenes generales con una sola llamada al modelo local
+    `qwen3.5:9b`.
+15. Mantener contexto conversacional y preguntar al usuario cuando falte una
+    decisión.
+16. Aprender comandos que terminaron correctamente y reutilizar coincidencias
+    exactas sin volver a llamar al modelo.
 
 ## Semántica de apertura
 
@@ -53,11 +62,12 @@ Sólo comunica:
 - el error devuelto por PowerShell; o
 - que Windows aceptó el comando.
 
-## Funciones conservadas pero inactivas
+## Implementación anterior conservada pero inactiva
 
-El repositorio mantiene el traductor local, memoria y validación avanzada con
-sus pruebas. No se han borrado. Permanecen desconectados del servidor hasta que
-se decida retomarlos individualmente.
+El repositorio mantiene `ControlWindows`, el traductor iterativo anterior, y
+sus pruebas. No se ha borrado, pero permanece desconectado: sus consultas,
+verificaciones y ocho rondas fueron sustituidas en el flujo activo por
+`TraductorLocalRapido`.
 
 ## Semántica web
 
@@ -110,14 +120,14 @@ activa el navegador y envía únicamente `F`; para salir envía `Escape`.
 
 ## Evidencias actuales
 
-- **374/374 pruebas Release correctas**.
+- **386/386 pruebas Release correctas**.
 - APK congelada: versión **1.5.5**, código **15**.
 - SHA-256 de la APK:
   `F7EEA61ED2E2E0EB4D89C3AA33296B13D0B9522806407CA9239BD5D1CEF96198`.
 - Agente instalado en:
   `%LOCALAPPDATA%\ControlPCIA\App`.
 - SHA-256 de la DLL instalada:
-  `CF166F014F162C7F748CBF407556705FF825C4451A1BD214836542FBF13303E1`.
+  `D3F0759EBBBBC26C4ABA5BDF6D715AE32ABE6C7E14C6CF488CB4B501CD513D3D`.
 - La DLL instalada coincide byte por byte con la publicación Release.
 - La APK servida por el agente coincide byte por byte con el artefacto 1.5.5.
 - Agente residente activo en `0.0.0.0:5187`.
@@ -154,6 +164,16 @@ activa el navegador y envía únicamente `F`; para salir envía `Escape`.
   y cierre de ventanas: un único comando y sin ejecución en la validación.
 - Traducción de órdenes compuestas: prepara todos los comandos antes de
   ejecutar, conserva el orden y no divide términos de búsqueda unidos por «y».
+- Traducción real con `qwen3.5:9b`: una respuesta estructurada por petición,
+  sin ejecutar durante la validación.
+- La ruta determinista «pantalla número tres como principal» se traduce en
+  menos de 100 ms; una respuesta conversacional caliente de Qwen tarda alrededor
+  de 1,9 s en esta máquina.
+- Conversación real: «cuánto es dos más cinco» devuelve «siete» sin comando.
+- La ruta de Escritorio se resuelve con `Environment.GetFolderPath`; se bloquean
+  rutas personales y archivos de proyecto inventados.
+- Memoria real: `hostname` se aprendió después de una ejecución correcta y la
+  segunda petición exacta evitó llamar al modelo.
 - Consulta multimedia real: Windows publica correctamente la sesión de Edge,
   con metadatos, estado, posición y capacidades de control.
 - Traducción de «pausa el vídeo que estoy viendo por internet»: una llamada a
@@ -164,12 +184,9 @@ activa el navegador y envía únicamente `F`; para salir envía `Escape`.
 Las siguientes capacidades siguen pendientes y deberán incorporarse sin
 modificar lo que ya funciona:
 
-- lenguaje natural general con o sin IA;
 - control interno de aplicaciones;
-- aprendizaje de comandos;
-- conversaciones complejas;
-- apertura y creación de archivos y otras configuraciones todavía no
-  incorporadas;
+- más configuraciones todavía no incorporadas al núcleo inmediato;
+- ratón táctil y teclado virtual desde la APK;
 - acceso fuera de la red local;
 - instalador firmado para distribución pública.
 
