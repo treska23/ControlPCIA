@@ -12,7 +12,7 @@ a la APK hasta que su comportamiento esté validado.
 Flujo activo:
 
 ```text
-APK Android 1.6.1
+APK Android 1.6.2
 → red local y emparejado
 → agente residente de Windows
 → AsistenteControl
@@ -126,9 +126,12 @@ La APK incorpora un panel táctil con movimiento relativo. Tocar y levantar un
 dedo hace clic izquierdo; tocar y levantar dos dedos hace clic derecho;
 arrastrar dos dedos desplaza la rueda inmediatamente. No hay botones separados
 para clics ni rueda. Se conserva el botón de clic izquierdo mantenido para
-arrastrar. El teclado permite texto, teclas especiales, atajos y retroceso
-continuo mientras se mantiene pulsado. El agente usa `SendInput` únicamente
-para estas acciones manuales.
+arrastrar. El puntero aplica precisión en movimientos lentos y aceleración
+progresiva en movimientos rápidos, con envíos agrupados aproximadamente cada
+12 ms. El teclado permite texto, teclas especiales, atajos y retroceso continuo
+mientras se mantiene pulsado. La conversación ocupa una lista de altura
+limitada con scroll propio y los controles remotos aparecen antes de ella. El
+agente usa `SendInput` únicamente para estas acciones manuales.
 
 Las rutas `/api/entrada/raton` y `/api/entrada/teclado` requieren una sesión
 móvil emparejada y una conexión de red local. No forman parte del catálogo que
@@ -136,22 +139,22 @@ Qwen puede proponer y no pasan por PowerShell ni por el traductor de voz.
 
 ## Evidencias actuales
 
-- **404/404 pruebas Release correctas**.
-- APK instalada: versión **1.6.1**, código **17**, objetivo Android 36.
+- **405/405 pruebas Release correctas**.
+- APK instalada: versión **1.6.2**, código **18**, objetivo Android 36.
 - SHA-256 de la APK:
-  `2817F602A8B1B1731A4FF48700B636ECE43DA03DCB425FF6E486FAB733C62E31`.
+  `05A9D56A2E69EDB6F8815A60BC85F25D3E6735C66BD3FF762FE4E0C68FF22482`.
 - Agente instalado en:
   `%LOCALAPPDATA%\ControlPCIA\App`.
 - SHA-256 de la DLL instalada:
-  `EC8C1D0BAEC27D5DAD7528267B4152DCA8698BAFCD0625B5C6A62F3EAB3D5AB8`.
+  `D731E6FDE791363F3E359C6198963B40AC6D52A20187EEF19F6CC4F2087C9B70`.
 - La DLL instalada coincide byte por byte con la publicación Release.
-- La APK servida por el agente coincide byte por byte con el artefacto 1.6.1
+- La APK servida por el agente coincide byte por byte con el artefacto 1.6.2
   instalado en el móvil.
 - Agente residente activo en `0.0.0.0:5187`.
 - Inicio con Windows registrado con `--servidor --oculto`.
 - Página principal: HTTP 200.
 - Descarga `/app-android.apk`: HTTP 200,
-  `application/vnd.android.package-archive`, 22.587.763 bytes.
+  `application/vnd.android.package-archive`, 22.926.605 bytes.
 - APK iniciada en el móvil conectado y proceso Android activo.
 - Las rutas de ratón y teclado rechazan con HTTP 401 cualquier petición sin
   token.
@@ -215,7 +218,7 @@ modificar lo que ya funciona:
 
 Antes de añadir una capacidad:
 
-1. No modificar la APK 1.6.1 salvo petición expresa.
+1. No modificar la APK 1.6.2 salvo petición expresa.
 2. No retirar Wake-on-LAN ni ninguna función estable.
 3. Conservar el agente residente, emparejado e inicio con Windows.
 4. Añadir una sola capacidad.

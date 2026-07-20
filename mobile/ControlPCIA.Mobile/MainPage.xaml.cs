@@ -11,6 +11,7 @@ public partial class MainPage : ContentPage
     // El carril mide 176 dp y el círculo 64 dp. La diferencia de 112 dp
     // lleva el centro del círculo exactamente del extremo inferior al superior.
     private const double RecorridoCarrilVozDp = 112;
+    private const int IntervaloEnvioRatonMs = 12;
 
     private static readonly Color ColorNormal =
         Color.FromArgb("#AFC2D8");
@@ -362,11 +363,25 @@ public partial class MainPage : ContentPage
 
     private async Task EnviarMovimientosRatonAsync()
     {
+        long proximoEnvio =
+            Environment.TickCount64;
+
         try
         {
             while (true)
             {
-                await Task.Delay(18);
+                long espera =
+                    proximoEnvio
+                    - Environment.TickCount64;
+
+                if (espera > 0)
+                {
+                    await Task.Delay(
+                        (int)Math.Min(
+                            espera,
+                            IntervaloEnvioRatonMs));
+                }
+
                 int x;
                 int y;
                 int rueda;
@@ -405,6 +420,12 @@ public partial class MainPage : ContentPage
                         "wheel",
                         rueda: rueda);
                 }
+
+                proximoEnvio =
+                    Math.Max(
+                        proximoEnvio
+                        + IntervaloEnvioRatonMs,
+                        Environment.TickCount64);
             }
         }
         catch (Exception ex)
@@ -1490,7 +1511,9 @@ public partial class MainPage : ContentPage
             }
 
             MostrarResultado(ControlStatusLabel, resultado);
-            AgregarIntercambio(orden, resultado);
+            await AgregarIntercambioAsync(
+                orden,
+                resultado);
             OrderEditor.Text = string.Empty;
         }
         catch (Exception ex)
@@ -1728,7 +1751,7 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private void AgregarIntercambio(
+    private async Task AgregarIntercambioAsync(
         string orden,
         ResultadoOrden resultado)
     {
@@ -1763,6 +1786,12 @@ public partial class MainPage : ContentPage
         {
             HistoryStack.Children.RemoveAt(1);
         }
+
+        await Task.Yield();
+        await HistoryScrollView.ScrollToAsync(
+            HistoryStack,
+            ScrollToPosition.End,
+            animated: true);
     }
 
     private static Border CrearBurbujaChat(

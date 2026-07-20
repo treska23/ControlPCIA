@@ -81,12 +81,53 @@ public sealed class GestorTrackpadRemotoTests
                 0,
                 1_100);
 
-        Assert.Equal(27, resultado.DeltaX, 4);
-        Assert.Equal(-13.5, resultado.DeltaY, 4);
+        Assert.True(resultado.DeltaX > 40);
+        Assert.True(resultado.DeltaY < -20);
         Assert.Equal(0, resultado.Rueda);
         Assert.Equal(
             AccionGestoTrackpad.Ninguna,
             resultado.Accion);
+    }
+
+    [Fact]
+    public void Un_movimiento_rapido_recorre_mas_que_un_movimiento_lento()
+    {
+        var gestorLento =
+            new GestorTrackpadRemoto();
+        var gestorRapido =
+            new GestorTrackpadRemoto();
+
+        gestorLento.Procesar(
+            FaseGestoTrackpad.Pulsado,
+            1,
+            0,
+            0,
+            1_000);
+        ResultadoGestoTrackpad lento =
+            gestorLento.Procesar(
+                FaseGestoTrackpad.Movido,
+                1,
+                20,
+                0,
+                1_200);
+
+        gestorRapido.Procesar(
+            FaseGestoTrackpad.Pulsado,
+            1,
+            0,
+            0,
+            1_000);
+        ResultadoGestoTrackpad rapido =
+            gestorRapido.Procesar(
+                FaseGestoTrackpad.Movido,
+                1,
+                20,
+                0,
+                1_020);
+
+        Assert.True(
+            rapido.DeltaX
+            > lento.DeltaX * 3);
     }
 
     [Fact]

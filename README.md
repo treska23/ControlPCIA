@@ -232,7 +232,11 @@ puntero de forma relativa. Tocar y soltar un dedo hace clic izquierdo; tocar y
 soltar dos dedos hace clic derecho; arrastrar dos dedos desplaza la rueda
 inmediatamente. No hay botones separados para los clics ni para la rueda. Se
 mantiene un único botón para dejar pulsado el clic izquierdo durante un
-arrastre, con liberación segura al abandonar la pantalla.
+arrastre, con liberación segura al abandonar la pantalla. Los movimientos
+lentos conservan precisión y los gestos rápidos usan aceleración progresiva
+para recorrer pantallas grandes con menos pasadas. La aplicación agrupa las
+actualizaciones aproximadamente cada 12 ms sin añadir una espera fija después
+de cada respuesta de red.
 
 El teclado de Android permite enviar texto a la ventana activa del PC. Hay
 botones para Escape, Tab, Intro, retroceso, cursores y acciones claramente
@@ -247,7 +251,7 @@ el traductor de órdenes de voz.
 
 ## Aplicación Android
 
-La APK estable es la versión **1.6.1** (código 17). Incluye:
+La APK estable es la versión **1.6.2** (código 18). Incluye:
 
 - Descubrimiento automático del PC en la red local.
 - Dirección manual como alternativa.
@@ -263,6 +267,9 @@ La APK estable es la versión **1.6.1** (código 17). Incluye:
   toque de dos dedos y rueda mediante arrastre de dos dedos.
 - Arrastre con clic izquierdo mantenido y liberación segura.
 - Escritura, teclas especiales, retroceso continuo y atajos de teclado remotos.
+- Conversación dentro de una lista de altura limitada con desplazamiento propio
+  y salto automático al mensaje más reciente. Los controles remotos aparecen
+  antes de esta lista y no bajan al acumularse respuestas.
 
 La APK se conserva como artefacto firmado en:
 
@@ -273,7 +280,7 @@ mobile\ControlPCIA.Mobile\artifacts\release\com.treska.controlpcia-Signed.apk
 SHA-256:
 
 ```text
-2817F602A8B1B1731A4FF48700B636ECE43DA03DCB425FF6E486FAB733C62E31
+05A9D56A2E69EDB6F8815A60BC85F25D3E6735C66BD3FF762FE4E0C68FF22482
 ```
 
 El agente residente permite descargar exactamente ese archivo desde:
@@ -376,7 +383,7 @@ dotnet test tests\ControlPCIA.Tests\ControlPCIA.Tests.csproj `
   --configuration Release
 ```
 
-La batería actual contiene **404 pruebas**. Cubre el controlador básico,
+La batería actual contiene **405 pruebas**. Cubre el controlador básico,
 inventario de aplicaciones, errores de PowerShell, Wake-on-LAN, reconocimiento
 de la orden de encendido, gesto de voz, cancelación, emparejado, sesiones,
 red privada, servidor, validador y el código experimental conservado. Incluye
@@ -388,7 +395,8 @@ pantallas, ventanas y multimedia sin aplicar cambios reales al escritorio ni a
 la reproducción. Las pruebas de entrada remota validan ratón, texto Unicode,
 saltos de línea, teclas, modificadores, atajos, peticiones inválidas y la
 diferencia entre tocar dos dedos para hacer clic derecho y arrastrarlos para
-desplazar la rueda, sin inyectar eventos reales durante la batería automatizada.
+desplazar la rueda, además de la aceleración de un gesto rápido, sin inyectar
+eventos reales durante la batería automatizada.
 
 ## Componentes
 
@@ -416,4 +424,4 @@ desplazar la rueda, sin inyectar eventos reales durante la batería automatizada
 - `InformacionWakeOnLan.cs`: entrega a la APK los datos de red necesarios.
 - `GestorInicioWindows.cs`: inicio oculto para el usuario actual.
 - `AgenteBandeja.cs`: icono y controles del agente residente.
-- `mobile/ControlPCIA.Mobile`: aplicación Android estable en la versión 1.6.1.
+- `mobile/ControlPCIA.Mobile`: aplicación Android estable en la versión 1.6.2.

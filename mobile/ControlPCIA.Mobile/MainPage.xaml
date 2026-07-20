@@ -361,17 +361,6 @@
                             TextColor="#AFC2D8" />
                     </Border>
 
-                    <VerticalStackLayout Spacing="8">
-                        <Label Text="Conversación con la IA" FontAttributes="Bold" />
-                        <VerticalStackLayout x:Name="HistoryStack" Spacing="7">
-                            <Label
-                                x:Name="EmptyHistoryLabel"
-                                Text="Aquí aparecerán tus mensajes y las respuestas de la IA. El contexto sólo se conserva durante esta sesión."
-                                TextColor="#7890AA"
-                                FontSize="13" />
-                        </VerticalStackLayout>
-                    </VerticalStackLayout>
-
                     <Button
                         x:Name="RemoteToggleButton"
                         Text="Abrir ratón y teclado"
@@ -513,6 +502,30 @@
                                 FontSize="12" />
                         </VerticalStackLayout>
                     </Border>
+
+                    <VerticalStackLayout Spacing="8">
+                        <Label Text="Conversación con la IA" FontAttributes="Bold" />
+                        <Border
+                            BackgroundColor="#081421"
+                            Stroke="#203853"
+                            StrokeShape="RoundRectangle 14"
+                            Padding="9">
+                            <ScrollView
+                                x:Name="HistoryScrollView"
+                                MinimumHeightRequest="76"
+                                MaximumHeightRequest="230"
+                                VerticalScrollBarVisibility="Always"
+                                SemanticProperties.Description="Lista de mensajes de la conversación">
+                                <VerticalStackLayout x:Name="HistoryStack" Spacing="7">
+                                    <Label
+                                        x:Name="EmptyHistoryLabel"
+                                        Text="Aquí aparecerán tus mensajes y las respuestas de la IA. El contexto sólo se conserva durante esta sesión."
+                                        TextColor="#7890AA"
+                                        FontSize="13" />
+                                </VerticalStackLayout>
+                            </ScrollView>
+                        </Border>
+                    </VerticalStackLayout>
                 </VerticalStackLayout>
             </Border>
 

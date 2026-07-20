@@ -32,7 +32,10 @@ public sealed class GestorTrackpadRemoto
     private const double UmbralArrastreRuedaDp = 4;
     private const long DuracionMaximaTapUnDedoMs = 550;
     private const long DuracionMaximaTapDosDedosMs = 750;
-    private const double SensibilidadPuntero = 1.35;
+    private const double SensibilidadPunteroMinima = 2;
+    private const double SensibilidadPunteroMaxima = 7.5;
+    private const double VelocidadInicioAceleracionDpMs = 0.06;
+    private const double VelocidadMaximaAceleracionDpMs = 1;
     private const double SensibilidadRueda = 4;
 
     private int _dedos;
@@ -40,6 +43,7 @@ public sealed class GestorTrackpadRemoto
     private double _ultimaY;
     private double _recorrido;
     private long _inicio;
+    private long _ultimoTiempo;
     private bool _cancelado;
     private bool _ruedaActiva;
 
@@ -55,7 +59,7 @@ public sealed class GestorTrackpadRemoto
             FaseGestoTrackpad.Pulsado =>
                 Iniciar(dedos, x, y, tiempo),
             FaseGestoTrackpad.Movido =>
-                Mover(dedos, x, y),
+                Mover(dedos, x, y, tiempo),
             FaseGestoTrackpad.Soltado =>
                 Soltar(dedos, tiempo),
             _ => Cancelar()
@@ -75,6 +79,7 @@ public sealed class GestorTrackpadRemoto
         _ultimaY = y;
         _recorrido = 0;
         _inicio = tiempo;
+        _ultimoTiempo = tiempo;
         _cancelado = _dedos == 0;
         _ruedaActiva = false;
         return new ResultadoGestoTrackpad();
@@ -83,7 +88,8 @@ public sealed class GestorTrackpadRemoto
     private ResultadoGestoTrackpad Mover(
         int dedos,
         double x,
-        double y)
+        double y,
+        long tiempo)
     {
         if (_cancelado
             || _dedos == 0
@@ -99,15 +105,25 @@ public sealed class GestorTrackpadRemoto
             y - _ultimaY;
         _ultimaX = x;
         _ultimaY = y;
+        long transcurrido =
+            Math.Max(
+                tiempo - _ultimoTiempo,
+                1);
+        _ultimoTiempo = tiempo;
 
         if (_dedos == 1)
         {
             _recorrido +=
                 Math.Abs(deltaX)
                 + Math.Abs(deltaY);
+            double sensibilidad =
+                CalcularSensibilidadPuntero(
+                    deltaX,
+                    deltaY,
+                    transcurrido);
             return new ResultadoGestoTrackpad(
-                deltaX * SensibilidadPuntero,
-                deltaY * SensibilidadPuntero);
+                deltaX * sensibilidad,
+                deltaY * sensibilidad);
         }
 
         _recorrido +=
@@ -179,7 +195,41 @@ public sealed class GestorTrackpadRemoto
         _dedos = 0;
         _recorrido = 0;
         _inicio = 0;
+        _ultimoTiempo = 0;
         _cancelado = false;
         _ruedaActiva = false;
+    }
+
+    private static double CalcularSensibilidadPuntero(
+        double deltaX,
+        double deltaY,
+        long transcurrido)
+    {
+        double distancia =
+            Math.Sqrt(
+                (deltaX * deltaX)
+                + (deltaY * deltaY));
+        double velocidad =
+            distancia / transcurrido;
+        double proporcion =
+            Math.Clamp(
+                (velocidad
+                 - VelocidadInicioAceleracionDpMs)
+                / (VelocidadMaximaAceleracionDpMs
+                   - VelocidadInicioAceleracionDpMs),
+                0,
+                1);
+
+        // Curva suave: conserva precisión al mover despacio y acelera
+        // progresivamente los gestos largos para recorrer pantallas grandes.
+        proporcion =
+            proporcion
+            * proporcion
+            * (3 - (2 * proporcion));
+
+        return SensibilidadPunteroMinima
+               + ((SensibilidadPunteroMaxima
+                   - SensibilidadPunteroMinima)
+                  * proporcion);
     }
 }
